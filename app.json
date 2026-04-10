@@ -1,0 +1,45 @@
+{
+  "id": "eacf13ae-cd24-4d44-b114-53a1b1db9896",
+  "name": "Kamesons_Customization",
+  "publisher": "Default Publisher",
+  "version": "1.0.0.0",
+  "brief": "",
+  "description": "",
+  "privacyStatement": "",
+  "EULA": "",
+  "help": "",
+  "url": "",
+  "logo": "",
+  "dependencies": [
+    {
+      "id": "36b85858-cc9e-4b52-8652-4a538efe40c0",
+      "name": "C&D Integration",
+      "publisher": "Default Publisher",
+      "version": "1.0.0.0"
+    },
+    {
+      "id": "932326fa-e5e0-46a0-87c9-1aa01a038111",
+      "name": "Ochannel 2.0",
+      "publisher": "Robosol",
+      "version": "27.0.0.0"
+    }
+  ],
+  "screenshots": [],
+  "platform": "1.0.0.0",
+  "application": "27.0.0.0",
+  "idRanges": [
+    {
+      "from": 99971,
+      "to": 99999
+    }
+  ],
+  "resourceExposurePolicy": {
+    "allowDebugging": true,
+    "allowDownloadingSource": true,
+    "includeSourceInSymbolFile": true
+  },
+  "runtime": "16.0",
+  "features": [
+    "NoImplicitWith"
+  ]
+}
