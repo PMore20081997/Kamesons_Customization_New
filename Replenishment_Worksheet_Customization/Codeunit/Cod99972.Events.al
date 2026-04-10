@@ -9,6 +9,28 @@ codeunit 99972 Events
         exit(L_WhseSetup."MAIN Warehouse");
     end;
 
+    procedure GetPickBulkZone(P_LocationCode: Code[10]): Code[10]
+    var
+        L_Zone: Record Zone;
+    begin
+        L_Zone.Reset();
+        L_Zone.SetRange("Location Code", P_LocationCode);
+        L_Zone.SetFilter(L_Zone.BULK, '%1', true);
+        if L_Zone.FindFirst() then
+            exit(L_Zone.Code);
+    end;
+
+    procedure GetPickHighBayZone(P_LocationCode: Code[10]): Code[10]
+    var
+        L_Zone: Record Zone;
+    begin
+        L_Zone.Reset();
+        L_Zone.SetRange("Location Code", P_LocationCode);
+        L_Zone.SetFilter(L_Zone.HighBay, '%1', true);
+        if L_Zone.FindFirst() then
+            exit(L_Zone.Code);
+    end;
+
 
 
     // [EventSubscriber(ObjectType::Table, Database::"Warehouse Entry", OnAfterInsertEvent, '', false, false)]

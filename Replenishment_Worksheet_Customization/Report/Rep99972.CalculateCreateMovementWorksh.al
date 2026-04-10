@@ -114,10 +114,12 @@ Report 99972 "Cal _Movement Worksheet"
         L_WhseEntry: Record "Warehouse Entry";
         L_ReplenishmentWorksheet1: Record "Replenishment Worksheet";
         L_TotalReqQtyToMain: Decimal;
+
+        L_Events: Codeunit Events;
     begin
         L_WhseEntryMainQ.SetFilter(L_WhseEntryMainQ.Item_No_, '%1', _ItemNo);
         L_WhseEntryMainQ.SetFilter(L_WhseEntryMainQ.Location_Code, '%1', _LocationCode);
-        L_WhseEntryMainQ.SetFilter(L_WhseEntryMainQ.Zone_Code, '%1', GetPickBulkZone(_LocationCode));
+        L_WhseEntryMainQ.SetFilter(L_WhseEntryMainQ.Zone_Code, '%1', L_Events.GetPickBulkZone(_LocationCode));
         L_WhseEntryMainQ.SetFilter(L_WhseEntryMainQ.Quantity, '%1', 0);
         L_WhseEntryMainQ.Open();
         while L_WhseEntryMainQ.Read() do begin
@@ -134,7 +136,7 @@ Report 99972 "Cal _Movement Worksheet"
 
                 L_WhseEntryDecantQ.SetFilter(L_WhseEntryDecantQ.Item_No_, '%1', L_WhseEntryMainQ.Item_No_);
                 L_WhseEntryDecantQ.SetFilter(L_WhseEntryDecantQ.Location_Code, 'BULKNDPP');
-                L_WhseEntryDecantQ.SetFilter(L_WhseEntryDecantQ.Zone_Code, '%1', GetPickBulkZone('BULKNDPP'));
+                L_WhseEntryDecantQ.SetFilter(L_WhseEntryDecantQ.Zone_Code, '%1', L_Events.GetPickBulkZone('BULKNDPP'));
                 L_WhseEntryDecantQ.SetFilter(L_WhseEntryDecantQ.Expiration_Date, '>=%1', WorkDate());
                 L_WhseEntryDecantQ.SetFilter(L_WhseEntryDecantQ.Quantity, '>%1', 0);
                 L_WhseEntryDecantQ.Open();
@@ -146,16 +148,7 @@ Report 99972 "Cal _Movement Worksheet"
         L_WhseEntryMainQ.Close();
     end;
 
-    local procedure GetPickBulkZone(P_LocationCode: Code[10]): Code[10]
-    var
-        L_Zone: Record Zone;
-    begin
-        L_Zone.Reset();
-        L_Zone.SetRange("Location Code", P_LocationCode);
-        L_Zone.SetFilter(L_Zone.BULK, '%1', true);
-        if L_Zone.FindFirst() then
-            exit(L_Zone.Code);
-    end;
+
 
     procedure SetWhseWorksheet(WhseWkshTemplateName2: Code[10]; WhseWkshName2: Code[10]; LocationCode2: Code[10])
     var
