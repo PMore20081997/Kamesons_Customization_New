@@ -12,7 +12,7 @@ codeunit 99983 "Event Subscribers NDPP"
         L_BulkDecntExpDate: Date;
 
     begin
-        if WarehouseActivityLine."Location Code" <> 'BULKNDPP' then
+        if WarehouseActivityLine."Location Code" <> G_Events.GetReceiveWarehouse() then
             exit;  //Temporary++
 
         if (WarehouseActivityLine."Activity Type" <> WarehouseActivityLine."Activity Type"::"Put-away") OR (WarehouseActivityLine."Action Type" <> WarehouseActivityLine."Action Type"::Place) OR (WarehouseActivityLine."Source Document" <> WarehouseActivityLine."Source Document"::"Purchase Order") then
@@ -23,28 +23,9 @@ codeunit 99983 "Event Subscribers NDPP"
             exit;
 
 
-        // IF L_Item.BULK = true then begin
-        //     if CheckAvailableQtyLessThanMinQtyinMAIN(WarehouseActivityLine) then begin
-        //         if WarehouseActivityLine."Expiration Date" <= CheckEarliestExpiryInBULK(WarehouseActivityLine) then begin
-        //             AssignBinZone(WarehouseActivityLine, true);
-        //         end else
-        //             //if (WarehouseActivityLine."Expiration Date" >= CheckEarliestExpiryInHighbay(WarehouseActivityLine)) OR (WarehouseActivityLine."Expiration Date" > CheckEarliestExpiryInBULK(WarehouseActivityLine)) then begin
-        //                 AssignBinZone(WarehouseActivityLine, false);
-        //         // end;
-        //     end else
-
-        //         if WarehouseActivityLine."Expiration Date" <= CheckEarliestExpiryInBULK(WarehouseActivityLine) then begin
-        //             AssignBinZone(WarehouseActivityLine, true);
-        //         end else
-        //             AssignBinZone(WarehouseActivityLine, false);
-        // end
-        // else begin
-        //     AssignBinZone(WarehouseActivityLine, false);
-        // end;
-
         Clear(L_BulkDecntExpDate);
         IF L_Item.BULK = true then begin
-            L_BulkDecntExpDate := CheckEarliestExpiryInBULK(WarehouseActivityLine);
+            L_BulkDecntExpDate := CheckLastExpiryInBULK(WarehouseActivityLine);
 
             if L_BulkDecntExpDate = 0D then begin
                 AssignBinZone(WarehouseActivityLine, true);
@@ -62,11 +43,6 @@ codeunit 99983 "Event Subscribers NDPP"
         if L_Zone.HighBay then
             exit;
 
-        // L_BinContent.Reset();
-        // L_BinContent.SetFilter("Location Code", '%1', WarehouseActivityLine."Location Code");
-        // L_BinContent.SetFilter("Zone Code", '%1', WarehouseActivityLine."Zone Code");
-        // L_BinContent.SetFilter("Bin Code", '%1', WarehouseActivityLine."Bin Code");
-        // L_BinContent.SetRange("Item No.", WarehouseActivityLine."Item No.");
 
         G_Bin.Reset();
         G_Bin.SetRange("Location Code", G_Events.GetMainWarehouse());
@@ -86,59 +62,8 @@ codeunit 99983 "Event Subscribers NDPP"
         end;
     end;
 
-    // procedure CheckExpiryDateReceivedStock(var P_WhseActLine: Record "Warehouse Activity Line"): Date
-    // var
-    //     //L_WarehouseEntryLotDetails: Query WarehouseEntryLotDetails;
-    //     L_WarehouseEntryLotDetailsLo: Query WarehouseEntryLotDetailsLoc;
-    //     //L_WarehouseEntryLotDetails1: Query WarehouseEntryLotDetails;
-    //     L_ReceivedStockExpDate: Date;
-    //     L_MainStockExpDate: Date;
-    //     L_BulkDecntStockExpDate: Date;
-    //     L_HighbayStockExpDate: Date;
-    //     L_SourceDoc: Enum "Warehouse Journal Source Document";
-    // begin
-    //     //Get Earlier Expiry BULKNDPP BULK ZONE
-    //     Clear(L_ReceivedStockExpDate);
-    //     L_WarehouseEntryLotDetailsLo.SetFilter(L_WarehouseEntryLotDetailsLo.Item_No_, '%1', P_WhseActLine."Item No.");
-    //     L_WarehouseEntryLotDetailsLo.SetFilter(L_WarehouseEntryLotDetailsLo.Location_Code, '%1', P_WhseActLine."Location Code");
-    //     L_WarehouseEntryLotDetailsLo.SetFilter(L_WarehouseEntryLotDetailsLo.Source_Document, '%1', L_SourceDoc::"P. Order");
-    //     L_WarehouseEntryLotDetailsLo.SetFilter(L_WarehouseEntryLotDetailsLo.Source_No_, '%1', P_WhseActLine."Source No.");
-    //     L_WarehouseEntryLotDetailsLo.SetFilter(L_WarehouseEntryLotDetailsLo.Source_Line_No_, '%1', P_WhseActLine."Source Line No.");
-    //     L_WarehouseEntryLotDetailsLo.TopNumberOfRows(1);
-    //     L_WarehouseEntryLotDetailsLo.Open();
-    //     while L_WarehouseEntryLotDetailsLo.Read() do begin
-    //         L_ReceivedStockExpDate := L_WarehouseEntryLotDetailsLo.Expiration_Date;
-    //     end;
-    //     L_WarehouseEntryLotDetailsLo.Close();
 
-    //     exit(L_ReceivedStockExpDate);
-    // end;
-
-    // procedure CheckEarliestExpiryInHighbay(var P_WhseActLine: Record "Warehouse Activity Line"): Date
-    // var
-    //     L_WarehouseEntryLotDetails: Query WarehouseEntryLotDetails;
-    //     //L_WarehouseEntryLotDetails1: Query WarehouseEntryLotDetails;
-    //     L_ReceivedStockExpDate: Date;
-    //     L_MainStockExpDate: Date;
-    //     L_BulkDecntStockExpDate: Date;
-    //     L_HighbayStockExpDate: Date;
-    // begin
-    //     //Get Earlier Expiry BULNDPP HIGHBAY
-    //     L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Item_No_, '%1', P_WhseActLine."Item No.");
-    //     L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Location_Code, '%1', 'BULKNDPP');
-    //     L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Zone_Code, '%1', 'HIGHBAY');
-    //     L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Quantity, '>%1', 0);
-    //     L_WarehouseEntryLotDetails.TopNumberOfRows(1);
-    //     L_WarehouseEntryLotDetails.Open();
-    //     while L_WarehouseEntryLotDetails.Read() do begin
-    //         L_HighbayStockExpDate := L_WarehouseEntryLotDetails.Expiration_Date;
-    //     end;
-    //     L_WarehouseEntryLotDetails.Close();
-
-    //     exit(L_HighbayStockExpDate);
-    // end;
-
-    procedure CheckEarliestExpiryInBULK(var P_WhseActLine: Record "Warehouse Activity Line"): Date
+    procedure CheckLastExpiryInBULK(var P_WhseActLine: Record "Warehouse Activity Line"): Date
     var
         L_WarehouseEntryLotDetails: Query WarehouseEntryLotDetails;
         //L_WarehouseEntryLotDetails1: Query WarehouseEntryLotDetails;
@@ -149,8 +74,8 @@ codeunit 99983 "Event Subscribers NDPP"
     begin
         //Get Earlier Expiry BULNDPP BULK DECNT
         L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Item_No_, '%1', P_WhseActLine."Item No.");
-        L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Location_Code, '%1', 'BULKNDPP');
-        L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Zone_Code, '%1', 'BULK DECNT');
+        L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Location_Code, '%1', G_Events.GetReceiveWarehouse());
+        L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Zone_Code, '%1', G_Events.GetReceiveBulkZone(G_Events.GetReceiveWarehouse()));
         L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Quantity, '>%1', 0);
         L_WarehouseEntryLotDetails.TopNumberOfRows(1);
         L_WarehouseEntryLotDetails.Open();
@@ -162,30 +87,6 @@ codeunit 99983 "Event Subscribers NDPP"
         exit(L_BulkDecntStockExpDate);
     end;
 
-    // procedure CheckEarliestExpiryInBULKMAINWarehouse(var P_WhseActLine: Record "Warehouse Activity Line"): Date
-    // var
-    //     L_WarehouseEntryLotDetails: Query WarehouseEntryLotDetails;
-    //     //L_WarehouseEntryLotDetails1: Query WarehouseEntryLotDetails;
-    //     L_ReceivedStockExpDate: Date;
-    //     L_MainStockExpDate: Date;
-    //     L_BulkDecntStockExpDate: Date;
-    //     L_HighbayStockExpDate: Date;
-    // begin
-    //     // //Get Earlier Expiry MAIN PICK BULK
-    //     // L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Item_No_, '%1', P_WhseActLine."Item No.");
-    //     // L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Location_Code, '%1', 'MAIN');
-    //     // L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Zone_Code, '%1', 'PICK BULK');
-    //     // L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Quantity, '>%1', 0);
-    //     // L_WarehouseEntryLotDetails.TopNumberOfRows(1);
-    //     // L_WarehouseEntryLotDetails.Open();
-    //     // while L_WarehouseEntryLotDetails.Read() do begin
-    //     //     L_MainStockExpDate := L_WarehouseEntryLotDetails.Expiration_Date;
-    //     // end;
-    //     // L_WarehouseEntryLotDetails.Close();
-
-    //     //exit(L_MainStockExpDate);
-    // end;
-
     procedure CheckAvailableQtyLessThanMinQtyinMAIN(VP_WhseActLine: Record "Warehouse Activity Line"): Boolean
     var
         L_MainBinContent: Record "Bin Content";
@@ -194,8 +95,8 @@ codeunit 99983 "Event Subscribers NDPP"
         Clear(L_MainQtyAvailToTake);
         L_MainBinContent.Reset();
         L_MainBinContent.SetRange("Item No.", VP_WhseActLine."Item No.");
-        L_MainBinContent.SetFilter("Location Code", '%1', 'MAIN');
-        L_MainBinContent.SetFilter("Bin Code", '%1', 'PICK BULK');
+        L_MainBinContent.SetFilter("Location Code", '%1', G_Events.GetMainWarehouse());
+        L_MainBinContent.SetFilter("Bin Code", '%1', G_Events.GetPickBulkZone(G_Events.GetMainWarehouse()));
         L_MainBinContent.SetFilter(Quantity, '>%1', 0);
         if L_MainBinContent.FindFirst() then begin
 
@@ -221,7 +122,7 @@ codeunit 99983 "Event Subscribers NDPP"
 
     // L_Bin: Record Bin;
     begin
-        if Rec."Location Code" <> 'BULKNDPP' then
+        if Rec."Location Code" <> G_Events.GetReceiveWarehouse() then
             exit; //Temporary++
 
         If L_Zone.Get(Rec."Location Code", Rec."Zone Code") then;

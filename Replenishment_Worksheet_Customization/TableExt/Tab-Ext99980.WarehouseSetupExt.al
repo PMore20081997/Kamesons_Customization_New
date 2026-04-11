@@ -8,5 +8,11 @@ tableextension 99980 WarehouseSetupExt extends "Warehouse Setup"
             TableRelation = Location.Code;
             DataClassification = ToBeClassified;
         }
+        field(50001; "RECEIVE Warehouse"; Code[20])
+        {
+            Caption = 'RECEIVE Warehouse';
+            TableRelation = Location.Code;
+            DataClassification = ToBeClassified;
+        }
     }
 }
