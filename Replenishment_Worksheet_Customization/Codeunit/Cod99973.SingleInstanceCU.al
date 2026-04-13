@@ -33,8 +33,8 @@ codeunit 99973 SingleInstanceCU
         Clear(ToBinContent);
         ToBinContent.Reset();
         ToBinContent.SetRange("Item No.", G_ItemNo);
-        ToBinContent.SetRange("Location Code", 'BULKNDPP');
-        ToBinContent.SetRange("Zone Code", G_Events.GetPickBulkZone('BULKNDPP'));
+        ToBinContent.SetRange("Location Code", G_Events.GetReceiveWarehouse());
+        ToBinContent.SetRange("Zone Code", G_Events.GetPickBulkZone(G_Events.GetReceiveWarehouse()));
         ToBinContent.SetRange("Bin Code", 'BULK DECANT');
         if ToBinContent.FindFirst() then;
 
@@ -45,8 +45,8 @@ codeunit 99973 SingleInstanceCU
 
         FromBinContent.Reset();
         FromBinContent.SetRange("Item No.", G_ItemNo);
-        FromBinContent.SetRange("Location Code", 'BULKNDPP');
-        FromBinContent.SetRange("Zone Code", G_Events.GetPickHighBayZone('BULKNDPP'));
+        FromBinContent.SetRange("Location Code", G_Events.GetReceiveWarehouse());
+        FromBinContent.SetRange("Zone Code", G_Events.GetPickHighBayZone(G_Events.GetReceiveWarehouse()));
         FromBinContent.SetRange("Bin Code", 'HIGHBAY');
         if FromBinContent.FindFirst() then;
 
@@ -57,7 +57,7 @@ codeunit 99973 SingleInstanceCU
     local procedure OnAfterValidateEventVariantCode(var Rec: Record "Whse. Worksheet Line")
     begin
         if Rec.IsTemporary then begin
-            Rec."Location Code" := 'BULKNDPP';
+            Rec."Location Code" := G_Events.GetReceiveWarehouse();
         end;
     end;
 
