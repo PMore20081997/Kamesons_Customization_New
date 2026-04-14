@@ -10,7 +10,7 @@ codeunit 99973 SingleInstanceCU
     [EventSubscriber(ObjectType::Table, Database::"Bin Content", OnBeforeNeedToReplenish, '', false, false)]
     local procedure OnBeforeNeedToReplenish(var BinContent: Record "Bin Content"; var IsHandled: Boolean; var Result: Boolean)
     begin
-        If BinContent.CalcQtyAvailToTake(0) = 0 then begin
+        If BinContent.CalcQtyAvailToTake(0) <= BinContent."Min. Qty." then begin
             IsHandled := true;
             Result := true;
         end;
@@ -65,14 +65,14 @@ codeunit 99973 SingleInstanceCU
     var
         myInt: Integer;
     begin
-        Clear(ExecutedFromCustomMovement);
-        ExecutedFromCustomMovement := P_Flag;
+        Clear(G_ExecutedFromCustomMovement);
+        G_ExecutedFromCustomMovement := P_Flag;
     end;
     //New-- 10042026--
 
     var
         G_ItemNo: Code[20];
         G_Events: Codeunit Events;
-        ExecutedFromCustomMovement: Boolean;
+        G_ExecutedFromCustomMovement: Boolean;
         G_RemainQtyToReplenishBase: Decimal;
 }
