@@ -8,7 +8,7 @@ codeunit 99983 "Event Subscribers NDPP"
         L_Item: Record Item;
         L_Zone: Record Zone;
         L_BinContent: Record "Bin Content";
-        L_AssignStockToBulk: Boolean;
+        // L_AssignStockToBulk: Boolean;
         L_BulkDecntExpDate: Date;
 
     begin
@@ -25,17 +25,17 @@ codeunit 99983 "Event Subscribers NDPP"
 
         Clear(L_BulkDecntExpDate);
         IF L_Item.BULK = true then begin
-            L_BulkDecntExpDate := CheckLastExpiryInBULK(WarehouseActivityLine);
+            L_BulkDecntExpDate := GetLastExpiryDateInBulkDecant(WarehouseActivityLine);
 
             if L_BulkDecntExpDate = 0D then begin
-                AssignBinZone(WarehouseActivityLine, true);
+                AssignZoneBin(WarehouseActivityLine, true);
             end else if WarehouseActivityLine."Expiration Date" <= L_BulkDecntExpDate then begin
-                AssignBinZone(WarehouseActivityLine, true);
+                AssignZoneBin(WarehouseActivityLine, true);
             end else
-                AssignBinZone(WarehouseActivityLine, false);
+                AssignZoneBin(WarehouseActivityLine, false);
         end
         else begin
-            AssignBinZone(WarehouseActivityLine, false);
+            AssignZoneBin(WarehouseActivityLine, false);
         end;
 
         L_Zone.Get(WarehouseActivityLine."Location Code", WarehouseActivityLine."Zone Code");
@@ -63,16 +63,16 @@ codeunit 99983 "Event Subscribers NDPP"
     end;
 
 
-    procedure CheckLastExpiryInBULK(var P_WhseActLine: Record "Warehouse Activity Line"): Date
+    procedure GetLastExpiryDateInBulkDecant(var P_WhseActLine: Record "Warehouse Activity Line"): Date
     var
         L_WarehouseEntryLotDetails: Query WarehouseEntryLotDetails;
         //L_WarehouseEntryLotDetails1: Query WarehouseEntryLotDetails;
-        L_ReceivedStockExpDate: Date;
+        //        L_ReceivedStockExpDate: Date;
         L_MainStockExpDate: Date;
         L_BulkDecntStockExpDate: Date;
-        L_HighbayStockExpDate: Date;
+    //        L_HighbayStockExpDate: Date;
     begin
-        //Get Earlier Expiry BULNDPP BULK DECNT
+        //Get Last Expiry BULNDPP BULK DECNT
         L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Item_No_, '%1', P_WhseActLine."Item No.");
         L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Location_Code, '%1', G_Events.GetReceiveWarehouse());
         L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Zone_Code, '%1', G_Events.GetReceiveBulkZone(G_Events.GetReceiveWarehouse()));
@@ -87,30 +87,30 @@ codeunit 99983 "Event Subscribers NDPP"
         exit(L_BulkDecntStockExpDate);
     end;
 
-    procedure CheckAvailableQtyLessThanMinQtyinMAIN(VP_WhseActLine: Record "Warehouse Activity Line"): Boolean
-    var
-        L_MainBinContent: Record "Bin Content";
-        L_MainQtyAvailToTake: Decimal;
-    begin
-        Clear(L_MainQtyAvailToTake);
-        L_MainBinContent.Reset();
-        L_MainBinContent.SetRange("Item No.", VP_WhseActLine."Item No.");
-        L_MainBinContent.SetFilter("Location Code", '%1', G_Events.GetMainWarehouse());
-        L_MainBinContent.SetFilter("Bin Code", '%1', G_Events.GetPickBulkZone(G_Events.GetMainWarehouse()));
-        L_MainBinContent.SetFilter(Quantity, '>%1', 0);
-        if L_MainBinContent.FindFirst() then begin
+    // procedure CheckAvailableQtyLessThanMinQtyinMAIN(VP_WhseActLine: Record "Warehouse Activity Line"): Boolean
+    // var
+    //     L_MainBinContent: Record "Bin Content";
+    //     L_MainQtyAvailToTake: Decimal;
+    // begin
+    //     Clear(L_MainQtyAvailToTake);
+    //     L_MainBinContent.Reset();
+    //     L_MainBinContent.SetRange("Item No.", VP_WhseActLine."Item No.");
+    //     L_MainBinContent.SetFilter("Location Code", '%1', G_Events.GetMainWarehouse());
+    //     L_MainBinContent.SetFilter("Bin Code", '%1', G_Events.GetPickBulkZone(G_Events.GetMainWarehouse()));
+    //     L_MainBinContent.SetFilter(Quantity, '>%1', 0);
+    //     if L_MainBinContent.FindFirst() then begin
 
-            // if L_MainBinContent."Min. Qty." = 0 then
-            //     exit;
+    //         // if L_MainBinContent."Min. Qty." = 0 then
+    //         //     exit;
 
-            L_MainQtyAvailToTake := L_MainBinContent.CalcQtyAvailToTake(0);
-        end;
+    //         L_MainQtyAvailToTake := L_MainBinContent.CalcQtyAvailToTake(0);
+    //     end;
 
-        if L_MainQtyAvailToTake < L_MainBinContent."Min. Qty." then
-            exit(true)
-        else
-            exit(false);
-    end;
+    //     if L_MainQtyAvailToTake < L_MainBinContent."Min. Qty." then
+    //         exit(true)
+    //     else
+    //         exit(false);
+    // end;
 
     [EventSubscriber(ObjectType::Table, Database::"Warehouse Activity Line", OnAfterInsertEvent, '', false, false)]
     local procedure OnAfterInsertEventWAL(var Rec: Record "Warehouse Activity Line")
@@ -183,7 +183,7 @@ codeunit 99983 "Event Subscribers NDPP"
                 end else begin
                     G_IsExecuting := false;
 
-                    AssignBinZone(Rec, false);
+                    AssignZoneBin(Rec, false);
                     Rec.Modify();
                 end;
             end;
@@ -192,7 +192,7 @@ codeunit 99983 "Event Subscribers NDPP"
         Clear(G_BinContentQty); //Test++
     end;
 
-    local procedure AssignBinZone(var P_WarehouseActivityLine: Record "Warehouse Activity Line"; IsBulk: Boolean)
+    local procedure AssignZoneBin(var P_WarehouseActivityLine: Record "Warehouse Activity Line"; IsBulk: Boolean)
     var
         L_BinContent: Record "Bin Content";
         L_Zone: Record Zone;
@@ -249,7 +249,7 @@ codeunit 99983 "Event Subscribers NDPP"
     [EventSubscriber(ObjectType::Table, Database::"Warehouse Activity Line", OnBeforeInsertNewWhseActivLine, '', false, false)]
     local procedure OnBeforeInsertNewWhseActivLine(var NewWarehouseActivityLine: Record "Warehouse Activity Line")
     begin
-        AssignBinZone(NewWarehouseActivityLine, false);
+        AssignZoneBin(NewWarehouseActivityLine, false);
     end;
 
     [EventSubscriber(ObjectType::Table, Database::"Warehouse Activity Line", OnSplitLineOnBeforeRenumberAllLines, '', false, false)]
@@ -259,15 +259,15 @@ codeunit 99983 "Event Subscribers NDPP"
             LineSpacing := 5000;
     end;
 
-    local procedure "Max"(Value1: Decimal; Value2: Decimal): Decimal
-    begin
-        if Value1 >= Value2 then
-            exit(Value1);
-        exit(Value2);
-    end;
+    // local procedure "Max"(Value1: Decimal; Value2: Decimal): Decimal
+    // begin
+    //     if Value1 >= Value2 then
+    //         exit(Value1);
+    //     exit(Value2);
+    // end;
 
     var
-        G_RemainingQty: Decimal;
+        //G_RemainingQty: Decimal;
         G_SplitQtyToHandle: Decimal;
         G_IsExecuting: Boolean;
         G_LineSpacing: Boolean;

@@ -41,5 +41,13 @@ pageextension 99976 MovementWorksheetExt extends "Movement Worksheet"
                 end;
             }
         }
+        addlast(Category_Process)
+        {
+            actionref(Calculate_Movement_Worksheet; "Calculate Movement Worksheet")
+            {
+
+            }
+        }
     }
+
 }

@@ -1,4 +1,4 @@
-tableextension 99974 BinContentExt extends "Bin Content"
+tableextension 99991 BinContentExt extends "Bin Content"
 {
     fields
     {
