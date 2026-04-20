@@ -85,6 +85,13 @@ page 99991 "Decant Screen"
                 Editable = false;
 
             }
+            field(DestLocationCodeField; DestLocationCode)
+            {
+                ApplicationArea = All;
+                Caption = 'Dest. Location Code';
+                TableRelation = Location.Code;
+                ToolTip = 'Specifies the destination location for GEN DECANT movement.';
+            }
 
             repeater(General)
             {
@@ -149,6 +156,26 @@ page 99991 "Decant Screen"
                 {
                     ApplicationArea = All;
                 }
+                field("To Location Code"; Rec."To Location Code")
+                {
+                    ApplicationArea = All;
+                    Editable = false;
+                }
+                field("Manufacturer Code"; Rec."Manufacturer Code")
+                {
+                    ApplicationArea = All;
+                    ToolTip = 'Select the Manufacturer to determine Qty Per Tote.';
+                }
+                field("Qty Per Tote"; Rec."Qty Per Tote")
+                {
+                    ApplicationArea = All;
+                    Editable = false;
+                }
+                field("Number of Totes"; Rec."Number of Totes")
+                {
+                    ApplicationArea = All;
+                    Editable = false;
+                }
                 field("To Qty."; Rec."To Qty.")
                 {
                     ApplicationArea = All;
@@ -170,26 +197,53 @@ page 99991 "Decant Screen"
     {
         area(Processing)
         {
-            action("Calculate inventory")
+            // action("Calculate inventory")
+            // {
+            //     ApplicationArea = All;
+            //     Caption = 'Calculate inventory';
+            //     Image = GetBinContent;
+            //     Promoted = true;
+            //     PromotedCategory = Process;
+            //     PromotedIsBig = true;
+            //     trigger OnAction()
+            //     var
+            //         RepCalcInven: Report CalculateInventory;
+            //     begin
+            //         Clear(RepCalcInven);
+            //         //Message(CurrentJnlBatchName);
+            //         //Message(CurrentLocationCode);
+            //         //Message("Journal Template Name");
+            //         RepCalcInven.GetFilter(Rec."Journal Template Name", CurrentJnlBatchName, CurrentLocationCode, ItemFilter, ItemDescription);
+            //         RepCalcInven.Run();
+            //         CurrPage.Update();
+            //         //FillTempTable();
+            //     end;
+            // }
+            action("Calculate GEN DECANT")
             {
                 ApplicationArea = All;
-                Caption = 'Calculate inventory';
-                Image = GetBinContent;
+                Caption = 'Calculate GEN DECANT';
+                Image = Calculate;
                 Promoted = true;
                 PromotedCategory = Process;
                 PromotedIsBig = true;
+                ToolTip = 'Calculates items to move from source GEN DECANT zone to destination GEN DECANT zone based on empty totes.';
+
                 trigger OnAction()
                 var
-                    RepCalcInven: Report CalculateInventory;
+                    GenDecantCU: Codeunit CreateDecantWhseReclassAndPost;
                 begin
-                    Clear(RepCalcInven);
-                    //Message(CurrentJnlBatchName);
-                    //Message(CurrentLocationCode);
-                    //Message("Journal Template Name");
-                    RepCalcInven.GetFilter(Rec."Journal Template Name", CurrentJnlBatchName, CurrentLocationCode, ItemFilter, ItemDescription);
-                    RepCalcInven.Run();
-                    CurrPage.Update();
-                    //FillTempTable();
+                    if DestLocationCode = '' then
+                        Error('Please specify the Dest. Location Code.');
+
+                    GenDecantCU.CalculateGenDecant(
+                        Rec."Journal Template Name",
+                        CurrentJnlBatchName,
+                        CurrentLocationCode,
+                        DestLocationCode,
+                        ItemFilter
+                    );
+                    CurrPage.Update(false);
                 end;
             }
             action(Register)
@@ -202,85 +256,13 @@ page 99991 "Decant Screen"
                 PromotedIsBig = true;
                 trigger OnAction()
                 var
-                    // RecLotByBin: Record "Decant Details";
-                    // CodeUnitTOcreateReclase: Codeunit "All Event";
-                    // //RecStatusMaster: Record "Status Master";
-                    // RecUser: Record "User Setup";
-                    // PasswordRequired: Boolean;
-                    // //RepEnterPasword: Report CheckPassword;
+                    GenDecantCU: Codeunit CreateDecantWhseReclassAndPost;
                 begin
-                    // //Abdul++
-                    // if not Confirm('Do you want to register', false) then
-                    //     exit;
-                    // //Abdul--
-
-                    // RecLotByBin.Reset();
-                    // RecLotByBin.SetRange("Journal Template Name", Rec."Journal Template Name");
-                    // RecLotByBin.SetRange("Journal Batch Name", Rec."Journal Batch Name");
-                    // RecLotByBin.SetFilter("To Qty.", '>%1', 0);
-                    // if RecLotByBin.FindSet() then begin
-                    //     repeat
-                    //         if RecLotByBin."To Zone Code" = '' then
-                    //             Error('Please Select To Zone Code Line No.:%1', RecLotByBin."Line No.");
-                    //         if RecLotByBin."To Bin Code" = '' then
-                    //             Error('Please Select To Bin Code Line No.:%1', RecLotByBin."Line No.");
-                    //         if RecLotByBin."New Status" = '' then
-                    //             Error('Please Select To Status Line No.:%1', RecLotByBin."Line No.");
-
-                    //     until RecLotByBin.Next = 0;
-                    // end;
-
-                    // Clear(PasswordRequired);
-                    // RecLotByBin.Reset();
-                    // RecLotByBin.SetRange("Journal Template Name", Rec."Journal Template Name");
-                    // RecLotByBin.SetRange("Journal Batch Name", Rec."Journal Batch Name");
-                    // RecLotByBin.SetFilter("To Qty.", '>%1', 0);
-                    // if RecLotByBin.FindSet() then begin
-                    //     repeat
-                    //         RecStatusMaster.Reset();
-                    //         //RecStatusMaster.SetRange("Status Code", RecLotByBin."New Status");
-                    //         RecStatusMaster.SetRange("Status Code", RecLotByBin.Status);
-                    //         if RecStatusMaster.FindFirst() then begin
-                    //             if RecStatusMaster."Password Required" = true then begin
-                    //                 PasswordRequired := true;
-                    //             end;
-                    //             if RecStatusMaster."Notes Required" = true then begin
-                    //                 if RecLotByBin."Reason Code" = '' then begin
-                    //                     //Error('Please Select Reason Code For Line : %1', RecLotByBin."Line No.");
-                    //                     Error('Reason Code is Mandatory for Item No.:%1, Lot No.:%2, Bin Code:%3, Status:%4', RecLotByBin."Item No.", RecLotByBin."Lot No.", RecLotByBin."To Bin Code", RecLotByBin.Status);
-                    //                 end;
-
-                    //             end;
-                    //         end;
-                    //     until RecLotByBin.Next = 0;
-                    // end;
-
-                    // if PasswordRequired = true then begin
-                    //     Clear(RepEnterPasword);
-                    //     RepEnterPasword.getLotByBin(Rec);
-                    //     RepEnterPasword.Run();
-                    // end;
-
-                    // if PasswordRequired = false then begin//CAS-28046-Q9W5H7
-
-                    //     RecLotByBin.Reset();
-                    //     RecLotByBin.SetRange("Journal Template Name", Rec."Journal Template Name");
-                    //     RecLotByBin.SetRange("Journal Batch Name", Rec."Journal Batch Name");
-                    //     RecLotByBin.SetFilter("To Qty.", '>%1', 0);
-                    //     if RecLotByBin.FindSet() then begin
-                    //         repeat
-                    //             CodeUnitTOcreateReclase.WarehouseReclassificationFromLotByBin(RecLotByBin);
-                    //         until RecLotByBin.Next = 0;
-                    //     end;
-
-                    //     RecLotByBin.Reset();
-                    //     RecLotByBin.SetRange("Journal Template Name", Rec."Journal Template Name");
-                    //     RecLotByBin.SetRange("Journal Batch Name", Rec."Journal Batch Name");
-                    //     if RecLotByBin.FindSet() then begin
-                    //         RecLotByBin.DeleteAll();
-                    //     end;
-
-                    // end;//CAS-28046-Q9W5H7
+                    GenDecantCU.RegisterGenDecant(
+                        Rec."Journal Template Name",
+                        CurrentJnlBatchName
+                    );
+                    CurrPage.Update(false);
                 end;
             }
         }
@@ -295,7 +277,7 @@ page 99991 "Decant Screen"
 
         if not JnlSelected then
             Error('');
-        Rec.OpenJnl(CurrentJnlBatchName, CurrentLocationCode, Rec);
+        Rec.OpenJnl(CurrentJnlBatchName, CurrentLocationCode, DestLocationCode, Rec);
         if ItemFilter <> '' then begin
             RecItem.Reset();
             RecItem.SetRange("No.", ItemFilter);
@@ -330,4 +312,5 @@ page 99991 "Decant Screen"
         ItemDescription: text[250];
         CurrentJnlBatchName: Code[10];
         CurrentLocationCode: Code[10];
+        DestLocationCode: Code[10];
 }

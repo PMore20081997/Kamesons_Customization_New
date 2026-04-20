@@ -222,36 +222,36 @@ codeunit 99971 "Replenishment Worksheet"
         //     repeat
         //L_LineNo := L_LineNo + 10000;
 
-        G_TempReqLine.Init();
-        G_TempReqLine.Validate("Worksheet Template Name", _ReplenishmentWorksheet."Template Name");
-        G_TempReqLine.Validate("Journal Batch Name", _ReplenishmentWorksheet."Batch Name");
-        G_TempReqLine.Validate("Line No.", L_LineNo);
-        G_TempReqLine.Validate(Type, G_TempReqLine.Type::Item);
-        G_TempReqLine.Validate("No.", _ReplenishmentWorksheet."Item No.");
-        G_TempReqLine.Validate("Planning Line Origin", G_TempReqLine."Planning Line Origin"::"Order Planning");
-        G_TempReqLine.Validate("Action Message", G_TempReqLine."Action Message"::New);
-        G_TempReqLine.Validate(Description, _ReplenishmentWorksheet.Description);
-        G_TempReqLine.Validate(Quantity, _ReplenishmentWorksheet."Qty to Move");
-        G_TempReqLine.Validate("Demand Quantity", _ReplenishmentWorksheet."Qty to Move");
-        G_TempReqLine.Validate("Demand Quantity (Base)", _ReplenishmentWorksheet."Qty to Move");
-        G_TempReqLine.Validate("Needed Quantity", _ReplenishmentWorksheet."Qty to Move");
-        G_TempReqLine.Validate("Needed Quantity (Base)", _ReplenishmentWorksheet."Qty to Move");
-        G_TempReqLine.Validate("Transfer-from Code", _ReplenishmentWorksheet."From Location Code");
-        G_TempReqLine.Validate("Location Code", _ReplenishmentWorksheet."Location Code");
-        G_TempReqLine.Validate("From Bin Code", _ReplenishmentWorksheet."From Bin Code");
-        G_TempReqLine.Validate("Bin Code", 'PICK BULK');
-        G_TempReqLine.Validate("Replenishment System", G_TempReqLine."Replenishment System"::Transfer);
-        G_TempReqLine.Validate("Supply From", 'BULKNDPP');
-        G_TempReqLine.Validate("Unit of Measure Code", _ReplenishmentWorksheet."Unit of Measure Code");
-        G_TempReqLine.Validate("Transfer Shipment Date", WorkDate());
-        G_TempReqLine.Validate("Due Date", WorkDate());
-        G_TempReqLine.Validate("Accept Action Message", true);
-        G_TempReqLine.Validate(Reserve, true);
-        G_TempReqLine.Validate("Lot No.", _ReplenishmentWorksheet."Lot No.");
-        G_TempReqLine.Validate("Package No.", _ReplenishmentWorksheet."Package No.");
-        G_TempReqLine.Validate("Lot Expiration Date", _ReplenishmentWorksheet."Expiration Date");
-        G_TempReqLine.Validate("Created By Repl.", true);
-        G_TempReqLine.Insert(true);
+        G_ReqLine.Init();
+        G_ReqLine.Validate("Worksheet Template Name", _ReplenishmentWorksheet."Template Name");
+        G_ReqLine.Validate("Journal Batch Name", _ReplenishmentWorksheet."Batch Name");
+        G_ReqLine.Validate("Line No.", L_LineNo);
+        G_ReqLine.Validate(Type, G_ReqLine.Type::Item);
+        G_ReqLine.Validate("No.", _ReplenishmentWorksheet."Item No.");
+        G_ReqLine.Validate("Planning Line Origin", G_ReqLine."Planning Line Origin"::"Order Planning");
+        G_ReqLine.Validate("Action Message", G_ReqLine."Action Message"::New);
+        G_ReqLine.Validate(Description, _ReplenishmentWorksheet.Description);
+        G_ReqLine.Validate(Quantity, _ReplenishmentWorksheet."Qty to Move");
+        G_ReqLine.Validate("Demand Quantity", _ReplenishmentWorksheet."Qty to Move");
+        G_ReqLine.Validate("Demand Quantity (Base)", _ReplenishmentWorksheet."Qty to Move");
+        G_ReqLine.Validate("Needed Quantity", _ReplenishmentWorksheet."Qty to Move");
+        G_ReqLine.Validate("Needed Quantity (Base)", _ReplenishmentWorksheet."Qty to Move");
+        G_ReqLine.Validate("Transfer-from Code", _ReplenishmentWorksheet."From Location Code");
+        G_ReqLine.Validate("Location Code", _ReplenishmentWorksheet."Location Code");
+        G_ReqLine.Validate("From Bin Code", _ReplenishmentWorksheet."From Bin Code");
+        G_ReqLine.Validate("Bin Code", 'PICK BULK');
+        G_ReqLine.Validate("Replenishment System", G_ReqLine."Replenishment System"::Transfer);
+        G_ReqLine.Validate("Supply From", 'BULKNDPP');
+        G_ReqLine.Validate("Unit of Measure Code", _ReplenishmentWorksheet."Unit of Measure Code");
+        G_ReqLine.Validate("Transfer Shipment Date", WorkDate());
+        G_ReqLine.Validate("Due Date", WorkDate());
+        G_ReqLine.Validate("Accept Action Message", true);
+        G_ReqLine.Validate(Reserve, true);
+        G_ReqLine.Validate("Lot No.", _ReplenishmentWorksheet."Lot No.");
+        G_ReqLine.Validate("Package No.", _ReplenishmentWorksheet."Package No.");
+        G_ReqLine.Validate("Lot Expiration Date", _ReplenishmentWorksheet."Expiration Date");
+        G_ReqLine.Validate("Created By Repl.", true);
+        G_ReqLine.Insert(true);
 
         // _ReplenishmentWorksheet."System-Created Entry" := true;
         // _ReplenishmentWorksheet.Modify();
@@ -287,7 +287,8 @@ codeunit 99971 "Replenishment Worksheet"
         G_SNo: Code[20];
 
         //New++
-        G_TempReqLine: Record "Requisition Line";
+        G_ReqLine: Record "Requisition Line";
+        G_Events: Codeunit Events;
 
 
 

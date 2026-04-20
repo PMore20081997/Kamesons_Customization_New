@@ -217,22 +217,26 @@ codeunit 99983 "Event Subscribers NDPP"
 
             // P_WarehouseActivityLine."Zone Code" := L_Zone.Code;
             // P_WarehouseActivityLine."Bin Code" := L_BinContent."Bin Code";
-        end else begin
-            //Temporary++
-            L_BinContent.Reset();
-            L_BinContent.SetFilter("Location Code", '%1', P_WarehouseActivityLine."Location Code");
-            L_BinContent.SetFilter("Zone Code", '%1', L_Zone.Code);
-            L_BinContent.SetRange("Item No.", P_WarehouseActivityLine."Item No.");
-            L_BinContent.SetFilter(Fixed, '%1', true);
-            if L_BinContent.FindFirst() then begin
-                // P_WarehouseActivityLine."Zone Code" := L_BinContent."Zone Code";
-                // P_WarehouseActivityLine."Bin Code" := L_BinContent."Bin Code";
-                P_WarehouseActivityLine.Validate("Zone Code", L_Zone.Code);
-                P_WarehouseActivityLine.Validate("Bin Code", L_BinContent."Bin Code");
-                //Temporary--
-            end else
-                P_WarehouseActivityLine.Validate("Zone Code", L_Zone.Code);
-        end;
+        end
+        // else begin
+        //     //Temporary++
+        //     L_BinContent.Reset();
+        //     L_BinContent.SetFilter("Location Code", '%1', P_WarehouseActivityLine."Location Code");
+        //     L_BinContent.SetFilter("Zone Code", '%1', L_Zone.Code);
+        //     L_BinContent.SetRange("Item No.", P_WarehouseActivityLine."Item No.");
+        //     L_BinContent.SetFilter(Fixed, '%1', true);
+        //     if L_BinContent.FindFirst() then begin
+        //         // P_WarehouseActivityLine."Zone Code" := L_BinContent."Zone Code";
+        //         // P_WarehouseActivityLine."Bin Code" := L_BinContent."Bin Code";
+        //         P_WarehouseActivityLine.Validate("Zone Code", L_Zone.Code);
+        //         P_WarehouseActivityLine.Validate("Bin Code", L_BinContent."Bin Code");
+        //         //Temporary--
+        //     end 
+        //     else
+        //         P_WarehouseActivityLine.Validate("Zone Code", L_Zone.Code);
+        // end;
+        else
+            P_WarehouseActivityLine.Validate("Zone Code", L_Zone.Code);
     end;
 
 

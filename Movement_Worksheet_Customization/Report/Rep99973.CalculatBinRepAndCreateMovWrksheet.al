@@ -142,7 +142,7 @@ report 99973 "Calculate Bin Rep And Movement"
     var
         WhseWorksheetName: Record "Whse. Worksheet Name";
         G_Events: Codeunit Events;
-        G_SingleInstanceCU: Codeunit SingleInstanceCU;
+        //G_SingleInstanceCU: Codeunit SingleInstanceCU;
         NothingToReplenishMsg: Label 'There is nothing to replenish.';
         PickBulkLocNotSetErr: Label 'The PICK BULK Location is not set. Configure it in Warehouse Setup (MAIN Warehouse) or enter it on the request page.';
         BulkLocNotSetErr: Label 'The BULK Location is not set. Configure the RECEIVE Warehouse in Warehouse Setup.';
@@ -439,13 +439,13 @@ report 99973 "Calculate Bin Rep And Movement"
         L_WhseItemTrackingLine.Insert(true);
     end;
 
-    trigger OnPreReport()
-    begin
-        G_SingleInstanceCU.ExecutedFromCustomMovementWorksheet(true);
-    end;
+    // trigger OnPreReport()
+    // begin
+    //     G_SingleInstanceCU.ExecutedFromCustomMovementWorksheet(true);
+    // end;
 
-    trigger OnPostReport()
-    begin
-        G_SingleInstanceCU.ExecutedFromCustomMovementWorksheet(false);
-    end;
+    // trigger OnPostReport()
+    // begin
+    //     G_SingleInstanceCU.ExecutedFromCustomMovementWorksheet(false);
+    // end;
 }

@@ -102,6 +102,51 @@ table 99991 "Decant Details"
             DecimalPlaces = 0 : 5;
             Editable = false;
         }
+        field(20; "To Location Code"; Code[10])
+        {
+            DataClassification = ToBeClassified;
+            Caption = 'To Location Code';
+            TableRelation = Location;
+        }
+        field(21; "Manufacturer Code"; Code[10])
+        {
+            DataClassification = ToBeClassified;
+            Caption = 'Manufacturer Code';
+            TableRelation = "Item Manufacturer Table"."Manufacturer Code" WHERE("Item No" = FIELD("Item No."));
+
+            trigger OnValidate()
+            var
+                ItemManufacturer: Record "Item Manufacturer Table";
+            begin
+                if "Manufacturer Code" <> '' then begin
+                    if ItemManufacturer.Get("Item No.", "Manufacturer Code") then
+                        "Qty Per Tote" := ItemManufacturer."Qty per Tote"
+                    else
+                        "Qty Per Tote" := 0;
+
+                    if ("Qty Per Tote" > 0) and ("Number of Totes" > 0) then
+                        "To Qty." := "Qty Per Tote" * "Number of Totes"
+                    else
+                        "To Qty." := 0;
+                end else begin
+                    "Qty Per Tote" := 0;
+                    "To Qty." := 0;
+                end;
+            end;
+        }
+        field(22; "Qty Per Tote"; Decimal)
+        {
+            DataClassification = ToBeClassified;
+            Caption = 'Qty Per Tote';
+            DecimalPlaces = 0 : 5;
+            Editable = false;
+        }
+        field(23; "Number of Totes"; Integer)
+        {
+            DataClassification = ToBeClassified;
+            Caption = 'Number of Totes';
+            Editable = false;
+        }
 
         field(5407; "Unit of Measure Code"; Code[10])
         {
@@ -163,13 +208,13 @@ table 99991 "Decant Details"
             Error(Text005, CurrentLocationCode, CurrentJnlBatchName, UserId);
     end;
 
-    procedure OpenJnl(var CurrentJnlBatchName: Code[10]; var CurrentLocationCode: Code[10]; var DecantDetails: Record "Decant Details")
+    procedure OpenJnl(var CurrentJnlBatchName: Code[10]; var CurrentLocationCode: Code[10]; var DestLocationCode: Code[10]; var DecantDetails: Record "Decant Details")
     begin
         //OnBeforeOpenJnl(DecantDetails, CurrentJnlBatchName, CurrentLocationCode);
 
         WMSMgt.CheckUserIsWhseEmployee;
         CheckTemplateName(
-          DecantDetails.GetRangeMax("Journal Template Name"), CurrentLocationCode, CurrentJnlBatchName);
+          DecantDetails.GetRangeMax("Journal Template Name"), CurrentLocationCode, DestLocationCode, CurrentJnlBatchName);
         DecantDetails.FilterGroup := 2;
         DecantDetails.SetRange("Journal Batch Name", CurrentJnlBatchName);
         if CurrentLocationCode <> '' then
@@ -179,7 +224,7 @@ table 99991 "Decant Details"
         //OnAfterOpenJnl(DecantDetails, CurrentJnlBatchName, CurrentLocationCode);
     end;
 
-    procedure CheckTemplateName(CurrentJnlTemplateName: Code[10]; var CurrentLocationCode: Code[10]; var CurrentJnlBatchName: Code[10])
+    procedure CheckTemplateName(CurrentJnlTemplateName: Code[10]; var CurrentLocationCode: Code[10]; var DestLocationCode: Code[10]; var CurrentJnlBatchName: Code[10])
     var
         WhseJnlBatch: Record "Warehouse Journal Batch";
         IsHandled: Boolean;
@@ -189,7 +234,7 @@ table 99991 "Decant Details"
         if IsHandled then
             exit;
 
-        if FindExistingBatch(CurrentJnlTemplateName, CurrentLocationCode, CurrentJnlBatchName) then
+        if FindExistingBatch(CurrentJnlTemplateName, CurrentLocationCode, DestLocationCode, CurrentJnlBatchName) then
             exit;
 
         WhseJnlBatch.Init();
@@ -203,9 +248,10 @@ table 99991 "Decant Details"
         CurrentJnlBatchName := WhseJnlBatch.Name;
     end;
 
-    local procedure FindExistingBatch(CurrentJnlTemplateName: Code[10]; var CurrentLocationCode: Code[10]; var CurrentJnlBatchName: Code[10]): Boolean
+    local procedure FindExistingBatch(CurrentJnlTemplateName: Code[10]; var CurrentLocationCode: Code[10]; var DestLocationCode: Code[10]; var CurrentJnlBatchName: Code[10]): Boolean
     var
         WhseJnlBatch: Record "Warehouse Journal Batch";
+        L_Events: Codeunit Events;
     begin
         WhseJnlBatch.SetRange("Journal Template Name", CurrentJnlTemplateName);
         WhseJnlBatch.SetRange(Name, CurrentJnlBatchName);
@@ -218,6 +264,8 @@ table 99991 "Decant Details"
 
         WhseJnlBatch.SetRange(Name);
         CurrentLocationCode := WMSMgt.GetDefaultDirectedPutawayAndPickLocation;
+        DestLocationCode := L_Events.GetMainWarehouse();
+        
         WhseJnlBatch.SetRange("Location Code", CurrentLocationCode);
 
         if WhseJnlBatch.FindFirst then begin
