@@ -8,7 +8,6 @@ codeunit 99983 "Event Subscribers NDPP"
         L_Item: Record Item;
         L_Zone: Record Zone;
         L_BinContent: Record "Bin Content";
-        // L_AssignStockToBulk: Boolean;
         L_BulkDecntExpDate: Date;
 
     begin
@@ -44,15 +43,9 @@ codeunit 99983 "Event Subscribers NDPP"
             exit;
 
 
-        // G_Bin.Reset();
-        // G_Bin.SetRange("Location Code", G_Events.GetMainWarehouse());
-        // G_Bin.SetRange("Zone Code", G_Events.GetPickBulkZone(G_Events.GetMainWarehouse()));
-        // if G_Bin.FindFirst() then;
-
         L_BinContent.Reset();
         L_BinContent.SetFilter("Location Code", '%1', G_Events.GetMainWarehouse());
         L_BinContent.SetFilter("Zone Code", '%1', G_Events.GetPickBulkZone(G_Events.GetMainWarehouse()));
-        //L_BinContent.SetFilter("Bin Code", '%1', G_Bin.Code);
         L_BinContent.SetRange("Item No.", WarehouseActivityLine."Item No.");
         if L_BinContent.FindFirst() then begin
             L_BinContent.CalcFields(Quantity, "Put-away Qty.", "Pos. Adjmt. Qty.");
@@ -66,11 +59,8 @@ codeunit 99983 "Event Subscribers NDPP"
     procedure GetLastExpiryDateInBulkDecant(var P_WhseActLine: Record "Warehouse Activity Line"): Date
     var
         L_WarehouseEntryLotDetails: Query WarehouseEntryLotDetails;
-        //L_WarehouseEntryLotDetails1: Query WarehouseEntryLotDetails;
-        //        L_ReceivedStockExpDate: Date;
         L_MainStockExpDate: Date;
         L_BulkDecntStockExpDate: Date;
-    //        L_HighbayStockExpDate: Date;
     begin
         //Get Last Expiry BULNDPP BULK DECNT
         L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Item_No_, '%1', P_WhseActLine."Item No.");
@@ -87,40 +77,12 @@ codeunit 99983 "Event Subscribers NDPP"
         exit(L_BulkDecntStockExpDate);
     end;
 
-    // procedure CheckAvailableQtyLessThanMinQtyinMAIN(VP_WhseActLine: Record "Warehouse Activity Line"): Boolean
-    // var
-    //     L_MainBinContent: Record "Bin Content";
-    //     L_MainQtyAvailToTake: Decimal;
-    // begin
-    //     Clear(L_MainQtyAvailToTake);
-    //     L_MainBinContent.Reset();
-    //     L_MainBinContent.SetRange("Item No.", VP_WhseActLine."Item No.");
-    //     L_MainBinContent.SetFilter("Location Code", '%1', G_Events.GetMainWarehouse());
-    //     L_MainBinContent.SetFilter("Bin Code", '%1', G_Events.GetPickBulkZone(G_Events.GetMainWarehouse()));
-    //     L_MainBinContent.SetFilter(Quantity, '>%1', 0);
-    //     if L_MainBinContent.FindFirst() then begin
-
-    //         // if L_MainBinContent."Min. Qty." = 0 then
-    //         //     exit;
-
-    //         L_MainQtyAvailToTake := L_MainBinContent.CalcQtyAvailToTake(0);
-    //     end;
-
-    //     if L_MainQtyAvailToTake < L_MainBinContent."Min. Qty." then
-    //         exit(true)
-    //     else
-    //         exit(false);
-    // end;
-
     [EventSubscriber(ObjectType::Table, Database::"Warehouse Activity Line", OnAfterInsertEvent, '', false, false)]
     local procedure OnAfterInsertEventWAL(var Rec: Record "Warehouse Activity Line")
     var
         L_BinContent: Record "Bin Content";
         L_WhseActivLine: Record "Warehouse Activity Line";
         L_Zone: Record Zone;
-    // L_Events: Codeunit Events;
-
-    // L_Bin: Record Bin;
     begin
         if Rec."Location Code" <> G_Events.GetReceiveWarehouse() then
             exit; //Temporary++
@@ -128,44 +90,21 @@ codeunit 99983 "Event Subscribers NDPP"
         If L_Zone.Get(Rec."Location Code", Rec."Zone Code") then;
 
 
-        // if (not G_IsExecuting) OR (L_Zone.HighBay) then
-        //     exit;
 
-        // if (Rec."Activity Type" <> Rec."Activity Type"::"Put-away") OR (Rec."Action Type" <> Rec."Action Type"::Place) OR (Rec."Source Document" <> Rec."Source Document"::"Purchase Order") OR (not G_IsExecuting) OR (L_Zone.HighBay) then
         if (Rec."Activity Type" <> Rec."Activity Type"::"Put-away") OR (Rec."Action Type" <> Rec."Action Type"::Place) OR (Rec."Source Document" <> Rec."Source Document"::"Purchase Order") OR (L_Zone.HighBay) then
             exit;
 
-        // L_BinContent.Reset();
-        // L_BinContent.SetFilter("Location Code", '%1', Rec."Location Code");
-        // L_BinContent.SetFilter("Zone Code", '%1', Rec."Zone Code");
-        // L_BinContent.SetFilter("Bin Code", '%1', Rec."Bin Code");
-        // L_BinContent.SetRange("Item No.", Rec."Item No.");
-
-        // G_Bin.Reset();
-        // G_Bin.SetRange("Location Code", G_Events.GetMainWarehouse());
-        // G_Bin.SetRange("Zone Code", G_Events.GetPickBulkZone(G_Events.GetMainWarehouse()));
-        // if G_Bin.FindFirst() then;
 
         L_BinContent.Reset();
         L_BinContent.SetFilter("Location Code", '%1', G_Events.GetMainWarehouse());
         L_BinContent.SetFilter("Zone Code", '%1', G_Events.GetPickBulkZone(G_Events.GetMainWarehouse()));
-        //L_BinContent.SetFilter("Bin Code", '%1', G_Bin.Code);
         L_BinContent.SetRange("Item No.", Rec."Item No.");
         if L_BinContent.FindFirst() then begin
-            //L_BinContent.CalcFields(Quantity, "Put-away Qty.", "Pos. Adjmt. Qty.");
 
             if (L_BinContent."Max. Qty." > 0) AND ((G_BinContentQty + Rec.Quantity) > L_BinContent."Max. Qty.") then begin
 
-                //Clear(G_RemainingQty);
                 Clear(G_SplitQtyToHandle);
 
-
-                // if L_BinContent."Max. Qty." <> 0 then begin
-                //     G_RemainingQty := Max(L_BinContent."Max. Qty." * L_BinContent."Qty. per Unit of Measure" - G_BinContentQty, 0);
-                // END;
-
-                // G_SplitQtyToHandle := Rec.Quantity - G_RemainingQty;
-                //G_SplitQtyToHandle := (G_BinContentQty + Rec.Quantity) - L_BinContent."Max. Qty.";
                 G_SplitQtyToHandle := L_BinContent."Max. Qty." - G_BinContentQty;
 
                 if G_SplitQtyToHandle > 0 then begin
@@ -215,27 +154,7 @@ codeunit 99983 "Event Subscribers NDPP"
 
             P_WarehouseActivityLine.Validate("Zone Code", L_Zone.Code);
             P_WarehouseActivityLine.Validate("Bin Code", L_BinContent."Bin Code");
-
-            // P_WarehouseActivityLine."Zone Code" := L_Zone.Code;
-            // P_WarehouseActivityLine."Bin Code" := L_BinContent."Bin Code";
         end
-        // else begin
-        //     //Temporary++
-        //     L_BinContent.Reset();
-        //     L_BinContent.SetFilter("Location Code", '%1', P_WarehouseActivityLine."Location Code");
-        //     L_BinContent.SetFilter("Zone Code", '%1', L_Zone.Code);
-        //     L_BinContent.SetRange("Item No.", P_WarehouseActivityLine."Item No.");
-        //     L_BinContent.SetFilter(Fixed, '%1', true);
-        //     if L_BinContent.FindFirst() then begin
-        //         // P_WarehouseActivityLine."Zone Code" := L_BinContent."Zone Code";
-        //         // P_WarehouseActivityLine."Bin Code" := L_BinContent."Bin Code";
-        //         P_WarehouseActivityLine.Validate("Zone Code", L_Zone.Code);
-        //         P_WarehouseActivityLine.Validate("Bin Code", L_BinContent."Bin Code");
-        //         //Temporary--
-        //     end 
-        //     else
-        //         P_WarehouseActivityLine.Validate("Zone Code", L_Zone.Code);
-        // end;
         else
             P_WarehouseActivityLine.Validate("Zone Code", L_Zone.Code);
     end;
@@ -264,20 +183,11 @@ codeunit 99983 "Event Subscribers NDPP"
             LineSpacing := 5000;
     end;
 
-    // local procedure "Max"(Value1: Decimal; Value2: Decimal): Decimal
-    // begin
-    //     if Value1 >= Value2 then
-    //         exit(Value1);
-    //     exit(Value2);
-    // end;
-
     var
-        //G_RemainingQty: Decimal;
         G_SplitQtyToHandle: Decimal;
         G_IsExecuting: Boolean;
         G_LineSpacing: Boolean;
         G_BinContentQty: Decimal;
-        //G_QtyToPutAway: Decimal;
         G_Events: Codeunit Events;
         G_Bin: Record Bin;
 }
