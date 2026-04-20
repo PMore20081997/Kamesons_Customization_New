@@ -148,4 +148,12 @@ codeunit 99972 Events
     // begin
     //     Clear(i);
     // end;
+
+    procedure GetBinContent(_LocationCode: Code[20]; _ZoneCode: Code[10]; _ItemNo: Code[20]) RetBinContent: Record "Bin Content"
+    begin
+        RetBinContent.SetRange("Location Code", _LocationCode);
+        RetBinContent.SetRange("Zone Code", _ZoneCode);
+        RetBinContent.SetRange("Item No.", _ItemNo);
+        if RetBinContent.FindFirst() then;
+    end;
 }

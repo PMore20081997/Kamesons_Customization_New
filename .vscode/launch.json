@@ -4,7 +4,7 @@
         {
             "type": "al",
             "request": "launch",
-            "name": "Microsoft cloud sandbox",
+            "name": "Dev",
             "breakOnError": true,
             "launchBrowser": true,
             "enableLongRunningSqlStatements": true,
@@ -15,6 +15,21 @@
             "environmentName": "Dev",
             "tenant": "c41892ae-4cb0-4027-9474-bbee40007d4d",
             "schemaUpdateMode":"Synchronize"
+        },
+        {
+            "type": "al",
+            "request": "launch",
+            "name": "Demo",
+            "breakOnError": true,
+            "launchBrowser": true,
+            "enableLongRunningSqlStatements": true,
+            "enableSqlInformationDebugger": true,
+            "environmentType": "Sandbox",
+            "startupObjectType": "Query",
+            "startupObjectId": 99981,
+            "environmentName": "Demo",
+            "tenant": "c41892ae-4cb0-4027-9474-bbee40007d4d",
+            "schemaUpdateMode":"ForceSync"
         }
     ]
 }

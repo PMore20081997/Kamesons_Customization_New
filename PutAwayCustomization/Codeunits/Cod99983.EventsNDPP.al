@@ -44,15 +44,15 @@ codeunit 99983 "Event Subscribers NDPP"
             exit;
 
 
-        G_Bin.Reset();
-        G_Bin.SetRange("Location Code", G_Events.GetMainWarehouse());
-        G_Bin.SetRange("Zone Code", G_Events.GetPickBulkZone(G_Events.GetMainWarehouse()));
-        if G_Bin.FindFirst() then;
+        // G_Bin.Reset();
+        // G_Bin.SetRange("Location Code", G_Events.GetMainWarehouse());
+        // G_Bin.SetRange("Zone Code", G_Events.GetPickBulkZone(G_Events.GetMainWarehouse()));
+        // if G_Bin.FindFirst() then;
 
         L_BinContent.Reset();
         L_BinContent.SetFilter("Location Code", '%1', G_Events.GetMainWarehouse());
         L_BinContent.SetFilter("Zone Code", '%1', G_Events.GetPickBulkZone(G_Events.GetMainWarehouse()));
-        L_BinContent.SetFilter("Bin Code", '%1', G_Bin.Code);
+        //L_BinContent.SetFilter("Bin Code", '%1', G_Bin.Code);
         L_BinContent.SetRange("Item No.", WarehouseActivityLine."Item No.");
         if L_BinContent.FindFirst() then begin
             L_BinContent.CalcFields(Quantity, "Put-away Qty.", "Pos. Adjmt. Qty.");
@@ -131,7 +131,8 @@ codeunit 99983 "Event Subscribers NDPP"
         // if (not G_IsExecuting) OR (L_Zone.HighBay) then
         //     exit;
 
-        if (Rec."Activity Type" <> Rec."Activity Type"::"Put-away") OR (Rec."Action Type" <> Rec."Action Type"::Place) OR (Rec."Source Document" <> Rec."Source Document"::"Purchase Order") OR (not G_IsExecuting) OR (L_Zone.HighBay) then
+        // if (Rec."Activity Type" <> Rec."Activity Type"::"Put-away") OR (Rec."Action Type" <> Rec."Action Type"::Place) OR (Rec."Source Document" <> Rec."Source Document"::"Purchase Order") OR (not G_IsExecuting) OR (L_Zone.HighBay) then
+        if (Rec."Activity Type" <> Rec."Activity Type"::"Put-away") OR (Rec."Action Type" <> Rec."Action Type"::Place) OR (Rec."Source Document" <> Rec."Source Document"::"Purchase Order") OR (L_Zone.HighBay) then
             exit;
 
         // L_BinContent.Reset();
@@ -140,15 +141,15 @@ codeunit 99983 "Event Subscribers NDPP"
         // L_BinContent.SetFilter("Bin Code", '%1', Rec."Bin Code");
         // L_BinContent.SetRange("Item No.", Rec."Item No.");
 
-        G_Bin.Reset();
-        G_Bin.SetRange("Location Code", G_Events.GetMainWarehouse());
-        G_Bin.SetRange("Zone Code", G_Events.GetPickBulkZone(G_Events.GetMainWarehouse()));
-        if G_Bin.FindFirst() then;
+        // G_Bin.Reset();
+        // G_Bin.SetRange("Location Code", G_Events.GetMainWarehouse());
+        // G_Bin.SetRange("Zone Code", G_Events.GetPickBulkZone(G_Events.GetMainWarehouse()));
+        // if G_Bin.FindFirst() then;
 
         L_BinContent.Reset();
         L_BinContent.SetFilter("Location Code", '%1', G_Events.GetMainWarehouse());
         L_BinContent.SetFilter("Zone Code", '%1', G_Events.GetPickBulkZone(G_Events.GetMainWarehouse()));
-        L_BinContent.SetFilter("Bin Code", '%1', G_Bin.Code);
+        //L_BinContent.SetFilter("Bin Code", '%1', G_Bin.Code);
         L_BinContent.SetRange("Item No.", Rec."Item No.");
         if L_BinContent.FindFirst() then begin
             //L_BinContent.CalcFields(Quantity, "Put-away Qty.", "Pos. Adjmt. Qty.");

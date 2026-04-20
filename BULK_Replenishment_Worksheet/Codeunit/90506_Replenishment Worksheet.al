@@ -180,16 +180,17 @@ codeunit 99971 "Replenishment Worksheet"
     #region New  Code for Transfer Order++
     procedure CreateReqWorksheet(var _ReplenishmentWorksheet: Record "Replenishment Worksheet"; L_LineNo: Integer)
     var
-    //L_ReplenishmentWorksheet: Record "Replenishment Worksheet";
-    //L_ReplenishmentWorksheetCode: Codeunit "Replenishment Worksheet";
+        //L_ReplenishmentWorksheet: Record "Replenishment Worksheet";
+        //L_ReplenishmentWorksheetCode: Codeunit "Replenishment Worksheet";
 
-    //New++
-    //TempReplenishmentWorksheet_ForLoop: Record "Replenishment Worksheet" temporary;
+        //New++
+        //TempReplenishmentWorksheet_ForLoop: Record "Replenishment Worksheet" temporary;
 
 
-    //L_CarryOutActionMsg: Codeunit "Carry Out Action";
+        //L_CarryOutActionMsg: Codeunit "Carry Out Action";
 
-    //LocationCodeLoop: Code[20];
+        //LocationCodeLoop: Code[20];
+
     begin
 
         // _ReplenishmentWorksheet.MarkedOnly(true);
@@ -239,9 +240,18 @@ codeunit 99971 "Replenishment Worksheet"
         G_ReqLine.Validate("Transfer-from Code", _ReplenishmentWorksheet."From Location Code");
         G_ReqLine.Validate("Location Code", _ReplenishmentWorksheet."Location Code");
         G_ReqLine.Validate("From Bin Code", _ReplenishmentWorksheet."From Bin Code");
-        G_ReqLine.Validate("Bin Code", 'PICK BULK');
+
+        // L_BinContent.Reset();
+        // L_BinContent.SetFilter("Location Code", '%1', G_Events.GetMainWarehouse());
+        // L_BinContent.SetFilter("Zone Code", '%1', G_Events.GetPickBulkZone(G_Events.GetMainWarehouse()));
+        // L_BinContent.SetRange("Item No.", _ReplenishmentWorksheet."Item No.");
+        // if L_BinContent.FindFirst() then;
+
+        //G_ReqLine.Validate("Bin Code", 'PICK BULK');
+        G_ReqLine.Validate("Bin Code", _ReplenishmentWorksheet."Bin Code");
         G_ReqLine.Validate("Replenishment System", G_ReqLine."Replenishment System"::Transfer);
-        G_ReqLine.Validate("Supply From", 'BULKNDPP');
+        //G_ReqLine.Validate("Supply From", 'BULKNDPP');
+        G_ReqLine.Validate("Supply From", G_Events.GetReceiveWarehouse());
         G_ReqLine.Validate("Unit of Measure Code", _ReplenishmentWorksheet."Unit of Measure Code");
         G_ReqLine.Validate("Transfer Shipment Date", WorkDate());
         G_ReqLine.Validate("Due Date", WorkDate());

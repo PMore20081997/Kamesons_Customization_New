@@ -48,14 +48,8 @@ report 99973 "Calculate Bin Rep And Movement"
                     Error(HighBayZoneNotFoundErr);
                 if PickBulkZone = '' then
                     Error(PickBulkZoneNotFoundErr);
-                if BulkDecantBin = '' then
-                    Error(BulkDecantBinNotFoundErr);
                 if GenDecantZone = '' then
                     Error(GenDecantZoneNotFoundErr);
-                if GenDecantBin = '' then
-                    Error(GenDecantBinNotFoundErr);
-                if HighBayBin = '' then
-                    Error(HighBayBinNotFoundErr);
 
                 WhseWorksheetName.Get(WhseWkshTemplateName, WhseWkshName, BulkLocation);
 
@@ -149,10 +143,7 @@ report 99973 "Calculate Bin Rep And Movement"
         BulkDecantZoneNotFoundErr: Label 'No zone with the Bulk flag was found in the BULK Location.';
         HighBayZoneNotFoundErr: Label 'No zone with the High Bay flag was found in the BULK Location.';
         PickBulkZoneNotFoundErr: Label 'No zone with the Bulk flag was found in the PICK BULK Location.';
-        BulkDecantBinNotFoundErr: Label 'No bin was found in the BULK DECANT zone of the BULK Location.';
-        HighBayBinNotFoundErr: Label 'No bin was found in the HIGHBAY zone of the BULK Location.';
         GenDecantZoneNotFoundErr: Label 'No zone with the General Decant flag was found in the BULK Location.';
-        GenDecantBinNotFoundErr: Label 'No bin was found in the GEN DECANT zone of the BULK Location.';
 
     protected var
         WhseWkshTemplateName: Code[10];
@@ -164,11 +155,8 @@ report 99973 "Calculate Bin Rep And Movement"
         BulkLocation: Code[10];
         PickBulkLocation: Code[10];
         BulkDecantZone: Code[10];
-        BulkDecantBin: Code[20];
         GenDecantZone: Code[10];
-        GenDecantBin: Code[20];
         HighBayZone: Code[10];
-        HighBayBin: Code[20];
         PickBulkZone: Code[10];
         NextLineNo: Integer;
         LinesInserted: Integer;
@@ -184,8 +172,6 @@ report 99973 "Calculate Bin Rep And Movement"
     end;
 
     local procedure InitializeLocations()
-    var
-        L_Bin: Record Bin;
     begin
         // PICK BULK location from request page or setup
         PickBulkLocation := LocationCode;
@@ -200,29 +186,18 @@ report 99973 "Calculate Bin Rep And Movement"
         GenDecantZone := G_Events.GetGenDecantZone(BulkLocation);
         HighBayZone := G_Events.GetPickHighBayZone(BulkLocation);
         PickBulkZone := G_Events.GetPickBulkZone(PickBulkLocation);
+    end;
 
-        // Get first bin in each zone
-        Clear(BulkDecantBin);
-        Clear(GenDecantBin);
-        Clear(HighBayBin);
-
-        L_Bin.Reset();
-        L_Bin.SetRange("Location Code", BulkLocation);
-        L_Bin.SetRange("Zone Code", BulkDecantZone);
-        if L_Bin.FindFirst() then
-            BulkDecantBin := L_Bin.Code;
-
-        L_Bin.Reset();
-        L_Bin.SetRange("Location Code", BulkLocation);
-        L_Bin.SetRange("Zone Code", GenDecantZone);
-        if L_Bin.FindFirst() then
-            GenDecantBin := L_Bin.Code;
-
-        L_Bin.Reset();
-        L_Bin.SetRange("Location Code", BulkLocation);
-        L_Bin.SetRange("Zone Code", HighBayZone);
-        if L_Bin.FindFirst() then
-            HighBayBin := L_Bin.Code;
+    local procedure GetBinFromBinContent(P_ItemNo: Code[20]; P_LocationCode: Code[10]; P_ZoneCode: Code[10]): Code[20]
+    var
+        L_BinContent: Record "Bin Content";
+    begin
+        L_BinContent.SetRange("Location Code", P_LocationCode);
+        L_BinContent.SetRange("Zone Code", P_ZoneCode);
+        L_BinContent.SetRange("Item No.", P_ItemNo);
+        if L_BinContent.FindFirst() then
+            exit(L_BinContent."Bin Code");
+        exit('');
     end;
 
     local procedure SetNextLineNo()
@@ -249,6 +224,7 @@ report 99973 "Calculate Bin Rep And Movement"
         L_MoveQty: Decimal;
         L_ToZoneCode: Code[10];
         L_ToBinCode: Code[20];
+        L_HighBayBin: Code[20];
     begin
         // Check if stock is below Min. Qty.
         L_CurrentAvail := P_BinContent.CalcQtyAvailToTake(0);
@@ -260,13 +236,20 @@ report 99973 "Calculate Bin Rep And Movement"
         if not L_Item.Get(P_BinContent."Item No.") then
             exit;
 
+        // Per-item bin lookups from Bin Content (Item No. + Location + Zone)
         if L_Item.BULK then begin
             L_ToZoneCode := BulkDecantZone;
-            L_ToBinCode := BulkDecantBin;
+            L_ToBinCode := GetBinFromBinContent(P_BinContent."Item No.", BulkLocation, BulkDecantZone);
         end else begin
             L_ToZoneCode := GenDecantZone;
-            L_ToBinCode := GenDecantBin;
+            L_ToBinCode := GetBinFromBinContent(P_BinContent."Item No.", BulkLocation, GenDecantZone);
         end;
+        if L_ToBinCode = '' then
+            exit;
+
+        L_HighBayBin := GetBinFromBinContent(P_BinContent."Item No.", BulkLocation, HighBayZone);
+        if L_HighBayBin = '' then
+            exit;
 
         // Qty needed to bring PICK BULK up to Max. Qty.
         L_NeedQty := P_BinContent."Max. Qty." - L_CurrentAvail;
@@ -279,14 +262,14 @@ report 99973 "Calculate Bin Rep And Movement"
             exit;
 
         // Deduct what is already pending in the worksheet for this item
-        L_NeedQty -= GetQtyAlreadyInWorksheet(P_BinContent."Item No.", L_ToZoneCode, L_ToBinCode);
+        L_NeedQty -= GetQtyAlreadyInWorksheet(P_BinContent."Item No.", L_ToZoneCode, L_ToBinCode, L_HighBayBin);
         if L_NeedQty <= 0 then
             exit;
 
         // FEFO: iterate HIGHBAY warehouse entries by earliest expiration date first
         L_FEFOQuery.SetFilter(L_FEFOQuery.Location_Code, '%1', BulkLocation);
         L_FEFOQuery.SetFilter(L_FEFOQuery.Zone_Code, '%1', HighBayZone);
-        L_FEFOQuery.SetFilter(L_FEFOQuery.Bin_Code, '%1', HighBayBin);
+        L_FEFOQuery.SetFilter(L_FEFOQuery.Bin_Code, '%1', L_HighBayBin);
         L_FEFOQuery.SetFilter(L_FEFOQuery.Item_No_, '%1', P_BinContent."Item No.");
         L_FEFOQuery.SetFilter(L_FEFOQuery.Quantity, '>%1', 0);
         L_FEFOQuery.Open();
@@ -311,7 +294,8 @@ report 99973 "Calculate Bin Rep And Movement"
                     L_FEFOQuery.Unit_of_Measure_Code,
                     L_MoveQty,
                     L_ToZoneCode,
-                    L_ToBinCode);
+                    L_ToBinCode,
+                    L_HighBayBin);
 
                 L_NeedQty -= L_MoveQty;
             end;
@@ -335,7 +319,7 @@ report 99973 "Calculate Bin Rep And Movement"
         exit(L_TotalAvail);
     end;
 
-    local procedure GetQtyAlreadyInWorksheet(P_ItemNo: Code[20]; P_ToZoneCode: Code[10]; P_ToBinCode: Code[20]): Decimal
+    local procedure GetQtyAlreadyInWorksheet(P_ItemNo: Code[20]; P_ToZoneCode: Code[10]; P_ToBinCode: Code[20]; P_FromBinCode: Code[20]): Decimal
     var
         L_WhseWkshLine: Record "Whse. Worksheet Line";
     begin
@@ -343,7 +327,7 @@ report 99973 "Calculate Bin Rep And Movement"
         L_WhseWkshLine.SetRange(Name, WhseWkshName);
         L_WhseWkshLine.SetRange("Location Code", BulkLocation);
         L_WhseWkshLine.SetRange("From Zone Code", HighBayZone);
-        L_WhseWkshLine.SetRange("From Bin Code", HighBayBin);
+        L_WhseWkshLine.SetRange("From Bin Code", P_FromBinCode);
         L_WhseWkshLine.SetRange("To Zone Code", P_ToZoneCode);
         L_WhseWkshLine.SetRange("To Bin Code", P_ToBinCode);
         L_WhseWkshLine.SetRange("Item No.", P_ItemNo);
@@ -365,7 +349,7 @@ report 99973 "Calculate Bin Rep And Movement"
         exit(L_WhseItemTrackingLine."Quantity (Base)");
     end;
 
-    local procedure InsertMovementWkshLine(var P_BinContent: Record "Bin Content"; P_LotNo: Code[50]; P_ExpirationDate: Date; P_UoMCode: Code[10]; P_MoveQty: Decimal; P_ToZoneCode: Code[10]; P_ToBinCode: Code[20])
+    local procedure InsertMovementWkshLine(var P_BinContent: Record "Bin Content"; P_LotNo: Code[50]; P_ExpirationDate: Date; P_UoMCode: Code[10]; P_MoveQty: Decimal; P_ToZoneCode: Code[10]; P_ToBinCode: Code[20]; P_FromBinCode: Code[20])
     var
         L_WhseWkshLine: Record "Whse. Worksheet Line";
         L_Item: Record Item;
@@ -382,7 +366,7 @@ report 99973 "Calculate Bin Rep And Movement"
         L_WhseWkshLine."Qty. per Unit of Measure" := P_BinContent."Qty. per Unit of Measure";
 
         L_WhseWkshLine."From Zone Code" := HighBayZone;
-        L_WhseWkshLine."From Bin Code" := HighBayBin;
+        L_WhseWkshLine."From Bin Code" := P_FromBinCode;
         L_WhseWkshLine."To Zone Code" := P_ToZoneCode;
         L_WhseWkshLine."To Bin Code" := P_ToBinCode;
 
