@@ -125,9 +125,9 @@ Report 99971 "Cal _Bin Replenishment New"
         L_AlreadyAllocated: Decimal;
     begin
         L_BulkLocation := L_Events.GetReceiveWarehouse();
-        L_BulkDecantZone := L_Events.GetReceiveBulkZone(L_BulkLocation);
-        L_HighBayZone := L_Events.GetPickHighBayZone(L_BulkLocation);
-        L_PickBulkZone := L_Events.GetPickBulkZone(_LocationCode);
+        L_BulkDecantZone := L_Events.GetBulkZone(L_BulkLocation);
+        L_HighBayZone := L_Events.GetHighBayZone(L_BulkLocation);
+        L_PickBulkZone := L_Events.GetBulkZone(_LocationCode);
 
         // Iterate every PICK BULK Bin Content configured for this item (catches brand-new bins with no entries yet)
         L_BinContent.Reset();

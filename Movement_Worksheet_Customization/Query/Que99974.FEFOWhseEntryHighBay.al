@@ -23,6 +23,10 @@ query 99974 "FEFO Whse Entry HIGHBAY"
             column(Lot_No_; "Lot No.")
             {
             }
+            column(Package_No_; "Package No.")
+            {
+
+            }
             column(Unit_of_Measure_Code; "Unit of Measure Code")
             {
             }

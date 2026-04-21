@@ -263,7 +263,7 @@ table 99991 "Decant Details"
         end;
 
         WhseJnlBatch.SetRange(Name);
-        CurrentLocationCode := WMSMgt.GetDefaultDirectedPutawayAndPickLocation;
+        CurrentLocationCode := WMSMgt.GetDefaultLocation();
         DestLocationCode := L_Events.GetMainWarehouse();
         
         WhseJnlBatch.SetRange("Location Code", CurrentLocationCode);

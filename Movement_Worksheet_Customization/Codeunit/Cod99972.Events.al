@@ -17,7 +17,7 @@ codeunit 99972 Events
         exit(L_WhseSetup."RECEIVE Warehouse");
     end;
 
-    procedure GetPickBulkZone(P_LocationCode: Code[10]): Code[10]
+    procedure GetBulkZone(P_LocationCode: Code[10]): Code[10]
     var
         L_Zone: Record Zone;
     begin
@@ -28,18 +28,12 @@ codeunit 99972 Events
             exit(L_Zone.Code);
     end;
 
-    procedure GetReceiveBulkZone(P_LocationCode: Code[10]): Code[10]
-    var
-        L_Zone: Record Zone;
-    begin
-        L_Zone.Reset();
-        L_Zone.SetRange("Location Code", P_LocationCode);
-        L_Zone.SetFilter(L_Zone.BULK, '%1', true);
-        if L_Zone.FindFirst() then
-            exit(L_Zone.Code);
-    end;
+    // procedure GetReceiveBulkZone(P_LocationCode: Code[10]): Code[10]
+    // begin
+    //     exit(GetPickBulkZone(P_LocationCode));
+    // end;
 
-    procedure GetPickHighBayZone(P_LocationCode: Code[10]): Code[10]
+    procedure GetHighBayZone(P_LocationCode: Code[10]): Code[10]
     var
         L_Zone: Record Zone;
     begin
