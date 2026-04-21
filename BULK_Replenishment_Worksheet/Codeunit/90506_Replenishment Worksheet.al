@@ -247,8 +247,9 @@ codeunit 99971 "Replenishment Worksheet"
         // L_BinContent.SetRange("Item No.", _ReplenishmentWorksheet."Item No.");
         // if L_BinContent.FindFirst() then;
 
-        //G_ReqLine.Validate("Bin Code", 'PICK BULK');
-        G_ReqLine.Validate("Bin Code", _ReplenishmentWorksheet."Bin Code");
+        // Assign directly (not Validate) so BC does not run the "Directed Put-away and Pick" TestField.
+        // OnAfterInsertTransLine copies this to Transfer Line's "Transfer-To Bin Code".
+        G_ReqLine."Bin Code" := _ReplenishmentWorksheet."Bin Code";
         G_ReqLine.Validate("Replenishment System", G_ReqLine."Replenishment System"::Transfer);
         //G_ReqLine.Validate("Supply From", 'BULKNDPP');
         G_ReqLine.Validate("Supply From", G_Events.GetReceiveWarehouse());

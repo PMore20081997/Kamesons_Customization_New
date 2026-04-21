@@ -20,7 +20,7 @@ tableextension 99991 BinContentExt extends "Bin Content"
         //     CalcFormula = lookup("Item Variant".Priority where("Item No." = field("Item No."), Code = field("Variant Code")));
         //     Editable = false;
         // }
-        field(50000; "Number of Totes in a Bin"; Integer)
+        field(99971; "Number of Totes in a Bin"; Integer)
         {
             DataClassification = ToBeClassified;
         }

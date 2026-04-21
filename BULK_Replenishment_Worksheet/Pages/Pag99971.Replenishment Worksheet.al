@@ -146,10 +146,10 @@ page 99971 "Replenishment Worksheet"
     {
         area(Processing)
         {
-            action("Calculate Bin &Replenishment")
+            action("Calculate BULK Bin &Replenishment")
             {
                 ApplicationArea = all;
-                Caption = 'Calculate Bin &Replenishment';
+                Caption = 'Calculate BULK Bin &Replenishment';
                 Ellipsis = true;
                 Image = CalculateBinReplenishment;
 
