@@ -35,7 +35,7 @@ codeunit 99983 "Event Subscribers NDPP"
             L_DecantZoneCode := G_Events.GetGenDecantZone(G_Events.GetReceiveWarehouse());
         end;
 
-        L_LastExpiry := GetLastExpiryDateInDecantZone(WarehouseActivityLine, L_DecantZoneCode);
+        L_LastExpiry := GetLastExpiryDate(WarehouseActivityLine, L_DecantZoneCode);
 
         Clear(G_BinContentQty);
         if (L_LastExpiry = 0D) OR (WarehouseActivityLine."Expiration Date" <= L_LastExpiry) then begin
@@ -45,7 +45,7 @@ codeunit 99983 "Event Subscribers NDPP"
             AssignZoneBin(WarehouseActivityLine, L_TargetZone::HighBay);
     end;
 
-    procedure GetLastExpiryDateInDecantZone(var P_WhseActLine: Record "Warehouse Activity Line"; P_ZoneCode: Code[10]): Date
+    procedure GetLastExpiryDate(var P_WhseActLine: Record "Warehouse Activity Line"; P_ZoneCode: Code[10]): Date
     var
         L_WarehouseEntryLotDetails: Query WarehouseEntryLotDetails;
         L_DecantStockExpDate: Date;
