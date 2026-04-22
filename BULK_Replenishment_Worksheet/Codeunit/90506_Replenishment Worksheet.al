@@ -180,16 +180,16 @@ codeunit 99971 "Replenishment Worksheet"
     #region New  Code for Transfer Order++
     procedure CreateReqWorksheet(var _ReplenishmentWorksheet: Record "Replenishment Worksheet"; L_LineNo: Integer)
     var
-        //L_ReplenishmentWorksheet: Record "Replenishment Worksheet";
-        //L_ReplenishmentWorksheetCode: Codeunit "Replenishment Worksheet";
+    //L_ReplenishmentWorksheet: Record "Replenishment Worksheet";
+    //L_ReplenishmentWorksheetCode: Codeunit "Replenishment Worksheet";
 
-        //New++
-        //TempReplenishmentWorksheet_ForLoop: Record "Replenishment Worksheet" temporary;
+    //New++
+    //TempReplenishmentWorksheet_ForLoop: Record "Replenishment Worksheet" temporary;
 
 
-        //L_CarryOutActionMsg: Codeunit "Carry Out Action";
+    //L_CarryOutActionMsg: Codeunit "Carry Out Action";
 
-        //LocationCodeLoop: Code[20];
+    //LocationCodeLoop: Code[20];
 
     begin
 
@@ -261,6 +261,7 @@ codeunit 99971 "Replenishment Worksheet"
         G_ReqLine.Validate("Lot No.", _ReplenishmentWorksheet."Lot No.");
         G_ReqLine.Validate("Package No.", _ReplenishmentWorksheet."Package No.");
         G_ReqLine.Validate("Lot Expiration Date", _ReplenishmentWorksheet."Expiration Date");
+        G_ReqLine.Validate("Manufacturer Code", _ReplenishmentWorksheet."Manufacturer Code");
         G_ReqLine.Validate("Created By Repl.", true);
         G_ReqLine.Insert(true);
 

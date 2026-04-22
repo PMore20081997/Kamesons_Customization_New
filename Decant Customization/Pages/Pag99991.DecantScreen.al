@@ -183,7 +183,7 @@ page 99991 "Decant Screen"
                 field("New Package No."; Rec."New Package No.")
                 {
                     ApplicationArea = All;
-                    Editable = false;
+                    //Editable = false; Temporary++
                 }
                 field("Reason Code"; Rec."Reason Code")
                 {

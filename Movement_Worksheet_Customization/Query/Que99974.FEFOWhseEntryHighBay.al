@@ -33,9 +33,12 @@ query 99974 "FEFO Whse Entry HIGHBAY"
             column(Expiration_Date; "Expiration Date")
             {
             }
-            column(Quantity; Quantity)
+            column(Quantity_Base; "Qty. (Base)")
             {
                 Method = Sum;
+            }
+            column(Qty_per_Unit_of_Measure; "Qty. per Unit of Measure")
+            {
             }
         }
     }

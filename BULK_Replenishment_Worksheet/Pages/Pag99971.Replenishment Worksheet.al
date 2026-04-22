@@ -57,20 +57,20 @@ page 99971 "Replenishment Worksheet"
                     Editable = false;
                     ToolTip = 'Specifies the description of the item.';
                 }
-                field("Min. Qty."; Rec."Min. Qty.")
-                {
-                    ApplicationArea = All;
-                    Editable = false;
-                    DecimalPlaces = 0 : 5;
-                    ToolTip = 'Minimum quantity of the item that comes from the Replenishment Master.';
-                }
-                field("Max. Qty."; Rec."Max. Qty.")
-                {
-                    ApplicationArea = All;
-                    Editable = false;
-                    DecimalPlaces = 0 : 5;
-                    ToolTip = 'Maximum quantity of the item that comes from the Replenishment Master.';
-                }
+                // field("Min. Qty."; Rec."Min. Qty.")
+                // {
+                //     ApplicationArea = All;
+                //     Editable = false;
+                //     DecimalPlaces = 0 : 5;
+                //     ToolTip = 'Minimum quantity of the item that comes from the Replenishment Master.';
+                // }
+                // field("Max. Qty."; Rec."Max. Qty.")
+                // {
+                //     ApplicationArea = All;
+                //     Editable = false;
+                //     DecimalPlaces = 0 : 5;
+                //     ToolTip = 'Maximum quantity of the item that comes from the Replenishment Master.';
+                // }
                 field("Location Code"; Rec."Location Code")
                 {
                     ApplicationArea = All;
@@ -100,16 +100,26 @@ page 99971 "Replenishment Worksheet"
                     ToolTip = 'Specifies the value of the From Bin Code field.', Comment = '%';
                     ApplicationArea = All;
                 }
+                field("Lot No."; Rec."Lot No.")
+                {
+                    ToolTip = 'Specifies the value of the Lot No. field.', Comment = '%';
+                    ApplicationArea = All;
+                }
+                field("Expiration Date"; Rec."Expiration Date")
+                {
+                    ToolTip = 'Specifies the value of the Expiration Date field.', Comment = '%';
+                    ApplicationArea = All;
+                }
                 field("Package No."; Rec."Package No.")
                 {
                     ToolTip = 'Specifies the value of the Package No. field.', Comment = '%';
                 }
-                field("Pick Qty"; Rec."Pick Qty")
-                {
-                    ToolTip = 'Pick Qty for selected Item No., From Variant, and From Location Code';
-                    ApplicationArea = All;
-                    Editable = false;
-                }
+                // field("Pick Qty"; Rec."Pick Qty")
+                // {
+                //     ToolTip = 'Pick Qty for selected Item No., From Variant, and From Location Code';
+                //     ApplicationArea = All;
+                //     Editable = false;
+                // }
                 // field("Own Log Qty."; Rec."Own Log Qty.")
                 // {
                 //     ApplicationArea = All;
@@ -120,14 +130,14 @@ page 99971 "Replenishment Worksheet"
                 //     ApplicationArea = All;
                 //     Editable = false;
                 // }
-                field("Demand Quantity"; Rec."Demand Quantity")
-                {
-                    ApplicationArea = All;
-                    DecimalPlaces = 0 : 5;
-                    Editable = false;
-                    Caption = 'Replenishment Qty.';
-                    ToolTip = 'Qty required Calculation: Max Qty - Depot1 Qty - Transfer Line Qty Last 2 days';
-                }
+                // field("Demand Quantity"; Rec."Demand Quantity")
+                // {
+                //     ApplicationArea = All;
+                //     DecimalPlaces = 0 : 5;
+                //     Editable = false;
+                //     Caption = 'Replenishment Qty.';
+                //     ToolTip = 'Qty required Calculation: Max Qty - Depot1 Qty - Transfer Line Qty Last 2 days';
+                // }
                 field("Qty to Move"; Rec."Qty to Move")
                 {
                     ApplicationArea = All;
@@ -136,10 +146,15 @@ page 99971 "Replenishment Worksheet"
                 }
             }
         }
-        // area(Factboxes)
-        // {
-
-        // }
+        area(Factboxes)
+        {
+            part(ReceiveBinContentDetails; "Receive Bin Content Details")
+            {
+                SubPageLink = "Item No." = field("Item No."), "Location Code" = field("Location Code");
+                ApplicationArea = all;
+                Caption = 'Receive Bin Content Details';
+            }
+        }
     }
 
     actions
@@ -188,7 +203,7 @@ page 99971 "Replenishment Worksheet"
                     L_BatchName := Rec."Batch Name";
 
                     L_ReplenishmentWorksheet.Reset();
-                    CurrPage.SetSelectionFilter(L_ReplenishmentWorksheet);
+                    // CurrPage.SetSelectionFilter(L_ReplenishmentWorksheet);
                     L_ReplenishmentWorksheet.SetRange(Action, L_ReplenishmentWorksheet.Action::Accept);
                     L_ReplenishmentWorksheet.SetRange("Batch Name", L_BatchName);
                     L_ReplenishmentWorksheet.SetFilter("Qty to Move", '>%1', 0);

@@ -332,6 +332,10 @@ table 99971 "Replenishment Worksheet"
         {
             DataClassification = ToBeClassified; //New
         }
+        field(30; "Manufacturer Code"; Code[100])
+        {
+            DataClassification = ToBeClassified;
+        }
     }
 
     keys

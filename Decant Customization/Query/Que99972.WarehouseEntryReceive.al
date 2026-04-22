@@ -58,6 +58,13 @@ query 99972 WarehouseEntryReceive
             {
                 Method = Sum;
             }
+            column(Qty_Base; "Qty. (Base)")
+            {
+                Method = Sum;
+            }
+            column(Qty_per_Unit_of_Measure; "Qty. per Unit of Measure")
+            {
+            }
         }
     }
 

@@ -116,17 +116,21 @@ Report 99971 "Cal _Bin Replenishment New"
         L_Events: Codeunit Events;
         L_BulkLocation: Code[20];
         L_BulkDecantZone: Code[20];
-        L_HighBayZone: Code[20];
+        //L_HighBayZone: Code[20];
         L_PickBulkZone: Code[20];
-        L_CurrentQty: Decimal;
-        L_RemQtyToReplenish: Decimal;
-        L_AvailableSourceQty: Decimal;
-        L_QtyToTake: Decimal;
-        L_AlreadyAllocated: Decimal;
+        L_CurrentQtyBase: Decimal;
+        L_MinQtyBase: Decimal;
+        L_MaxQtyBase: Decimal;
+        L_RemQtyToReplenishBase: Decimal;
+        L_AvailableSourceQtyBase: Decimal;
+        L_QtyToTakeBase: Decimal;
+        L_AlreadyAllocatedBase: Decimal;
+        L_SourceQtyPerUoM: Decimal;
+        L_BinQtyPerUoM: Decimal;
     begin
         L_BulkLocation := L_Events.GetReceiveWarehouse();
         L_BulkDecantZone := L_Events.GetBulkZone(L_BulkLocation);
-        L_HighBayZone := L_Events.GetHighBayZone(L_BulkLocation);
+        //L_HighBayZone := L_Events.GetHighBayZone(L_BulkLocation);
         L_PickBulkZone := L_Events.GetBulkZone(_LocationCode);
 
         // Iterate every PICK BULK Bin Content configured for this item (catches brand-new bins with no entries yet)
@@ -136,24 +140,30 @@ Report 99971 "Cal _Bin Replenishment New"
         L_BinContent.SetRange("Zone Code", L_PickBulkZone);
         if L_BinContent.FindSet() then
             repeat
-                // Current qty in this destination bin (sums Warehouse Entry via FlowField)
-                L_BinContent.CalcFields(Quantity);
-                L_CurrentQty := L_BinContent.Quantity;
+                // Current qty (base) in this destination bin (sums Warehouse Entry via FlowField)
+                L_BinContent.CalcFields("Quantity (Base)");
+                L_CurrentQtyBase := L_BinContent."Quantity (Base)";
+                L_BinQtyPerUoM := L_BinContent."Qty. per Unit of Measure";
+                if L_BinQtyPerUoM = 0 then
+                    L_BinQtyPerUoM := 1;
+                L_MinQtyBase := L_BinContent."Min. Qty." * L_BinQtyPerUoM;
+                L_MaxQtyBase := L_BinContent."Max. Qty." * L_BinQtyPerUoM;
 
-                // Trigger replenishment only when below Min Qty AND there is room up to Max Qty
-                if (L_CurrentQty <= L_BinContent."Min. Qty.") and
-                   (L_BinContent."Max. Qty." > L_CurrentQty)
+                // Trigger replenishment only when below Min Qty AND there is room up to Max Qty (base)
+                if (L_CurrentQtyBase <= L_MinQtyBase) and
+                   (L_MaxQtyBase > L_CurrentQtyBase)
                 then begin
-                    L_RemQtyToReplenish := L_BinContent."Max. Qty." - L_CurrentQty;
+                    L_RemQtyToReplenishBase := L_MaxQtyBase - L_CurrentQtyBase;
 
                     // Source: BULK location, BULK DECANT or HIGHBAY zones, FEFO (query is ordered by Expiration_Date asc)
                     L_SourceQ.SetFilter(L_SourceQ.Item_No_, '%1', _ItemNo);
                     L_SourceQ.SetFilter(L_SourceQ.Location_Code, '%1', L_BulkLocation);
-                    L_SourceQ.SetFilter(L_SourceQ.Zone_Code, '%1|%2', L_BulkDecantZone, L_HighBayZone);
+                    // L_SourceQ.SetFilter(L_SourceQ.Zone_Code, '%1|%2', L_BulkDecantZone, L_HighBayZone);
+                    L_SourceQ.SetFilter(L_SourceQ.Zone_Code, '%1', L_BulkDecantZone);
                     L_SourceQ.SetFilter(L_SourceQ.Expiration_Date, '>=%1', WorkDate());
-                    L_SourceQ.SetFilter(L_SourceQ.Quantity, '>%1', 0);
+                    L_SourceQ.SetFilter(L_SourceQ.Qty_Base, '>%1', 0);
                     L_SourceQ.Open();
-                    while (L_RemQtyToReplenish > 0) and L_SourceQ.Read() do begin
+                    while (L_RemQtyToReplenishBase > 0) and L_SourceQ.Read() do begin
                         // Skip if a worksheet line already exists for this exact source-lot/destination pair
                         L_DupCheck.Reset();
                         L_DupCheck.SetRange("Template Name", WhseWkshTemplateName);
@@ -165,8 +175,11 @@ Report 99971 "Cal _Bin Replenishment New"
                         L_DupCheck.SetRange("Location Code", L_BinContent."Location Code");
                         L_DupCheck.SetRange("Bin Code", L_BinContent."Bin Code");
                         if L_DupCheck.IsEmpty() then begin
-                            // Subtract qty already allocated from this source bin/lot in the worksheet
-                            Clear(L_AlreadyAllocated);
+                            // Subtract qty already allocated (base) from this source bin/lot in the worksheet
+                            Clear(L_AlreadyAllocatedBase);
+                            L_SourceQtyPerUoM := L_SourceQ.Qty_per_Unit_of_Measure;
+                            if L_SourceQtyPerUoM = 0 then
+                                L_SourceQtyPerUoM := 1;
                             L_PendingRepl.Reset();
                             L_PendingRepl.SetRange("Item No.", L_SourceQ.Item_No_);
                             L_PendingRepl.SetRange("From Location Code", L_SourceQ.Location_Code);
@@ -174,15 +187,15 @@ Report 99971 "Cal _Bin Replenishment New"
                             L_PendingRepl.SetRange("Lot No.", L_SourceQ.Lot_No_);
                             if not L_PendingRepl.IsEmpty() then begin
                                 L_PendingRepl.CalcSums("Qty to Move");
-                                L_AlreadyAllocated := L_PendingRepl."Qty to Move";
+                                L_AlreadyAllocatedBase := L_PendingRepl."Qty to Move" * L_SourceQtyPerUoM;
                             end;
 
-                            L_AvailableSourceQty := L_SourceQ.Quantity - L_AlreadyAllocated;
-                            if L_AvailableSourceQty > 0 then begin
-                                if L_AvailableSourceQty >= L_RemQtyToReplenish then
-                                    L_QtyToTake := L_RemQtyToReplenish
+                            L_AvailableSourceQtyBase := L_SourceQ.Qty_Base - L_AlreadyAllocatedBase;
+                            if L_AvailableSourceQtyBase > 0 then begin
+                                if L_AvailableSourceQtyBase >= L_RemQtyToReplenishBase then
+                                    L_QtyToTakeBase := L_RemQtyToReplenishBase
                                 else
-                                    L_QtyToTake := L_AvailableSourceQty;
+                                    L_QtyToTakeBase := L_AvailableSourceQtyBase;
 
                                 G_ReplenishmentWorksheet.Init();
                                 G_ReplenishmentWorksheet."Posting Date" := WorkDate();
@@ -192,6 +205,7 @@ Report 99971 "Cal _Bin Replenishment New"
                                 G_ReplenishmentWorksheet."Item No." := L_SourceQ.Item_No_;
                                 if L_Item.Get(L_SourceQ.Item_No_) then
                                     G_ReplenishmentWorksheet.Description := L_Item.Description;
+                                G_ReplenishmentWorksheet."Manufacturer Code" := L_SourceQ.Manufacturer_Code;
                                 G_ReplenishmentWorksheet."Variant Code" := L_SourceQ.Variant_Code;
                                 G_ReplenishmentWorksheet."Unit of Measure Code" := L_SourceQ.Unit_of_Measure_Code;
                                 G_ReplenishmentWorksheet."From Location Code" := L_SourceQ.Location_Code;
@@ -203,15 +217,15 @@ Report 99971 "Cal _Bin Replenishment New"
                                 G_ReplenishmentWorksheet."Expiration Date" := L_SourceQ.Expiration_Date;
                                 G_ReplenishmentWorksheet."Min. Qty." := L_BinContent."Min. Qty.";
                                 G_ReplenishmentWorksheet."Max. Qty." := L_BinContent."Max. Qty.";
-                                G_ReplenishmentWorksheet."System Quantity" := L_CurrentQty;
-                                G_ReplenishmentWorksheet."Available Qty" := L_AvailableSourceQty;
-                                G_ReplenishmentWorksheet."Demand Quantity" := L_BinContent."Max. Qty." - L_CurrentQty;
-                                G_ReplenishmentWorksheet."Qty to Move" := L_QtyToTake;
+                                G_ReplenishmentWorksheet."System Quantity" := L_CurrentQtyBase / L_BinQtyPerUoM;
+                                G_ReplenishmentWorksheet."Available Qty" := L_AvailableSourceQtyBase / L_SourceQtyPerUoM;
+                                G_ReplenishmentWorksheet."Demand Quantity" := (L_MaxQtyBase - L_CurrentQtyBase) / L_BinQtyPerUoM;
+                                G_ReplenishmentWorksheet."Qty to Move" := L_QtyToTakeBase / L_SourceQtyPerUoM;
                                 G_ReplenishmentWorksheet.Action := G_ReplenishmentWorksheet.Action::Accept;
                                 G_ReplenishmentWorksheet.Insert();
 
                                 NextLineNo := NextLineNo + 10000;
-                                L_RemQtyToReplenish := L_RemQtyToReplenish - L_QtyToTake;
+                                L_RemQtyToReplenishBase := L_RemQtyToReplenishBase - L_QtyToTakeBase;
                             end;
                         end;
                     end;

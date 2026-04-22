@@ -28,6 +28,7 @@ codeunit 99991 CreateDecantWhseReclassAndPost
         EmptyPackagesCount: Integer;
         AssignedPackageNo: Code[50];
         ToteLimit: Integer;
+        SourceQtyPerUoM: Decimal;
     begin
         if SourceLocationCode = '' then
             Error('Source Location Code must be specified.');
@@ -87,16 +88,19 @@ codeunit 99991 CreateDecantWhseReclassAndPost
                         SourceQuery.SetFilter(SourceQuery.Location_Code, SourceLocationCode);
                         SourceQuery.SetFilter(SourceQuery.Zone_Code, SourceZone);
                         SourceQuery.SetFilter(Expiration_Date, '>=%1', WorkDate());
-                        SourceQuery.SetFilter(Quantity, '>%1', 0);
+                        SourceQuery.SetFilter(Qty_Base, '>%1', 0);
                         SourceQuery.Open();
 
                         while SourceQuery.Read() and (TotesCreated < ToteLimit) do begin
-                            if SourceQuery.Quantity > 0 then begin
+                            if SourceQuery.Qty_Base > 0 then begin
+                                SourceQtyPerUoM := SourceQuery.Qty_per_Unit_of_Measure;
+                                if SourceQtyPerUoM = 0 then
+                                    SourceQtyPerUoM := 1;
                                 // Look up Qty per Tote from Item Manufacturer Table using source Manufacturer Code
                                 if ItemManufacturer.Get(SourceQuery.Item_No_, SourceQuery.Manufacturer_Code) then begin
                                     QtyPerTote := ItemManufacturer."Qty per Tote";
                                     if QtyPerTote > 0 then begin
-                                        RemainingFromLot := SourceQuery.Quantity;
+                                        RemainingFromLot := SourceQuery.Qty_Base;
 
                                         // Create one line per tote/package from this lot
                                         // Partial totes allowed - tote gets whatever qty remains from the lot
@@ -123,7 +127,7 @@ codeunit 99991 CreateDecantWhseReclassAndPost
                                             DecantDetails."From Zone Code" := SourceQuery.Zone_Code;
                                             DecantDetails."From Bin Code" := SourceQuery.Bin_Code;
                                             DecantDetails."Lot No." := SourceQuery.Lot_No_;
-                                            DecantDetails.Quantity := ToteQty;
+                                            DecantDetails.Quantity := ToteQty / SourceQtyPerUoM;
                                             DecantDetails."Unit of Measure Code" := SourceQuery.Unit_of_Measure_Code;
 
                                             // Destination
@@ -135,7 +139,7 @@ codeunit 99991 CreateDecantWhseReclassAndPost
                                             DecantDetails."Manufacturer Code" := SourceQuery.Manufacturer_Code;
                                             DecantDetails."Qty Per Tote" := QtyPerTote;
                                             DecantDetails."Number of Totes" := ToteLimit;
-                                            DecantDetails."To Qty." := ToteQty;
+                                            DecantDetails."To Qty." := ToteQty / SourceQtyPerUoM;
 
                                             // Assign empty package from PICK BULK as the New Package No. (blank if fallback)
                                             DecantDetails."New Package No." := AssignedPackageNo;
@@ -178,7 +182,7 @@ codeunit 99991 CreateDecantWhseReclassAndPost
         DestQuery.SetFilter(DestQuery.Zone_Code, ZoneCode);
         DestQuery.Open();
         while DestQuery.Read() do
-            TotalQty += DestQuery.Quantity;
+            TotalQty += DestQuery.Qty_Base;
         DestQuery.Close();
         exit(TotalQty);
     end;
@@ -295,7 +299,7 @@ codeunit 99991 CreateDecantWhseReclassAndPost
         DestQuery.SetFilter(DestQuery.Package_No_, '<>%1', '');
         DestQuery.Open();
         while DestQuery.Read() do begin
-            if DestQuery.Quantity = 0 then
+            if DestQuery.Qty_Base = 0 then
                 EmptyPackages.Add(DestQuery.Package_No_);
         end;
         DestQuery.Close();

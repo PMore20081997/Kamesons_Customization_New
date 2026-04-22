@@ -28,7 +28,7 @@ query 99973 WhseDetailsMainGenDcnt
             {
 
             }
-            column(Quantity; Quantity)
+            column(Qty_Base; "Qty. (Base)")
             {
                 Method = Sum;
             }

@@ -29,7 +29,11 @@ query 99981 WarehouseEntryLotDetails
             {
 
             }
-            column(Quantity; Quantity)
+            // column(Quantity; Quantity)
+            // {
+            //     Method = Sum;
+            // }
+            column(Qty_Base; "Qty. (Base)")
             {
                 Method = Sum;
             }

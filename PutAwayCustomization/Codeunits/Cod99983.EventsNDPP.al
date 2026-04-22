@@ -53,7 +53,7 @@ codeunit 99983 "Event Subscribers NDPP"
         L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Item_No_, '%1', P_WhseActLine."Item No.");
         L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Location_Code, '%1', G_Events.GetReceiveWarehouse());
         L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Zone_Code, '%1', P_ZoneCode);
-        L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Quantity, '>%1', 0);
+        L_WarehouseEntryLotDetails.SetFilter(L_WarehouseEntryLotDetails.Qty_Base, '>%1', 0);
         L_WarehouseEntryLotDetails.TopNumberOfRows(1);
         L_WarehouseEntryLotDetails.Open();
         while L_WarehouseEntryLotDetails.Read() do
@@ -76,7 +76,7 @@ codeunit 99983 "Event Subscribers NDPP"
         if not L_BinContent.FindFirst() then
             exit(0);
 
-        L_BinContent.CalcFields(Quantity, "Put-away Qty.", "Pos. Adjmt. Qty.");
+        L_BinContent.CalcFields("Quantity (Base)", "Put-away Quantity (Base)", "Positive Adjmt. Qty. (Base)");
 
         L_WhseActLine.Reset();
         L_WhseActLine.SetRange("Action Type", L_WhseActLine."Action Type"::Place);
@@ -117,12 +117,12 @@ codeunit 99983 "Event Subscribers NDPP"
             L_BinContent.SetFilter("Zone Code", '%1', G_Events.GetGenDecantZone(G_Events.GetMainWarehouse()));
         L_BinContent.SetRange("Item No.", Rec."Item No.");
         if L_BinContent.FindFirst() then begin
-            if (L_BinContent."Max. Qty." > 0) AND ((G_BinContentQty + Rec.Quantity) > L_BinContent."Max. Qty.") then begin
+            if (L_BinContent."Max. Qty." > 0) AND ((G_BinContentQty + Rec."Qty. (Base)") > (L_BinContent."Max. Qty." * L_BinContent."Qty. per Unit of Measure")) then begin
                 Clear(G_SplitQtyToHandle);
-                G_SplitQtyToHandle := L_BinContent."Max. Qty." - G_BinContentQty;
+                G_SplitQtyToHandle := (L_BinContent."Max. Qty." * L_BinContent."Qty. per Unit of Measure") - G_BinContentQty;
 
                 if G_SplitQtyToHandle > 0 then begin
-                    Rec.Validate("Qty. to Handle", G_SplitQtyToHandle);
+                    Rec.Validate("Qty. to Handle (Base)", G_SplitQtyToHandle);
                     Rec.Modify();
 
                     G_IsExecuting := false;

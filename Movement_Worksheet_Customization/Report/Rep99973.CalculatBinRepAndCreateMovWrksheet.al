@@ -217,19 +217,23 @@ report 99973 "Calculate Bin Rep And Movement"
     var
         L_FEFOQuery: Query "FEFO Whse Entry HIGHBAY";
         L_Item: Record Item;
-        L_CurrentAvail: Decimal;
-        L_NeedQty: Decimal;
-        L_AvailQty: Decimal;
-        L_PendingQty: Decimal;
-        L_MoveQty: Decimal;
+        L_CurrentAvailBase: Decimal;
+        L_NeedQtyBase: Decimal;
+        L_AvailQtyBase: Decimal;
+        L_PendingQtyBase: Decimal;
+        L_MoveQtyBase: Decimal;
+        L_MinQtyBase: Decimal;
+        L_MaxQtyBase: Decimal;
         L_ToZoneCode: Code[10];
         L_ToBinCode: Code[20];
 
         L_Zone: Record Zone;
     begin
-        // Check if stock is below Min. Qty.
-        L_CurrentAvail := P_BinContent.CalcQtyAvailToTake(0);
-        if L_CurrentAvail >= P_BinContent."Min. Qty." then
+        // Check if stock is below Min. Qty. (compared in base UoM)
+        L_CurrentAvailBase := P_BinContent.CalcQtyAvailToTake(0);
+        L_MinQtyBase := P_BinContent."Min. Qty." * P_BinContent."Qty. per Unit of Measure";
+        L_MaxQtyBase := P_BinContent."Max. Qty." * P_BinContent."Qty. per Unit of Measure";
+        if L_CurrentAvailBase >= L_MinQtyBase then
             exit;
 
         // Determine destination based on Item.BULK flag
@@ -258,52 +262,53 @@ report 99973 "Calculate Bin Rep And Movement"
 
         //New--
 
-        // Qty needed to bring PICK BULK up to Max. Qty.
-        L_NeedQty := P_BinContent."Max. Qty." - L_CurrentAvail;
-        if L_NeedQty <= 0 then
+        // Qty needed (base) to bring PICK BULK up to Max. Qty.
+        L_NeedQtyBase := L_MaxQtyBase - L_CurrentAvailBase;
+        if L_NeedQtyBase <= 0 then
             exit;
 
         // Deduct stock already available in the destination bin (BULK DECANT or GEN DECANT)
-        L_NeedQty -= GetDestinationBinAvailQty(P_BinContent."Item No.", L_ToZoneCode, L_ToBinCode);
-        if L_NeedQty <= 0 then
+        L_NeedQtyBase -= GetDestinationBinAvailQty(P_BinContent."Item No.", L_ToZoneCode, L_ToBinCode);
+        if L_NeedQtyBase <= 0 then
             exit;
 
         // Deduct what is already pending in the worksheet for this item (across all HighBay bins)
-        L_NeedQty -= GetQtyAlreadyInWorksheet(P_BinContent."Item No.", L_ToZoneCode, L_ToBinCode);
-        if L_NeedQty <= 0 then
+        L_NeedQtyBase -= GetQtyAlreadyInWorksheet(P_BinContent."Item No.", L_ToZoneCode, L_ToBinCode);
+        if L_NeedQtyBase <= 0 then
             exit;
 
         // FEFO: iterate HIGHBAY warehouse entries by earliest expiration date first (across all bins in the zone)
         L_FEFOQuery.SetFilter(L_FEFOQuery.Location_Code, '%1', BulkLocation);
         L_FEFOQuery.SetFilter(L_FEFOQuery.Zone_Code, '%1', HighBayZone);
         L_FEFOQuery.SetFilter(L_FEFOQuery.Item_No_, '%1', P_BinContent."Item No.");
-        L_FEFOQuery.SetFilter(L_FEFOQuery.Quantity, '>%1', 0);
+        L_FEFOQuery.SetFilter(L_FEFOQuery.Quantity_Base, '>%1', 0);
         L_FEFOQuery.Open();
-        while L_FEFOQuery.Read() and (L_NeedQty > 0) do begin
-            L_AvailQty := L_FEFOQuery.Quantity;
+        while L_FEFOQuery.Read() and (L_NeedQtyBase > 0) do begin
+            L_AvailQtyBase := L_FEFOQuery.Quantity_Base;
 
             // Deduct qty already in worksheet for this specific lot
-            L_PendingQty := GetLotQtyAlreadyInWorksheet(
+            L_PendingQtyBase := GetLotQtyAlreadyInWorksheet(
                 P_BinContent."Item No.", L_FEFOQuery.Lot_No_);
-            L_AvailQty -= L_PendingQty;
+            L_AvailQtyBase -= L_PendingQtyBase;
 
-            if L_AvailQty > 0 then begin
-                if L_AvailQty >= L_NeedQty then
-                    L_MoveQty := L_NeedQty
+            if L_AvailQtyBase > 0 then begin
+                if L_AvailQtyBase >= L_NeedQtyBase then
+                    L_MoveQtyBase := L_NeedQtyBase
                 else
-                    L_MoveQty := L_AvailQty;
+                    L_MoveQtyBase := L_AvailQtyBase;
 
                 InsertMovementWkshLine(
                     P_BinContent,
                     L_FEFOQuery.Lot_No_,
                     L_FEFOQuery.Expiration_Date,
                     L_FEFOQuery.Unit_of_Measure_Code,
-                    L_MoveQty,
+                    L_FEFOQuery.Qty_per_Unit_of_Measure,
+                    L_MoveQtyBase,
                     L_ToZoneCode,
                     L_ToBinCode,
                     L_FEFOQuery.Bin_Code, L_FEFOQuery.Package_No_);
 
-                L_NeedQty -= L_MoveQty;
+                L_NeedQtyBase -= L_MoveQtyBase;
             end;
         end;
         L_FEFOQuery.Close();
@@ -336,8 +341,8 @@ report 99973 "Calculate Bin Rep And Movement"
         L_WhseWkshLine.SetRange("To Zone Code", P_ToZoneCode);
         L_WhseWkshLine.SetRange("To Bin Code", P_ToBinCode);
         L_WhseWkshLine.SetRange("Item No.", P_ItemNo);
-        L_WhseWkshLine.CalcSums(Quantity);
-        exit(L_WhseWkshLine.Quantity);
+        L_WhseWkshLine.CalcSums("Qty. (Base)");
+        exit(L_WhseWkshLine."Qty. (Base)");
     end;
 
     local procedure GetLotQtyAlreadyInWorksheet(P_ItemNo: Code[20]; P_LotNo: Code[50]): Decimal
@@ -354,7 +359,7 @@ report 99973 "Calculate Bin Rep And Movement"
         exit(L_WhseItemTrackingLine."Quantity (Base)");
     end;
 
-    local procedure InsertMovementWkshLine(var P_BinContent: Record "Bin Content"; P_LotNo: Code[50]; P_ExpirationDate: Date; P_UoMCode: Code[10]; P_MoveQty: Decimal; P_ToZoneCode: Code[10]; P_ToBinCode: Code[20]; P_FromBinCode: Code[20]; P_PackageNo: Code[50])
+    local procedure InsertMovementWkshLine(var P_BinContent: Record "Bin Content"; P_LotNo: Code[50]; P_ExpirationDate: Date; P_UoMCode: Code[10]; P_QtyPerUoM: Decimal; P_MoveQtyBase: Decimal; P_ToZoneCode: Code[10]; P_ToBinCode: Code[20]; P_FromBinCode: Code[20]; P_PackageNo: Code[50])
     var
         L_WhseWkshLine: Record "Whse. Worksheet Line";
         L_Item: Record Item;
@@ -368,16 +373,18 @@ report 99973 "Calculate Bin Rep And Movement"
         L_WhseWkshLine.Validate("Item No.", P_BinContent."Item No.");
 
         L_WhseWkshLine."Unit of Measure Code" := P_UoMCode;
-        L_WhseWkshLine."Qty. per Unit of Measure" := P_BinContent."Qty. per Unit of Measure";
+        if P_QtyPerUoM = 0 then
+            P_QtyPerUoM := P_BinContent."Qty. per Unit of Measure";
+        L_WhseWkshLine."Qty. per Unit of Measure" := P_QtyPerUoM;
 
         L_WhseWkshLine."From Zone Code" := HighBayZone;
         L_WhseWkshLine."From Bin Code" := P_FromBinCode;
         L_WhseWkshLine."To Zone Code" := P_ToZoneCode;
         L_WhseWkshLine."To Bin Code" := P_ToBinCode;
 
-        L_WhseWkshLine.Validate(Quantity, P_MoveQty);
+        L_WhseWkshLine.Validate(Quantity, P_MoveQtyBase / P_QtyPerUoM);
         if not DoNotFillQtytoHandle then
-            L_WhseWkshLine.Validate("Qty. to Handle", P_MoveQty);
+            L_WhseWkshLine.Validate("Qty. to Handle", P_MoveQtyBase / P_QtyPerUoM);
 
         if L_Item.Get(P_BinContent."Item No.") then
             L_WhseWkshLine.Description := L_Item.Description;
@@ -385,13 +392,13 @@ report 99973 "Calculate Bin Rep And Movement"
         L_WhseWkshLine.Insert(true);
 
         // Create Whse. Item Tracking Line for the lot
-        InsertWhseItemTrackingLine(L_WhseWkshLine, P_LotNo, P_ExpirationDate, P_MoveQty, P_PackageNo);
+        InsertWhseItemTrackingLine(L_WhseWkshLine, P_LotNo, P_ExpirationDate, P_MoveQtyBase, P_PackageNo);
 
         NextLineNo += 10000;
         LinesInserted += 1;
     end;
 
-    local procedure InsertWhseItemTrackingLine(var P_WhseWkshLine: Record "Whse. Worksheet Line"; P_LotNo: Code[50]; P_ExpirationDate: Date; P_Qty: Decimal; P_PackageNo: Code[50])
+    local procedure InsertWhseItemTrackingLine(var P_WhseWkshLine: Record "Whse. Worksheet Line"; P_LotNo: Code[50]; P_ExpirationDate: Date; P_QtyBase: Decimal; P_PackageNo: Code[50])
     var
         L_WhseItemTrackingLine: Record "Whse. Item Tracking Line";
         L_NextEntryNo: Integer;
@@ -422,9 +429,9 @@ report 99973 "Calculate Bin Rep And Movement"
         L_WhseItemTrackingLine."Expiration Date" := P_ExpirationDate;
         L_WhseItemTrackingLine."Package No." := P_PackageNo;
 
-        L_WhseItemTrackingLine."Quantity (Base)" := P_Qty * P_WhseWkshLine."Qty. per Unit of Measure";
-        L_WhseItemTrackingLine."Qty. to Handle (Base)" := P_Qty * P_WhseWkshLine."Qty. per Unit of Measure";
         L_WhseItemTrackingLine."Qty. per Unit of Measure" := P_WhseWkshLine."Qty. per Unit of Measure";
+        L_WhseItemTrackingLine."Quantity (Base)" := P_QtyBase;
+        L_WhseItemTrackingLine."Qty. to Handle (Base)" := P_QtyBase;
 
         L_WhseItemTrackingLine.Insert(true);
     end;
