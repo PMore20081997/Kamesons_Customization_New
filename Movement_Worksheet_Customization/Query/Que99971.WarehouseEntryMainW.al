@@ -24,7 +24,11 @@ query 99971 Warehouse_Entry_Main
             {
 
             }
-            column(Quantity; Quantity)
+            column(Manufacturer_Code;"Manufacturer Code")
+            {
+                
+            }
+            column(Qty___Base_; "Qty. (Base)")
             {
                 Method = Sum;
             }
