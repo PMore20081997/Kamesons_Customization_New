@@ -36,5 +36,5 @@ tableextension 99975 Purchase_Header_Ext extends "Purchase Header"
     }
 
     var
-        L_SameUserSecondCheck: Label 'You cannot select Second Check as yourself as you are the one who created the purchase order. Please select another user or leave it blank.';
+        L_SameUserSecondCheck: Label 'You cannot select Second Check as you are the one who created the purchase order. Please select another user or leave it blank.';
 }

@@ -153,19 +153,62 @@ codeunit 99972 Events
         ReservationEntry."Package No." := FromReservationEntry."Package No.";
     end;
 
-    // [EventSubscriber(ObjectType::Table, Database::"Transfer Line", OnAfterModifyEvent, '', false, false)]
-    // local procedure MyProcedure()
-    // var
-    //     i: Integer;
-    // begin
-    //     Clear(i);
-    // end;
-
     procedure GetBinContent(_LocationCode: Code[20]; _ZoneCode: Code[10]; _ItemNo: Code[20]) RetBinContent: Record "Bin Content"
     begin
         RetBinContent.SetRange("Location Code", _LocationCode);
         RetBinContent.SetRange("Zone Code", _ZoneCode);
         RetBinContent.SetRange("Item No.", _ItemNo);
         if RetBinContent.FindFirst() then;
+    end;
+
+
+
+    // Hop 1a: Whse. Item Tracking Line -> Warehouse Activity Line
+    //  (fires for pick flows that call WhseActLine.CopyTrackingFromWhseItemTrackingLine)
+    [EventSubscriber(ObjectType::Table, Database::"Warehouse Activity Line", OnAfterCopyTrackingFromWhseItemTrackingLine, '', false, false)]
+    local procedure OnAfterCopyTrkgFromWhseItemTrkgLineToWhseActLine(var WarehouseActivityLine: Record "Warehouse Activity Line"; WhseItemTrackingLine: Record "Whse. Item Tracking Line")
+    begin
+        WarehouseActivityLine."Manufacturer Code" := WhseItemTrackingLine."Manufacture Code";
+    end;
+
+    // Hop 1b: Tracking Specification -> Warehouse Activity Line
+    //  Inventory Movement from Movement Worksheet assigns tracking via CopyTrackingFromSpec.
+    //  Tracking Specification has no Manufacture Code, so look it up from Whse. Item Tracking Line by Item + Lot.
+    [EventSubscriber(ObjectType::Table, Database::"Warehouse Activity Line", OnAfterCopyTrackingFromSpec, '', false, false)]
+    local procedure OnAfterCopyTrkgFromSpecToWhseActLine(var WarehouseActivityLine: Record "Warehouse Activity Line"; TrackingSpecification: Record "Tracking Specification")
+    var
+        WhseItemTrkLine: Record "Whse. Item Tracking Line";
+    begin
+        if TrackingSpecification."Lot No." = '' then
+            exit;
+        WhseItemTrkLine.SetRange("Item No.", TrackingSpecification."Item No.");
+        WhseItemTrkLine.SetRange("Location Code", TrackingSpecification."Location Code");
+        WhseItemTrkLine.SetRange("Lot No.", TrackingSpecification."Lot No.");
+        if TrackingSpecification."Variant Code" <> '' then
+            WhseItemTrkLine.SetRange("Variant Code", TrackingSpecification."Variant Code");
+        WhseItemTrkLine.SetFilter("Manufacture Code", '<>%1', '');
+        if WhseItemTrkLine.FindFirst() then
+            WarehouseActivityLine."Manufacturer Code" := WhseItemTrkLine."Manufacture Code";
+    end;
+
+    // Hop 2: Warehouse Activity Line -> Warehouse Journal Line
+    [EventSubscriber(ObjectType::Table, Database::"Warehouse Journal Line", OnAfterCopyTrackingFromWhseActivityLine, '', false, false)]
+    local procedure OnAfterCopyTrkgFromWhseActLineToWhseJnlLine(var WarehouseJournalLine: Record "Warehouse Journal Line"; WarehouseActivityLine: Record "Warehouse Activity Line")
+    begin
+        WarehouseJournalLine."Manufacturer Code" := WarehouseActivityLine."Manufacturer Code";
+    end;
+
+    // Hop 3a: Warehouse Journal Line -> Warehouse Entry (take/negative side)
+    [EventSubscriber(ObjectType::Table, Database::"Warehouse Entry", OnAfterCopyTrackingFromWhseJnlLine, '', false, false)]
+    local procedure OnAfterCopyTrkgFromWhseJnlLineToWhseEntry(var WarehouseEntry: Record "Warehouse Entry"; WarehouseJournalLine: Record "Warehouse Journal Line")
+    begin
+        WarehouseEntry."Manufacturer Code" := WarehouseJournalLine."Manufacturer Code";
+    end;
+
+    // Hop 3b: Warehouse Journal Line -> Warehouse Entry (place/positive side for movements)
+    [EventSubscriber(ObjectType::Table, Database::"Warehouse Entry", OnAfterCopyTrackingFromNewWhseJnlLine, '', false, false)]
+    local procedure OnAfterCopyTrkgFromNewWhseJnlLineToWhseEntry(var WarehouseEntry: Record "Warehouse Entry"; WarehouseJournalLine: Record "Warehouse Journal Line")
+    begin
+        WarehouseEntry."Manufacturer Code" := WarehouseJournalLine."Manufacturer Code";
     end;
 }

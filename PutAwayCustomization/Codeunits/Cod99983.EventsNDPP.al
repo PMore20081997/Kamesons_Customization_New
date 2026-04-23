@@ -114,7 +114,8 @@ codeunit 99983 "Event Subscribers NDPP"
         if L_Zone.BULK then
             L_BinContent.SetFilter("Zone Code", '%1', G_Events.GetBulkZone(G_Events.GetMainWarehouse()));
         if L_Zone.General then
-            L_BinContent.SetFilter("Zone Code", '%1', G_Events.GetGenDecantZone(G_Events.GetMainWarehouse()));
+            //L_BinContent.SetFilter("Zone Code", '%1', G_Events.GetGenDecantZone(G_Events.GetMainWarehouse()));
+            L_BinContent.SetFilter("Zone Code", '%1', G_Events.GetGenDecantZonefromBinContent(G_Events.GetMainWarehouse(), Rec."Item No."));
         L_BinContent.SetRange("Item No.", Rec."Item No.");
         if L_BinContent.FindFirst() then begin
             if (L_BinContent."Max. Qty." > 0) AND ((G_BinContentQty + Rec."Qty. (Base)") > (L_BinContent."Max. Qty." * L_BinContent."Qty. per Unit of Measure")) then begin
