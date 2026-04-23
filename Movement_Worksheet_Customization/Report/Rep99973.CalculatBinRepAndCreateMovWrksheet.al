@@ -91,6 +91,7 @@ report 99973 "Calculate Bin Rep And Movement"
                         ApplicationArea = Warehouse;
                         Caption = 'Worksheet Name';
                         ToolTip = 'Specifies the name of the worksheet the movement lines will belong to.';
+                        Visible = false;
 
                         trigger OnLookup(var Text: Text): Boolean
                         begin

@@ -12,6 +12,10 @@ pageextension 99976 MovementWorksheetExt extends "Movement Worksheet"
     }
     actions
     {
+        modify("Calculate Bin &Replenishment")
+        {
+            Visible = false;
+        }
         addlast("F&unctions")
         {
             action("Calculate Movement Worksheet")

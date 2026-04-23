@@ -20,14 +20,11 @@ codeunit 99991 CreateDecantWhseReclassAndPost
         EntriesExist: Boolean;
         Line: Integer;
         QtyPerTote: Decimal;
-        NumberOfTotes: Integer;
-        TotesCreated: Integer;
         RemainingFromLot: Decimal;
+        RemainingCapacity: Decimal;
         ToteQty: Decimal;
-        EmptyPackages: List of [Code[50]];
-        EmptyPackagesCount: Integer;
-        AssignedPackageNo: Code[50];
-        ToteLimit: Integer;
+        MaxBinQty: Decimal;
+        TotesCreated: Integer;
         SourceQtyPerUoM: Decimal;
     begin
         if SourceLocationCode = '' then
@@ -37,7 +34,7 @@ codeunit 99991 CreateDecantWhseReclassAndPost
 
         SourceZone := Events.GetGenDecantZone(SourceLocationCode);
         //DestZone := Events.GetGenDecantZone(DestLocationCode);
-        DestZone := Events.GetGenDecantZonefromBinContent(DestLocationCode, ItemFilter); //Temporary need to change for multiple Items. 
+        DestZone := Events.GetGenDecantZonefromBinContent(DestLocationCode, ItemFilter); //Temporary need to change for multiple Items.
 
         if SourceZone = '' then
             Error('GEN DECANT Zone not found for Location %1.', SourceLocationCode);
@@ -54,7 +51,7 @@ codeunit 99991 CreateDecantWhseReclassAndPost
 
         Line := 10000;
 
-        // Outer loop: Iterate Bin Content at destination to find items needing replenishment
+        // Outer loop: Iterate Bin Content at destination GEN DECANT to find items needing replenishment
         BinContent.Reset();
         BinContent.SetRange("Location Code", DestLocationCode);
         BinContent.SetRange("Zone Code", DestZone);
@@ -63,25 +60,11 @@ codeunit 99991 CreateDecantWhseReclassAndPost
 
         if BinContent.FindSet() then
             repeat
-                NumberOfTotes := BinContent."Number of Totes in a Bin";
-                if NumberOfTotes > 0 then begin
-                    // Only proceed if destination stock is 0 (empty totes)
+                MaxBinQty := BinContent."Max. Qty.";
+                if MaxBinQty > 0 then
+                    // Only proceed if destination stock is 0
                     if GetDestinationStock(BinContent."Item No.", DestLocationCode, DestZone) = 0 then begin
-                        // Check empty packages at destination PICK BULK
-                        GetEmptyPackages(
-                            BinContent."Item No.",
-                            DestLocationCode,
-                            DestZone,
-                            BinContent."Bin Code",
-                            EmptyPackages);
-                        EmptyPackagesCount := EmptyPackages.Count;
-
-                        // Limit: If empty packages exist, use that count. Otherwise fall back to Number of Totes from Bin Content.
-                        if EmptyPackagesCount > 0 then
-                            ToteLimit := EmptyPackagesCount
-                        else
-                            ToteLimit := NumberOfTotes;
-
+                        RemainingCapacity := MaxBinQty;
                         TotesCreated := 0;
 
                         // Inner loop: Query source lots for this item, FEFO ordered (earliest expiry first)
@@ -92,7 +75,7 @@ codeunit 99991 CreateDecantWhseReclassAndPost
                         SourceQuery.SetFilter(Qty_Base, '>%1', 0);
                         SourceQuery.Open();
 
-                        while SourceQuery.Read() and (TotesCreated < ToteLimit) do begin
+                        while SourceQuery.Read() and (RemainingCapacity > 0) do begin
                             if SourceQuery.Qty_Base > 0 then begin
                                 SourceQtyPerUoM := SourceQuery.Qty_per_Unit_of_Measure;
                                 if SourceQtyPerUoM = 0 then
@@ -103,20 +86,14 @@ codeunit 99991 CreateDecantWhseReclassAndPost
                                     if QtyPerTote > 0 then begin
                                         RemainingFromLot := SourceQuery.Qty_Base;
 
-                                        // Create one line per tote/package from this lot
-                                        // Partial totes allowed - tote gets whatever qty remains from the lot
-                                        while (RemainingFromLot > 0) and (TotesCreated < ToteLimit) do begin
-                                            // Tote qty = up to QtyPerTote, or whatever is left in the lot
-                                            if RemainingFromLot >= QtyPerTote then
-                                                ToteQty := QtyPerTote
-                                            else
+                                        // Split this lot into tote-sized lines until lot or destination capacity is exhausted
+                                        while (RemainingFromLot > 0) and (RemainingCapacity > 0) do begin
+                                            // Tote qty = full tote, or whatever is left in the lot, or whatever capacity remains (partial tote)
+                                            ToteQty := QtyPerTote;
+                                            if RemainingFromLot < ToteQty then
                                                 ToteQty := RemainingFromLot;
-
-                                            // Assign next empty package from PICK BULK if available; else blank (fallback)
-                                            if EmptyPackagesCount > 0 then
-                                                AssignedPackageNo := EmptyPackages.Get(TotesCreated + 1)
-                                            else
-                                                AssignedPackageNo := '';
+                                            if RemainingCapacity < ToteQty then
+                                                ToteQty := RemainingCapacity;
 
                                             DecantDetails.Init();
                                             DecantDetails."Journal Template Name" := TemplateName;
@@ -139,11 +116,10 @@ codeunit 99991 CreateDecantWhseReclassAndPost
                                             // Tote info - Manufacturer from source Warehouse Entry
                                             DecantDetails."Manufacturer Code" := SourceQuery.Manufacturer_Code;
                                             DecantDetails."Qty Per Tote" := QtyPerTote;
-                                            DecantDetails."Number of Totes" := ToteLimit;
                                             DecantDetails."To Qty." := ToteQty / SourceQtyPerUoM;
 
-                                            // Assign empty package from PICK BULK as the New Package No. (blank if fallback)
-                                            DecantDetails."New Package No." := AssignedPackageNo;
+                                            // User will decide "New Package No." on the page; keep blank here
+                                            DecantDetails."New Package No." := '';
 
                                             // Get expiry date from lot tracking
                                             Clear(ItemTrackingSetup);
@@ -151,7 +127,7 @@ codeunit 99991 CreateDecantWhseReclassAndPost
                                             DecantDetails."Expiry Date" := ItemTrackingMgt.ExistingExpirationDate(
                                                 SourceQuery.Item_No_, '',
                                                 ItemTrackingSetup, false, EntriesExist);
-                                            DecantDetails."Package No." := SourceQuery.Package_No_; //Prathamesh++
+                                            DecantDetails."Package No." := SourceQuery.Package_No_;
 
                                             // Get item description
                                             if RecItem.Get(SourceQuery.Item_No_) then
@@ -161,14 +137,25 @@ codeunit 99991 CreateDecantWhseReclassAndPost
                                             Line += 10000;
                                             TotesCreated += 1;
                                             RemainingFromLot -= ToteQty;
+                                            RemainingCapacity -= ToteQty;
                                         end;
                                     end;
                                 end;
                             end;
                         end;
                         SourceQuery.Close();
+
+                        // Write the total tote count onto every line created for this destination bin
+                        if TotesCreated > 0 then begin
+                            DecantDetails.Reset();
+                            DecantDetails.SetRange("Journal Template Name", TemplateName);
+                            DecantDetails.SetRange("Journal Batch Name", BatchName);
+                            DecantDetails.SetRange("Item No.", BinContent."Item No.");
+                            DecantDetails.SetRange("To Location Code", DestLocationCode);
+                            DecantDetails.SetRange("To Bin Code", BinContent."Bin Code");
+                            DecantDetails.ModifyAll("Number of Totes", TotesCreated);
+                        end;
                     end;
-                end;
             until BinContent.Next() = 0;
     end;
 
@@ -286,24 +273,6 @@ codeunit 99991 CreateDecantWhseReclassAndPost
         // end;
 
         Message('Item Reclassification Journal lines created successfully.\Template: %1, Batch: %2', ReclassTemplateName, ReclassBatchName);
-    end;
-
-    local procedure GetEmptyPackages(ItemNo: Code[20]; LocationCode: Code[10]; ZoneCode: Code[10]; BinCode: Code[20]; var EmptyPackages: List of [Code[50]])
-    var
-        DestQuery: Query WhseDetailsMainGenDcnt;
-    begin
-        Clear(EmptyPackages);
-        DestQuery.SetFilter(DestQuery.Item_No_, ItemNo);
-        DestQuery.SetFilter(DestQuery.Location_Code, LocationCode);
-        DestQuery.SetFilter(DestQuery.Zone_Code, ZoneCode);
-        DestQuery.SetFilter(DestQuery.Bin_Code, BinCode);
-        DestQuery.SetFilter(DestQuery.Package_No_, '<>%1', '');
-        DestQuery.Open();
-        while DestQuery.Read() do begin
-            if DestQuery.Qty_Base = 0 then
-                EmptyPackages.Add(DestQuery.Package_No_);
-        end;
-        DestQuery.Close();
     end;
 
     local procedure CreateItemTrackingForReclassLine(var ItemJnlLine: Record "Item Journal Line"; LotNo: Code[50]; ExpirationDate: Date; OldPackageNo: Code[50]; NewPackageNo: Code[50])
