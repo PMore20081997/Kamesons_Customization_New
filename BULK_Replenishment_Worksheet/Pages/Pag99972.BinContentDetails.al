@@ -54,43 +54,75 @@ page 99972 "Receive Bin Content Details"
                     ToolTip = 'Specifies the value of the Expiration Date field.', Comment = '%';
                     ApplicationArea = All;
                 }
+                // field("Min Qty."; Rec."Min. Qty.")
+                // {
+                //     ApplicationArea = All;
+                // }
+                // field("Max Qty."; Rec."Max. Qty.")
+                // {
+                //     ApplicationArea = All;
+                // }
             }
         }
     }
 
     trigger OnFindRecord(Which: Text): Boolean
     begin
-        FillTempTable;
-        EXIT(Rec.FIND(Which));
+        FillTempTable();
+        Rec.SetCurrentKey("Expiration Date");
+        Rec.Ascending(true);
+        exit(Rec.Find(Which));
+    end;
+
+    local procedure GetMinQty(_LocationCode: Code[10]; _BinCode: Code[20]; _ItemNo: Code[20]; _VariantCode: Code[10]; _UOM: Code[20]): Decimal
+    begin
+        G_BinContent.Reset();
+        If G_BinContent.Get(_LocationCode, _BinCode, _ItemNo, _VariantCode, _UOM) then begin
+            exit(G_BinContent."Min. Qty.");
+        end;
+    end;
+
+    local procedure GetMaxQty(_LocationCode: Code[10]; _BinCode: Code[20]; _ItemNo: Code[20]; _VariantCode: Code[10]; _UOM: Code[20]): Decimal
+    begin
+        G_BinContent.Reset();
+        If G_BinContent.Get(_LocationCode, _BinCode, _ItemNo, _VariantCode, _UOM) then begin
+            exit(G_BinContent."Max. Qty.");
+        end;
     end;
 
     local procedure FillTempTable()
     var
-        L_Item: Record Item;
         L_WarehouseEntryReceive: Query WarehouseEntryReceive;
+        L_Events: Codeunit Events;
     begin
+        L_WarehouseEntryReceive.SETRANGE(L_WarehouseEntryReceive.Item_No_, Rec.GetRangeMin("Item No."));
+        L_WarehouseEntryReceive.SetRange(L_WarehouseEntryReceive.Location_Code, L_Events.GetReceiveWarehouse());
+        // L_WarehouseEntryReceive.SetRange(L_WarehouseEntryReceive.Zone);
+        L_WarehouseEntryReceive.SetFilter(L_WarehouseEntryReceive.Expiration_Date, '>=%1', WorkDate());
+        L_WarehouseEntryReceive.SetFilter(L_WarehouseEntryReceive.Qty_Base, '>%1', 0);
+        L_WarehouseEntryReceive.OPEN;
+
         Rec.DELETEALL;
-        if L_Item.Get(Rec.GETRANGEMIN("Item No.")) then begin
-            L_WarehouseEntryReceive.SETRANGE(L_WarehouseEntryReceive.Item_No_, L_Item."No.");
-            L_WarehouseEntryReceive.SetFilter(L_WarehouseEntryReceive.Expiration_Date, '>=%1', WorkDate());
-            L_WarehouseEntryReceive.SetRange(L_WarehouseEntryReceive.Unit_of_Measure_Code, L_Item."Base Unit of Measure");
-            L_WarehouseEntryReceive.SetFilter(L_WarehouseEntryReceive.Qty_Base, '>%1', 0);
-            L_WarehouseEntryReceive.OPEN;
-            If L_WarehouseEntryReceive.READ then BEGIN
-                Rec.INIT;
-                Rec."Item No." := L_WarehouseEntryReceive.Item_No_;
-                Rec.UOM := L_WarehouseEntryReceive.Unit_of_Measure_Code;
-                Rec."Location Code" := L_WarehouseEntryReceive.Location_Code;
-                Rec."Zone Code" := L_WarehouseEntryReceive.Zone_Code;
-                Rec."Bin Code" := L_WarehouseEntryReceive.Bin_Code;
-                Rec."Lot No." := L_WarehouseEntryReceive.Lot_No_;
-                Rec."Manufacturer Code" := L_WarehouseEntryReceive.Manufacturer_Code;
-                Rec."Qty. (Base)" := L_WarehouseEntryReceive.Qty_Base;
-                Rec."Expiration Date" := L_WarehouseEntryReceive.Expiration_Date;
-                Rec.INSERT;
-            END;
-            L_WarehouseEntryReceive.Close();
-        end;
+
+        while L_WarehouseEntryReceive.READ() do BEGIN
+            Rec.INIT;
+            Rec."Item No." := L_WarehouseEntryReceive.Item_No_;
+            Rec.UOM := L_WarehouseEntryReceive.Unit_of_Measure_Code;
+            Rec."Location Code" := L_WarehouseEntryReceive.Location_Code;
+            Rec."Zone Code" := L_WarehouseEntryReceive.Zone_Code;
+            Rec."Bin Code" := L_WarehouseEntryReceive.Bin_Code;
+            Rec."Lot No." := L_WarehouseEntryReceive.Lot_No_;
+            Rec."Manufacturer Code" := L_WarehouseEntryReceive.Manufacturer_Code;
+            Rec."Qty. (Base)" := L_WarehouseEntryReceive.Qty_Base;
+            Rec."Expiration Date" := L_WarehouseEntryReceive.Expiration_Date;
+            Rec."Min. Qty." := GetMinQty(Rec."Location Code", Rec."Bin Code", Rec."Item No.", Rec."Variant Code", Rec.UOM);
+            Rec."Max. Qty." := GetMaxQty(Rec."Location Code", Rec."Bin Code", Rec."Item No.", Rec."Variant Code", Rec.UOM);
+            Rec.INSERT;
+        END;
+        L_WarehouseEntryReceive.Close();
     end;
+
+    var
+        G_BinContent: Record "Bin Content";
 
 }

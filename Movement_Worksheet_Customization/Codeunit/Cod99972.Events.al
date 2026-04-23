@@ -55,6 +55,24 @@ codeunit 99972 Events
             exit(L_Zone.Code);
     end;
 
+    procedure GetGenDecantZonefromBinContent(P_LocationCode: Code[10]; _ItemNo: Code[20]): Code[10]
+    var
+        L_BinContent: Record "Bin Content";
+    begin
+        // L_Zone.Reset();
+        // L_Zone.SetRange("Location Code", P_LocationCode);
+        // L_Zone.SetFilter(L_Zone."General", '%1', true);
+        // if L_Zone.FindFirst() then
+        //     exit(L_Zone.Code);
+
+        L_BinContent.Reset();
+        L_BinContent.SetRange("Location Code", P_LocationCode);
+        L_BinContent.SetRange("Item No.", _ItemNo);
+        if L_BinContent.FindFirst() then begin
+            exit(L_BinContent."Zone Code")
+        end;
+    end;
+
 
 
     // [EventSubscriber(ObjectType::Table, Database::"Warehouse Entry", OnAfterInsertEvent, '', false, false)]

@@ -27,6 +27,10 @@ query 99974 "FEFO Whse Entry HIGHBAY"
             {
 
             }
+            column(Manufacturer_Code; "Manufacturer Code")
+            {
+
+            }
             column(Unit_of_Measure_Code; "Unit of Measure Code")
             {
             }

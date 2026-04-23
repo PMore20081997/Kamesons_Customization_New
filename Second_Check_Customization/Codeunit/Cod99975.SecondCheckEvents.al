@@ -12,14 +12,10 @@ codeunit 99975 SecondCheck_Events
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Release Purchase Document", OnBeforeReleasePurchaseDoc, '', false, false)]
     local procedure OnBeforeReleasePurchaseDoc(var PurchaseHeader: Record "Purchase Header")
     begin
-        // if PurchaseHeader."Second Check" <> '' then
-        //     if not IsUserMemberOf(PurchaseHeader."Second Check") then
-        //         Error('User %1 is not a member of the team specified in the Second Check field (%2) and cannot release this purchase order.', GetUserName(), PurchaseHeader."Second Check");
-
-        if PurchaseHeader."Second Check" = '' then
-            Error('The Second Check field must be filled in before releasing this purchase order.');   
+        if PurchaseHeader."Second Check" = PurchaseHeader."Second Check"::" " then
+            Error('The Second Check field must be filled in before releasing this purchase order.');
     end;
-    
+
 
     procedure GetUserName(UserSecurityId: Code[50]): Text[100]
     var

@@ -113,6 +113,7 @@ report 99973 "Calculate Bin Rep And Movement"
                         Caption = 'Location Code';
                         TableRelation = Location;
                         ToolTip = 'Specifies the PICK BULK location whose fixed bins are checked for stock below Min. Qty.';
+                        Visible = false;
                     }
                     field(DoNotFillQtytoHandle; DoNotFillQtytoHandle)
                     {
@@ -306,7 +307,7 @@ report 99973 "Calculate Bin Rep And Movement"
                     L_MoveQtyBase,
                     L_ToZoneCode,
                     L_ToBinCode,
-                    L_FEFOQuery.Bin_Code, L_FEFOQuery.Package_No_);
+                    L_FEFOQuery.Bin_Code, L_FEFOQuery.Manufacturer_Code, L_FEFOQuery.Package_No_);
 
                 L_NeedQtyBase -= L_MoveQtyBase;
             end;
@@ -359,7 +360,7 @@ report 99973 "Calculate Bin Rep And Movement"
         exit(L_WhseItemTrackingLine."Quantity (Base)");
     end;
 
-    local procedure InsertMovementWkshLine(var P_BinContent: Record "Bin Content"; P_LotNo: Code[50]; P_ExpirationDate: Date; P_UoMCode: Code[10]; P_QtyPerUoM: Decimal; P_MoveQtyBase: Decimal; P_ToZoneCode: Code[10]; P_ToBinCode: Code[20]; P_FromBinCode: Code[20]; P_PackageNo: Code[50])
+    local procedure InsertMovementWkshLine(var P_BinContent: Record "Bin Content"; P_LotNo: Code[50]; P_ExpirationDate: Date; P_UoMCode: Code[10]; P_QtyPerUoM: Decimal; P_MoveQtyBase: Decimal; P_ToZoneCode: Code[10]; P_ToBinCode: Code[20]; P_FromBinCode: Code[20]; P_ManufacturerCode: Code[100]; P_PackageNo: Code[50])
     var
         L_WhseWkshLine: Record "Whse. Worksheet Line";
         L_Item: Record Item;
@@ -392,13 +393,13 @@ report 99973 "Calculate Bin Rep And Movement"
         L_WhseWkshLine.Insert(true);
 
         // Create Whse. Item Tracking Line for the lot
-        InsertWhseItemTrackingLine(L_WhseWkshLine, P_LotNo, P_ExpirationDate, P_MoveQtyBase, P_PackageNo);
+        InsertWhseItemTrackingLine(L_WhseWkshLine, P_LotNo, P_ExpirationDate, P_MoveQtyBase, P_ManufacturerCode, P_PackageNo);
 
         NextLineNo += 10000;
         LinesInserted += 1;
     end;
 
-    local procedure InsertWhseItemTrackingLine(var P_WhseWkshLine: Record "Whse. Worksheet Line"; P_LotNo: Code[50]; P_ExpirationDate: Date; P_QtyBase: Decimal; P_PackageNo: Code[50])
+    local procedure InsertWhseItemTrackingLine(var P_WhseWkshLine: Record "Whse. Worksheet Line"; P_LotNo: Code[50]; P_ExpirationDate: Date; P_QtyBase: Decimal; P_ManufacturerCode: Code[100]; P_PackageNo: Code[50])
     var
         L_WhseItemTrackingLine: Record "Whse. Item Tracking Line";
         L_NextEntryNo: Integer;
@@ -428,6 +429,7 @@ report 99973 "Calculate Bin Rep And Movement"
         L_WhseItemTrackingLine."Lot No." := P_LotNo;
         L_WhseItemTrackingLine."Expiration Date" := P_ExpirationDate;
         L_WhseItemTrackingLine."Package No." := P_PackageNo;
+        L_WhseItemTrackingLine."Manufacture Code" := P_ManufacturerCode;
 
         L_WhseItemTrackingLine."Qty. per Unit of Measure" := P_WhseWkshLine."Qty. per Unit of Measure";
         L_WhseItemTrackingLine."Quantity (Base)" := P_QtyBase;

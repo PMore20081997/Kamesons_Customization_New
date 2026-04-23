@@ -150,7 +150,8 @@ page 99971 "Replenishment Worksheet"
         {
             part(ReceiveBinContentDetails; "Receive Bin Content Details")
             {
-                SubPageLink = "Item No." = field("Item No."), "Location Code" = field("Location Code");
+                SubPageLink = "Item No." = field("Item No."), "Location Code" = field("From Location Code");
+
                 ApplicationArea = all;
                 Caption = 'Receive Bin Content Details';
             }
@@ -161,12 +162,15 @@ page 99971 "Replenishment Worksheet"
     {
         area(Processing)
         {
-            action("Calculate BULK Bin &Replenishment")
+            action("Calculate Bin Replenishment")
             {
                 ApplicationArea = all;
-                Caption = 'Calculate BULK Bin &Replenishment';
+                Caption = 'Calculate Bin Replenishment';
                 Ellipsis = true;
                 Image = CalculateBinReplenishment;
+                Promoted = true;
+                PromotedCategory = Process;
+                PromotedIsBig = true;
 
                 trigger OnAction()
                 var

@@ -15,11 +15,17 @@ pageextension 99980 Purchase_Order_Ext extends "Purchase Order"
                 ToolTip = 'Specifies the value of the Second Check field.', Comment = '%';
                 Editable = MakeEditable;
             }
-            field("Second Check Date"; Rec."Second Check Date")
+            field("Second Check User"; Rec."Second Check User")
+            {
+                ApplicationArea = All;
+                ToolTip = 'Specifies the value of the Second Check User field.', Comment = '%';
+                Editable = false;
+            }
+            field("Second Check Date"; Rec."Second Check Date & Time")
             {
                 ApplicationArea = All;
                 ToolTip = 'Specifies the value of the Second Check Date field.', Comment = '%';
-                Editable = MakeEditable;
+                Editable = false;
             }
         }
     }

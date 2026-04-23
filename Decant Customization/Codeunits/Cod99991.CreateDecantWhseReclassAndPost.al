@@ -36,7 +36,8 @@ codeunit 99991 CreateDecantWhseReclassAndPost
             Error('Destination Location Code must be specified.');
 
         SourceZone := Events.GetGenDecantZone(SourceLocationCode);
-        DestZone := Events.GetGenDecantZone(DestLocationCode);
+        //DestZone := Events.GetGenDecantZone(DestLocationCode);
+        DestZone := Events.GetGenDecantZonefromBinContent(DestLocationCode, ItemFilter); //Temporary need to change for multiple Items. 
 
         if SourceZone = '' then
             Error('GEN DECANT Zone not found for Location %1.', SourceLocationCode);

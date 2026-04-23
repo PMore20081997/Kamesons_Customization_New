@@ -8,26 +8,28 @@ tableextension 99975 Purchase_Header_Ext extends "Purchase Header"
 {
     fields
     {
-        field(99971; "Second Check"; Code[20])
+        field(99971; "Second Check"; Option)
         {
-            TableRelation = "Salesperson/Purchaser".Code;
+            OptionCaption = ' ,Approved,Rejected';
+            OptionMembers = " ","Approved","Rejected";
+
             trigger OnValidate()
             var
                 L_SecondCheck_Events: Codeunit SecondCheck_Events;
             begin
-                // if SystemCreatedBy = UserSecurityId() then begin
-                //     Error(L_SameUserSecondCheck);
-                // end; //Temporary
+                if SystemCreatedBy = UserSecurityId() then begin
+                    Error(L_SameUserSecondCheck);
+                end; //Temporary
 
                 Rec."Second Check User" := UserId;
-                Rec."Second Check Date" := CurrentDateTime();
+                Rec."Second Check Date & Time" := CurrentDateTime();
             end;
         }
         field(99972; "Second Check User"; Code[100])
         {
             TableRelation = User."User Name";
         }
-        field(99973; "Second Check Date"; DateTime)
+        field(99973; "Second Check Date & Time"; DateTime)
         {
 
         }
