@@ -24,6 +24,10 @@ query 99971 Warehouse_Entry_Main
             {
 
             }
+            column(Package_No_;"Package No.")
+            {
+                
+            }
             column(Manufacturer_Code;"Manufacturer Code")
             {
                 

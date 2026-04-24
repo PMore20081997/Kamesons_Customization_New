@@ -1,7 +1,11 @@
 namespace Kamesons_Customization.Kamesons_Customization;
 using Microsoft.Warehouse.Document;
+using Microsoft.Warehouse.Ledger;
 using Microsoft.Purchases.Document;
 using Microsoft.Warehouse.Structure;
+using Microsoft.Warehouse.Activity;
+using Microsoft.Inventory.Tracking;
+using Microsoft.Warehouse.History;
 
 codeunit 99976 Customize_Events
 {
@@ -10,6 +14,35 @@ codeunit 99976 Customize_Events
     begin
         WarehouseReceiptLine."Manufacturer Code" := PurchaseLine."Manufacturer Code";
     end;
+
+
+    //New++
+    [EventSubscriber(ObjectType::Table, Database::"Warehouse Activity Line", OnAfterCopyTrackingFromPostedWhseRcptLine, '', false, false)]
+    local procedure OnAfterCopyTrackingFromPostedWhseRcptLine(PostedWhseRcptLine: Record "Posted Whse. Receipt Line"; var WarehouseActivityLine: Record "Warehouse Activity Line")
+    begin
+        WarehouseActivityLine."Manufacturer Code" := PostedWhseRcptLine."Manufacturer Code";
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::"Whse. Item Entry Relation", OnAfterInitFromTrackingSpec, '', false, false)]
+    local procedure OnAfterInitFromTrackingSpec(TrackingSpecification: Record "Tracking Specification"; var WhseItemEntryRelation: Record "Whse. Item Entry Relation")
+    begin
+        WhseItemEntryRelation."Manufacturer Code" := TrackingSpecification."Manufacturer Code";
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::"Posted Whse. Receipt Line", OnAfterCopyTrackingFromWhseItemEntryRelation, '', false, false)]
+    local procedure OnAfterCopyTrackingFromWhseItemEntryRelation(var PostedWhseReceiptLine: Record "Posted Whse. Receipt Line"; WhseItemEntryRelation: Record "Whse. Item Entry Relation")
+    begin
+        PostedWhseReceiptLine."Manufacturer Code" := WhseItemEntryRelation."Manufacturer Code";
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::"Tracking Specification", OnAfterInsertEvent, '', false, false)]
+    local procedure OnAfterInsertEvent()
+    var
+        i: Integer;
+    begin
+        Clear(i);
+    end;
+    //New--
 
     // Restrict Main Warehouse to a single Item / Location / Zone / Bin combination.
     // Why: business rule — one item must live in exactly one bin at the Main location.

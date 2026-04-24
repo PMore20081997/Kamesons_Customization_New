@@ -28,6 +28,28 @@ pageextension 99980 Purchase_Order_Ext extends "Purchase Order"
                 Editable = false;
             }
         }
+        addfirst(FactBoxes)
+        {
+            part("Last 10 Released POs"; "Purchase Order History")
+            {
+                ApplicationArea = All;
+
+                Provider = PurchLines;
+
+                SubPageLink = "No." = FIELD("No.");
+            }
+
+            part(Fulfilledorders; "Fulfilled orders")
+            {
+                ApplicationArea = All;
+                SubPageLink = "No." = FIELD("No.");
+            }
+            part(PurchaseHistory; "Purchase History Factbox")
+            {
+                ApplicationArea = All;
+                SubPageLink = "No." = FIELD("No.");
+            }
+        }
     }
 
     trigger OnAfterGetRecord()

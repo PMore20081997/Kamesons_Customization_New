@@ -8,7 +8,7 @@ codeunit 99983 "Event Subscribers NDPP"
         L_Item: Record Item;
         L_Zone: Record Zone;
         L_LastExpiry: Date;
-        L_DecantZoneCode: Code[10];
+        L_GOODSINZoneCode: Code[10];
         L_TargetZone: Option BulkDecant,GenDecant,HighBay;
     begin
         if WarehouseActivityLine."Location Code" <> G_Events.GetReceiveWarehouse() then
@@ -29,18 +29,18 @@ codeunit 99983 "Event Subscribers NDPP"
 
         if L_Item.BULK then begin
             L_TargetZone := L_TargetZone::BulkDecant;
-            L_DecantZoneCode := G_Events.GetBulkZone(G_Events.GetReceiveWarehouse());
+            L_GOODSINZoneCode := G_Events.GetBulkZone(G_Events.GetReceiveWarehouse());
         end else begin
             L_TargetZone := L_TargetZone::GenDecant;
-            L_DecantZoneCode := G_Events.GetGenDecantZone(G_Events.GetReceiveWarehouse());
+            L_GOODSINZoneCode := G_Events.GetGenDecantZone(G_Events.GetReceiveWarehouse());
         end;
 
-        L_LastExpiry := GetLastExpiryDate(WarehouseActivityLine, L_DecantZoneCode);
+        L_LastExpiry := GetLastExpiryDate(WarehouseActivityLine, L_GOODSINZoneCode);
 
         Clear(G_BinContentQty);
         if (L_LastExpiry = 0D) OR (WarehouseActivityLine."Expiration Date" <= L_LastExpiry) then begin
             AssignZoneBin(WarehouseActivityLine, L_TargetZone);
-            G_BinContentQty := CalcPickBulkReservedQty(WarehouseActivityLine."Item No.", L_DecantZoneCode);
+            G_BinContentQty := CalcReservedQty(WarehouseActivityLine."Item No.", L_GOODSINZoneCode);
         end else
             AssignZoneBin(WarehouseActivityLine, L_TargetZone::HighBay);
     end;
@@ -63,30 +63,55 @@ codeunit 99983 "Event Subscribers NDPP"
         exit(L_DecantStockExpDate);
     end;
 
-    local procedure CalcPickBulkReservedQty(P_ItemNo: Code[20]; P_DecantZoneCode: Code[10]): Decimal
+    local procedure CalcReservedQty(P_ItemNo: Code[20]; P_ZoneCode: Code[10]): Decimal
     var
+        L_Item: Record Item;
         L_BinContent: Record "Bin Content";
-        L_WhseActLine: Record "Warehouse Activity Line";
+        L_RcvBinContent: Record "Bin Content";
+        //L_WhseActLine: Record "Warehouse Activity Line";
+        L_MainZoneCode: Code[10];
         L_Total: Decimal;
+        L_RcvQty: Decimal;
+    //L_RcvOutstandingQty: Decimal;
     begin
-        L_BinContent.Reset();
-        L_BinContent.SetFilter("Location Code", '%1', G_Events.GetMainWarehouse());
-        L_BinContent.SetFilter("Zone Code", '%1', G_Events.GetBulkZone(G_Events.GetMainWarehouse()));
-        L_BinContent.SetRange("Item No.", P_ItemNo);
-        if not L_BinContent.FindFirst() then
+        L_Item.SetLoadFields(BULK);
+        if not L_Item.Get(P_ItemNo) then
             exit(0);
 
-        L_BinContent.CalcFields("Quantity (Base)", "Put-away Quantity (Base)", "Positive Adjmt. Qty. (Base)");
+        if L_Item.BULK then
+            L_MainZoneCode := G_Events.GetBulkZone(G_Events.GetMainWarehouse())
+        else
+            L_MainZoneCode := G_Events.GetGenDecantZone(G_Events.GetMainWarehouse());
 
-        L_WhseActLine.Reset();
-        L_WhseActLine.SetRange("Action Type", L_WhseActLine."Action Type"::Place);
-        L_WhseActLine.SetRange("Item No.", P_ItemNo);
-        L_WhseActLine.SetFilter("Location Code", '%1', G_Events.GetReceiveWarehouse());
-        L_WhseActLine.SetFilter("Zone Code", '%1', P_DecantZoneCode);
-        if L_WhseActLine.FindSet() then
-            L_WhseActLine.CalcSums("Qty. Outstanding (Base)");
+        L_BinContent.SetRange("Location Code", G_Events.GetMainWarehouse());
+        L_BinContent.SetRange("Zone Code", L_MainZoneCode);
+        L_BinContent.SetRange("Item No.", P_ItemNo);
+        if L_BinContent.FindFirst() then
+            L_BinContent.CalcFields("Quantity (Base)", "Put-away Quantity (Base)", "Positive Adjmt. Qty. (Base)");
 
-        L_Total := L_BinContent."Quantity (Base)" + L_WhseActLine."Qty. Outstanding (Base)" + L_BinContent."Put-away Quantity (Base)" + L_BinContent."Positive Adjmt. Qty. (Base)";
+        L_RcvBinContent.SetRange("Location Code", G_Events.GetReceiveWarehouse());
+        L_RcvBinContent.SetRange("Zone Code", P_ZoneCode);
+        L_RcvBinContent.SetRange("Item No.", P_ItemNo);
+        if L_RcvBinContent.FindSet() then
+            repeat
+                L_RcvBinContent.CalcFields("Quantity (Base)", "Put-away Quantity (Base)", "Positive Adjmt. Qty. (Base)");
+                L_RcvQty += L_RcvBinContent."Quantity (Base)" + L_RcvBinContent."Put-away Quantity (Base)" + L_RcvBinContent."Positive Adjmt. Qty. (Base)";
+            until L_RcvBinContent.Next() = 0;
+
+        // L_WhseActLine.SetRange("Activity Type", L_WhseActLine."Activity Type"::"Put-away");
+        // L_WhseActLine.SetRange("Action Type", L_WhseActLine."Action Type"::Place);
+        // L_WhseActLine.SetRange("Source Document", L_WhseActLine."Source Document"::"Purchase Order");
+        // L_WhseActLine.SetRange("Item No.", P_ItemNo);
+        // L_WhseActLine.SetRange("Location Code", G_Events.GetReceiveWarehouse());
+        // L_WhseActLine.SetRange("Zone Code", P_ZoneCode);
+        // L_WhseActLine.CalcSums("Qty. Outstanding (Base)");
+        // L_RcvOutstandingQty := L_WhseActLine."Qty. Outstanding (Base)";
+
+        L_Total :=
+            // L_BinContent."Quantity (Base)" + L_BinContent."Put-away Quantity (Base)" + L_BinContent."Positive Adjmt. Qty. (Base)" +
+            // L_RcvQty + L_RcvOutstandingQty;
+            L_BinContent."Quantity (Base)" + L_BinContent."Positive Adjmt. Qty. (Base)" +
+            L_RcvQty;
         exit(L_Total);
     end;
 
