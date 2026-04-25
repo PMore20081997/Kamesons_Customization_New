@@ -112,7 +112,13 @@ page 99971 "Replenishment Worksheet"
                 }
                 field("Package No."; Rec."Package No.")
                 {
+                    ApplicationArea = All;
                     ToolTip = 'Specifies the value of the Package No. field.', Comment = '%';
+                }
+                field("Manufacturer Code"; Rec."Manufacturer Code")
+                {
+                    ApplicationArea = All;
+                    ToolTip = 'Specifies the value of the Manufacturer Code field.', Comment = '%';
                 }
                 // field("Pick Qty"; Rec."Pick Qty")
                 // {

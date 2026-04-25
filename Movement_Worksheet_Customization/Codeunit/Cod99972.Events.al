@@ -120,6 +120,7 @@ codeunit 99972 Events
         TempReservationEntry1."Source Ref. No." := TransLine."Line No.";
         TempReservationEntry1."Lot No." := ReqLine."Lot No.";
         TempReservationEntry1."Package No." := ReqLine."Package No.";
+        TempReservationEntry1."Manufacturer Code" := ReqLine."Manufacturer Code";
         if ReqLine."Lot Expiration Date" <> 0D then
             TempReservationEntry1."Expiration Date" := ReqLine."Lot Expiration Date";
 
@@ -134,6 +135,7 @@ codeunit 99972 Events
         TempReservationEntry1."Source Ref. No." := TransLine."Line No.";
         TempReservationEntry1."Lot No." := ReqLine."Lot No.";
         TempReservationEntry1."Package No." := ReqLine."Package No.";
+        TempReservationEntry1."Manufacturer Code" := ReqLine."Manufacturer Code";
         if ReqLine."Lot Expiration Date" <> 0D then
             TempReservationEntry1."Expiration Date" := ReqLine."Lot Expiration Date";
 
@@ -151,6 +153,37 @@ codeunit 99972 Events
     local procedure OnAfterCopyTrackingFromReservEntry(var ReservationEntry: Record "Reservation Entry"; FromReservationEntry: Record "Reservation Entry")
     begin
         ReservationEntry."Package No." := FromReservationEntry."Package No.";
+        ReservationEntry."Manufacturer Code" := FromReservationEntry."Manufacturer Code";
+    end;
+
+    [EventSubscriber(ObjectType::Page, Page::"Item Tracking Lines", OnBeforeAddToGlobalRecordSet, '', false, false)]
+    local procedure ItemTrackingLines_OnBeforeAddToGlobalRecordSet(var TrackingSpecification: Record "Tracking Specification"; EntriesExist: Boolean; CurrentSignFactor: Integer; var TempTrackingSpecification: Record "Tracking Specification" temporary)
+    begin
+        if TrackingSpecification."Manufacturer Code" <> '' then
+            exit;
+        if TempTrackingSpecification."Manufacturer Code" <> '' then begin
+            TrackingSpecification."Manufacturer Code" := TempTrackingSpecification."Manufacturer Code";
+            exit;
+        end;
+        TrackingSpecification."Manufacturer Code" :=
+            LookupManufacturerCodeByLot(TrackingSpecification."Item No.", TrackingSpecification."Variant Code", TrackingSpecification."Lot No.");
+    end;
+
+    procedure LookupManufacturerCodeByLot(P_ItemNo: Code[20]; P_VariantCode: Code[10]; P_LotNo: Code[50]): Code[100]
+    var
+        L_WhseEntry: Record "Warehouse Entry";
+    begin
+        if (P_ItemNo = '') or (P_LotNo = '') then
+            exit('');
+
+        L_WhseEntry.SetCurrentKey("Item No.", "Bin Code", "Location Code", "Variant Code", "Unit of Measure Code", "Lot No.", "Serial No.", "Entry Type");
+        L_WhseEntry.SetRange("Item No.", P_ItemNo);
+        L_WhseEntry.SetRange("Variant Code", P_VariantCode);
+        L_WhseEntry.SetRange("Lot No.", P_LotNo);
+        L_WhseEntry.SetFilter("Manufacturer Code", '<>%1', '');
+        if L_WhseEntry.FindLast() then
+            exit(L_WhseEntry."Manufacturer Code");
+        exit('');
     end;
 
     procedure GetBinContent(_LocationCode: Code[20]; _ZoneCode: Code[10]; _ItemNo: Code[20]) RetBinContent: Record "Bin Content"

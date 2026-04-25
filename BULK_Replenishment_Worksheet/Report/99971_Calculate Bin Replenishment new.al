@@ -162,6 +162,7 @@ Report 99971 "Cal _Bin Replenishment New"
                     L_SourceQ.SetFilter(L_SourceQ.Zone_Code, '%1', L_BulkDecantZone);
                     L_SourceQ.SetFilter(L_SourceQ.Expiration_Date, '>=%1', WorkDate());
                     L_SourceQ.SetFilter(L_SourceQ.Qty_Base, '>%1', 0);
+                    L_SourceQ.SetFilter(L_SourceQ.Manufacturer_Code, '<>%1', '');
                     L_SourceQ.Open();
                     while (L_RemQtyToReplenishBase > 0) and L_SourceQ.Read() do begin
                         // Skip if a worksheet line already exists for this exact source-lot/destination pair
