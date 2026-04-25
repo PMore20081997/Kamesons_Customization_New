@@ -5,7 +5,7 @@ codeunit 99991 CreateDecantWhseReclassAndPost
 
     end;
 
-    procedure CalculateGenDecant(TemplateName: Code[10]; BatchName: Code[10]; SourceLocationCode: Code[10]; DestLocationCode: Code[10]; ItemFilter: Code[50])
+    procedure CalculateGenDecant(TemplateName: Code[10]; BatchName: Code[10]; SourceLocationCode: Code[10]; DestLocationCode: Code[10]; ItemFilter: Code[50]; _ManufacturerFilter: Code[100]; _QtyPerToteOverride: Decimal)
     var
         SourceQuery: Query WarehouseEntryReceive;
         DecantDetails: Record "Decant Details";
@@ -61,102 +61,138 @@ codeunit 99991 CreateDecantWhseReclassAndPost
         if BinContent.FindSet() then
             repeat
                 MaxBinQty := BinContent."Max. Qty.";
-                if MaxBinQty > 0 then
-                    // Only proceed if destination stock is 0
-                    if GetDestinationStock(BinContent."Item No.", DestLocationCode, DestZone) = 0 then begin
-                        RemainingCapacity := MaxBinQty;
-                        TotesCreated := 0;
+                if MaxBinQty > 0 then begin
+                    // Trigger replenishment when destination GEN DECANT stock falls below the PICK BULK bin's Min. Qty.
+                    //if GetDestinationStock(BinContent."Item No.", DestLocationCode, DestZone) < GetMAINWHMinQty(BinContent."Item No.", DestLocationCode) then begin
+                    RemainingCapacity := MaxBinQty;
+                    TotesCreated := 0;
 
-                        // Inner loop: Query source lots for this item, FEFO ordered (earliest expiry first)
-                        SourceQuery.SetFilter(SourceQuery.Item_No_, BinContent."Item No.");
-                        SourceQuery.SetFilter(SourceQuery.Location_Code, SourceLocationCode);
-                        SourceQuery.SetFilter(SourceQuery.Zone_Code, SourceZone);
-                        SourceQuery.SetFilter(Expiration_Date, '>=%1', WorkDate());
-                        SourceQuery.SetFilter(Qty_Base, '>%1', 0);
-                        SourceQuery.Open();
+                    // Inner loop: Query source lots for this item, FEFO ordered (earliest expiry first)
+                    SourceQuery.SetFilter(SourceQuery.Item_No_, BinContent."Item No.");
+                    SourceQuery.SetFilter(SourceQuery.Location_Code, SourceLocationCode);
+                    SourceQuery.SetFilter(SourceQuery.Zone_Code, SourceZone);
+                    if (_ManufacturerFilter <> '') AND (_QtyPerToteOverride <> 0) then
+                        SourceQuery.SetFilter(SourceQuery.Manufacturer_Code, _ManufacturerFilter);
+                    SourceQuery.SetFilter(Expiration_Date, '>=%1', WorkDate());
+                    SourceQuery.SetFilter(Qty_Base, '>%1', 0);
+                    SourceQuery.Open();
 
-                        while SourceQuery.Read() and (RemainingCapacity > 0) do begin
-                            if SourceQuery.Qty_Base > 0 then begin
-                                SourceQtyPerUoM := SourceQuery.Qty_per_Unit_of_Measure;
-                                if SourceQtyPerUoM = 0 then
-                                    SourceQtyPerUoM := 1;
-                                // Look up Qty per Tote from Item Manufacturer Table using source Manufacturer Code
-                                if ItemManufacturer.Get(SourceQuery.Item_No_, SourceQuery.Manufacturer_Code) then begin
+                    while SourceQuery.Read() and (RemainingCapacity > 0) do begin
+                        if SourceQuery.Qty_Base > 0 then begin
+                            SourceQtyPerUoM := SourceQuery.Qty_per_Unit_of_Measure;
+                            if SourceQtyPerUoM = 0 then
+                                SourceQtyPerUoM := 1;
+                            // Look up Qty per Tote from Item Manufacturer Table using source Manufacturer Code
+                            //if ItemManufacturer.Get(SourceQuery.Item_No_, SourceQuery.Manufacturer_Code) then begin
+
+                            ItemManufacturer.Reset();
+                            ItemManufacturer.SetRange("Item No", SourceQuery.Item_No_);
+                            if (_ManufacturerFilter <> '') AND (_QtyPerToteOverride <> 0) then
+                                ItemManufacturer.SetRange("Manufacturer code", _ManufacturerFilter)
+                            else
+                                ItemManufacturer.SetRange("Manufacturer code", SourceQuery.Manufacturer_Code);
+                            if ItemManufacturer.FindFirst() then begin
+                                if _QtyPerToteOverride <> 0 then
+                                    QtyPerTote := _QtyPerToteOverride
+                                else
                                     QtyPerTote := ItemManufacturer."Qty per Tote";
-                                    if QtyPerTote > 0 then begin
-                                        RemainingFromLot := SourceQuery.Qty_Base;
 
-                                        // Split this lot into tote-sized lines until lot or destination capacity is exhausted
-                                        while (RemainingFromLot > 0) and (RemainingCapacity > 0) do begin
-                                            // Tote qty = full tote, or whatever is left in the lot, or whatever capacity remains (partial tote)
-                                            ToteQty := QtyPerTote;
-                                            if RemainingFromLot < ToteQty then
-                                                ToteQty := RemainingFromLot;
-                                            if RemainingCapacity < ToteQty then
-                                                ToteQty := RemainingCapacity;
+                                if QtyPerTote > 0 then begin
+                                    RemainingFromLot := SourceQuery.Qty_Base;
 
-                                            DecantDetails.Init();
-                                            DecantDetails."Journal Template Name" := TemplateName;
-                                            DecantDetails."Journal Batch Name" := BatchName;
-                                            DecantDetails."Line No." := Line;
-                                            DecantDetails."Item No." := SourceQuery.Item_No_;
-                                            DecantDetails."Variant Code" := SourceQuery.Variant_Code;
-                                            DecantDetails."Location Code" := SourceQuery.Location_Code;
-                                            DecantDetails."From Zone Code" := SourceQuery.Zone_Code;
-                                            DecantDetails."From Bin Code" := SourceQuery.Bin_Code;
-                                            DecantDetails."Lot No." := SourceQuery.Lot_No_;
-                                            DecantDetails.Quantity := ToteQty / SourceQtyPerUoM;
-                                            DecantDetails."Unit of Measure Code" := SourceQuery.Unit_of_Measure_Code;
+                                    // Split this lot into tote-sized lines until lot or destination capacity is exhausted
+                                    while (RemainingFromLot > 0) and (RemainingCapacity > 0) do begin
+                                        // Tote qty = full tote, or whatever is left in the lot, or whatever capacity remains (partial tote)
+                                        ToteQty := QtyPerTote;
+                                        if RemainingFromLot < ToteQty then
+                                            ToteQty := RemainingFromLot;
+                                        if RemainingCapacity < ToteQty then
+                                            ToteQty := RemainingCapacity;
 
-                                            // Destination
-                                            DecantDetails."To Location Code" := DestLocationCode;
-                                            DecantDetails."To Zone Code" := DestZone;
-                                            DecantDetails."To Bin Code" := BinContent."Bin Code";
+                                        DecantDetails.Init();
+                                        DecantDetails."Journal Template Name" := TemplateName;
+                                        DecantDetails."Journal Batch Name" := BatchName;
+                                        DecantDetails."Line No." := Line;
+                                        DecantDetails."Item No." := SourceQuery.Item_No_;
+                                        DecantDetails."Variant Code" := SourceQuery.Variant_Code;
+                                        DecantDetails."Location Code" := SourceQuery.Location_Code;
+                                        DecantDetails."From Zone Code" := SourceQuery.Zone_Code;
+                                        DecantDetails."From Bin Code" := SourceQuery.Bin_Code;
+                                        DecantDetails."Lot No." := SourceQuery.Lot_No_;
+                                        DecantDetails.Quantity := ToteQty / SourceQtyPerUoM;
+                                        DecantDetails."Unit of Measure Code" := SourceQuery.Unit_of_Measure_Code;
 
-                                            // Tote info - Manufacturer from source Warehouse Entry
-                                            DecantDetails."Manufacturer Code" := SourceQuery.Manufacturer_Code;
-                                            DecantDetails."Qty Per Tote" := QtyPerTote;
-                                            DecantDetails."To Qty." := ToteQty / SourceQtyPerUoM;
+                                        // Destination
+                                        DecantDetails."To Location Code" := DestLocationCode;
+                                        DecantDetails."To Zone Code" := DestZone;
+                                        DecantDetails."To Bin Code" := BinContent."Bin Code";
 
-                                            // User will decide "New Package No." on the page; keep blank here
-                                            DecantDetails."New Package No." := '';
+                                        // Tote info - Manufacturer from source Warehouse Entry
+                                        DecantDetails."Manufacturer Code" := SourceQuery.Manufacturer_Code;
+                                        DecantDetails."Qty Per Tote" := QtyPerTote;
+                                        DecantDetails."To Qty." := ToteQty / SourceQtyPerUoM;
 
-                                            // Get expiry date from lot tracking
-                                            Clear(ItemTrackingSetup);
-                                            ItemTrackingSetup."Lot No." := SourceQuery.Lot_No_;
-                                            DecantDetails."Expiry Date" := ItemTrackingMgt.ExistingExpirationDate(
-                                                SourceQuery.Item_No_, '',
-                                                ItemTrackingSetup, false, EntriesExist);
-                                            DecantDetails."Package No." := SourceQuery.Package_No_;
+                                        // User will decide "New Package No." on the page; keep blank here
+                                        DecantDetails."New Package No." := '';
 
-                                            // Get item description
-                                            if RecItem.Get(SourceQuery.Item_No_) then
-                                                DecantDetails.Description := RecItem.Description;
+                                        // Get expiry date from lot tracking
+                                        Clear(ItemTrackingSetup);
+                                        ItemTrackingSetup."Lot No." := SourceQuery.Lot_No_;
+                                        DecantDetails."Expiry Date" := ItemTrackingMgt.ExistingExpirationDate(
+                                            SourceQuery.Item_No_, '',
+                                            ItemTrackingSetup, false, EntriesExist);
+                                        DecantDetails."Package No." := SourceQuery.Package_No_;
 
-                                            DecantDetails.Insert();
-                                            Line += 10000;
-                                            TotesCreated += 1;
-                                            RemainingFromLot -= ToteQty;
-                                            RemainingCapacity -= ToteQty;
-                                        end;
+                                        // Get item description
+                                        if RecItem.Get(SourceQuery.Item_No_) then
+                                            DecantDetails.Description := RecItem.Description;
+
+                                        DecantDetails.Insert();
+                                        Line += 10000;
+                                        TotesCreated += 1;
+                                        RemainingFromLot -= ToteQty;
+                                        RemainingCapacity -= ToteQty;
                                     end;
                                 end;
                             end;
                         end;
-                        SourceQuery.Close();
-
-                        // Write the total tote count onto every line created for this destination bin
-                        if TotesCreated > 0 then begin
-                            DecantDetails.Reset();
-                            DecantDetails.SetRange("Journal Template Name", TemplateName);
-                            DecantDetails.SetRange("Journal Batch Name", BatchName);
-                            DecantDetails.SetRange("Item No.", BinContent."Item No.");
-                            DecantDetails.SetRange("To Location Code", DestLocationCode);
-                            DecantDetails.SetRange("To Bin Code", BinContent."Bin Code");
-                            DecantDetails.ModifyAll("Number of Totes", TotesCreated);
-                        end;
                     end;
+                    SourceQuery.Close();
+
+                    // Write the total tote count onto every line created for this destination bin
+                    if TotesCreated > 0 then begin
+                        DecantDetails.Reset();
+                        DecantDetails.SetRange("Journal Template Name", TemplateName);
+                        DecantDetails.SetRange("Journal Batch Name", BatchName);
+                        DecantDetails.SetRange("Item No.", BinContent."Item No.");
+                        DecantDetails.SetRange("To Location Code", DestLocationCode);
+                        DecantDetails.SetRange("To Bin Code", BinContent."Bin Code");
+                        DecantDetails.ModifyAll("Number of Totes", TotesCreated);
+                    end;
+                end;
             until BinContent.Next() = 0;
+    end;
+
+    local procedure GetMAINWHMinQty(ItemNo: Code[20]; LocationCode: Code[10]): Decimal
+    var
+        GENDECBin: Record "Bin Content";
+        Events: Codeunit Events;
+        GENDECNTZone: Code[10];
+        TotalMinQty: Decimal;
+    begin
+        GENDECNTZone := Events.GetGenDecantZone(LocationCode);
+        if GENDECNTZone = '' then
+            exit(0);
+
+        GENDECBin.Reset();
+        GENDECBin.SetRange("Location Code", LocationCode);
+        GENDECBin.SetRange("Zone Code", GENDECNTZone);
+        GENDECBin.SetRange("Item No.", ItemNo);
+        if GENDECBin.FindSet() then
+            repeat
+                TotalMinQty += GENDECBin."Min. Qty.";
+            until GENDECBin.Next() = 0;
+        exit(TotalMinQty);
     end;
 
     local procedure GetDestinationStock(ItemNo: Code[20]; LocationCode: Code[10]; ZoneCode: Code[10]): Decimal
@@ -242,6 +278,7 @@ codeunit 99991 CreateDecantWhseReclassAndPost
             ItemJnlLine.Validate("New Location Code", DecantDetails."To Location Code");
             ItemJnlLine."Bin Code" := DecantDetails."From Bin Code";
             ItemJnlLine."New Bin Code" := DecantDetails."To Bin Code";
+            ItemJnlLine."Manufacturer Code" := DecantDetails."Manufacturer Code";
             ItemJnlLine.Validate(Quantity, DecantDetails."To Qty.");
             if DecantDetails."Unit of Measure Code" <> '' then
                 ItemJnlLine.Validate("Unit of Measure Code", DecantDetails."Unit of Measure Code");
@@ -253,29 +290,36 @@ codeunit 99991 CreateDecantWhseReclassAndPost
                 DecantDetails."Lot No.",
                 DecantDetails."Expiry Date",
                 DecantDetails."Package No.",
-                DecantDetails."New Package No."
+                DecantDetails."New Package No.", DecantDetails."Manufacturer Code"
             );
 
             Line += 10000;
         until DecantDetails.Next() = 0;
 
-        // Clean up Decant Details after journal lines created
+        // Post the reclass journal lines (Codeunit 23 iterates the filtered batch)
+        ItemJnlLine.Reset();
+        ItemJnlLine.SetRange("Journal Template Name", ReclassTemplateName);
+        ItemJnlLine.SetRange("Journal Batch Name", ReclassBatchName);
+        if ItemJnlLine.FindFirst() then begin
+            // Commit();
+            // if not Codeunit.Run(Codeunit::"Item Jnl.-Post Batch", ItemJnlLine) then
+            //     Error('Posting of GEN DECANT reclassification failed:\%1', GetLastErrorText());
+            Codeunit.Run(Codeunit::"Item Jnl.-Post Batch", ItemJnlLine);
+
+
+
+        end;
+
+        // Clean up Decant Details only after successful post
         DecantDetails.Reset();
         DecantDetails.SetRange("Journal Template Name", TemplateName);
         DecantDetails.SetRange("Journal Batch Name", BatchName);
         DecantDetails.DeleteAll();
 
-        // ItemJnlLine.Reset();
-        // ItemJnlLine.SetRange("Journal Template Name", ReclassTemplateName);
-        // ItemJnlLine.SetRange("Journal Batch Name", ReclassBatchName);
-        // if ItemJnlLine.FindSet() then begin
-        //     CODEUNIT.Run(CODEUNIT::"Item Jnl.-Post", ItemJnlLine); // Post the journal lines to update inventory and create necessary ledger entries
-        // end;
-
-        Message('Item Reclassification Journal lines created successfully.\Template: %1, Batch: %2', ReclassTemplateName, ReclassBatchName);
+        Message('GEN DECANT reclassification posted successfully.\Template: %1, Batch: %2', ReclassTemplateName, ReclassBatchName);
     end;
 
-    local procedure CreateItemTrackingForReclassLine(var ItemJnlLine: Record "Item Journal Line"; LotNo: Code[50]; ExpirationDate: Date; OldPackageNo: Code[50]; NewPackageNo: Code[50])
+    local procedure CreateItemTrackingForReclassLine(var ItemJnlLine: Record "Item Journal Line"; LotNo: Code[50]; ExpirationDate: Date; OldPackageNo: Code[50]; NewPackageNo: Code[50]; _ManufacturerCode: Code[100])
     var
         TempReservEntry: Record "Reservation Entry";
         CreateReservEntry: Codeunit "Create Reserv. Entry";
@@ -323,6 +367,7 @@ codeunit 99991 CreateDecantWhseReclassAndPost
             ReservEntry."New Lot No." := LotNo;
             ReservEntry."Package No." := OldPackageNo;
             ReservEntry."New Package No." := NewPackageNo;
+            ReservEntry."Manufacturer Code" := _ManufacturerCode;
             if ExpirationDate <> 0D then
                 ReservEntry."New Expiration Date" := ExpirationDate;
             ReservEntry.Modify();

@@ -20,7 +20,7 @@ report 99973 "Calculate Bin Rep And Movement"
         dataitem("Bin Content"; "Bin Content")
         {
             // DataItemTableView = sorting("Location Code", "Item No.", "Warehouse Class Code", Fixed, "Bin Ranking") order(descending) where(Fixed = filter(true), "Min. Qty." = filter(> 0));
-            DataItemTableView = sorting("Location Code", "Item No.", "Warehouse Class Code", Fixed, "Bin Ranking") order(descending) where ("Min. Qty." = filter(> 0));
+            DataItemTableView = sorting("Location Code", "Item No.", "Warehouse Class Code", Fixed, "Bin Ranking") order(descending) where("Min. Qty." = filter(> 0));
             RequestFilterFields = "Item No.", "Bin Code";
 
             trigger OnAfterGetRecord()
@@ -51,6 +51,8 @@ report 99973 "Calculate Bin Rep And Movement"
                     Error(PickBulkZoneNotFoundErr);
                 if GenDecantZone = '' then
                     Error(GenDecantZoneNotFoundErr);
+                if MAInGENDCNTZONE = '' then
+                    Error('Test');
 
                 WhseWorksheetName.Get(WhseWkshTemplateName, WhseWkshName, BulkLocation);
 
@@ -161,6 +163,7 @@ report 99973 "Calculate Bin Rep And Movement"
         GenDecantZone: Code[10];
         HighBayZone: Code[10];
         PickBulkZone: Code[10];
+        MAInGENDCNTZONE: Code[10];
         NextLineNo: Integer;
         LinesInserted: Integer;
 
@@ -189,6 +192,7 @@ report 99973 "Calculate Bin Rep And Movement"
         GenDecantZone := G_Events.GetGenDecantZone(BulkLocation);
         HighBayZone := G_Events.GetHighBayZone(BulkLocation);
         PickBulkZone := G_Events.GetBulkZone(PickBulkLocation);
+        MAInGENDCNTZONE := G_Events.GetGenDecantZone(PickBulkLocation);
     end;
 
     local procedure GetBinFromBinContent(P_ItemNo: Code[20]; P_LocationCode: Code[10]; P_ZoneCode: Code[10]): Code[20]
@@ -225,18 +229,25 @@ report 99973 "Calculate Bin Rep And Movement"
         // Only process PICK BULK fixed bins
         if P_BinContent."Location Code" <> PickBulkLocation then
             exit;
-        if P_BinContent."Zone Code" <> PickBulkZone then
-            exit;
+
 
         L_Item.SetLoadFields(BULK);
         if not L_Item.Get(P_BinContent."Item No.") then
             exit;
 
         // Destination zone + bin in BULK Location
-        if L_Item.BULK then
+        if L_Item.BULK then begin
+            if P_BinContent."Zone Code" <> PickBulkZone then
+                exit;
+
             L_ToZoneCode := BulkDecantZone
-        else
+        end
+        else begin
+            if P_BinContent."Zone Code" <> MAInGENDCNTZONE then
+                exit;
+
             L_ToZoneCode := GenDecantZone;
+        end;
 
         L_ToBinCode := GetBinFromBinContent(P_BinContent."Item No.", BulkLocation, L_ToZoneCode);
         if L_ToBinCode = '' then
@@ -359,7 +370,7 @@ report 99973 "Calculate Bin Rep And Movement"
                 L_LotAvailQtyBase -= L_PendingLotQtyBase;
 
                 if L_LotAvailQtyBase >= L_QtyPerTote then begin
-                    L_TotesAvail := Round(L_LotAvailQtyBase / L_QtyPerTote, 1, '<');
+                    L_TotesAvail := Round(L_LotAvailQtyBase / L_QtyPerTote, 1, '>');
                     if L_TotesAvail > L_TotesNeeded then
                         L_TotesToMove := L_TotesNeeded
                     else
@@ -433,7 +444,7 @@ report 99973 "Calculate Bin Rep And Movement"
             L_QtyPerTote := GetQtyPerTote(P_BinContent."Item No.", L_PickBulkQuery.Manufacturer_Code);
             if L_QtyPerTote > 0 then
                 if L_PickBulkQuery.Qty___Base_ >= L_QtyPerTote then
-                    L_Totes += Round(L_PickBulkQuery.Qty___Base_ / L_QtyPerTote, 1, '<');
+                    L_Totes += Round(L_PickBulkQuery.Qty___Base_ / L_QtyPerTote, 1, '>');
         end;
         L_PickBulkQuery.Close();
         exit(L_Totes);
@@ -473,7 +484,7 @@ report 99973 "Calculate Bin Rep And Movement"
                     until L_WhseWkshLine.Next() = 0;
 
                 if L_MfgQtyBase >= L_ItemManufacturer."Qty per Tote" then
-                    L_Totes += Round(L_MfgQtyBase / L_ItemManufacturer."Qty per Tote", 1, '<');
+                    L_Totes += Round(L_MfgQtyBase / L_ItemManufacturer."Qty per Tote", 1, '>');
             until L_ItemManufacturer.Next() = 0;
         exit(L_Totes);
     end;

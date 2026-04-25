@@ -56,12 +56,13 @@ page 99991 "Decant Screen"
             field(ItemFilter; ItemFilter)
             {
                 ApplicationArea = All;
-                TableRelation = Item."No.";
-                Visible = true;
+                TableRelation = Item."No." where(BULK = const(false));
                 Caption = 'Item No.';
                 trigger OnValidate()
                 var
                     RecItem: Record Item;
+
+                    L_RecItemMan: Record "Item Manufacturer Table";
                 begin
                     if ItemFilter <> '' then begin
                         RecItem.Reset();
@@ -73,12 +74,101 @@ page 99991 "Decant Screen"
                             ItemDescription := '';
                             CurrPage.Update();
                         end;
+
+                        L_RecItemMan.Reset();
+                        L_RecItemMan.SetRange("Item No", ItemFilter);
+                        if L_RecItemMan.FindSet() and (L_RecItemMan.Count = 1) then begin
+                            ManufacturerFilter := L_RecItemMan."Manufacturer code";
+                            QtyPerToteFilter := L_RecItemMan."Qty per Tote";
+                        end else begin
+                            ManufacturerFilter := '';
+                            QtyPerToteFilter := 0;
+                        end;
                     end else begin
                         ItemDescription := '';
-                        CurrPage.Update();
+                        ManufacturerFilter := '';
+                        QtyPerToteFilter := 0;
                     end;
                 end;
             }
+            field(ManufacturerFilter; ManufacturerFilter)
+            {
+                ApplicationArea = All;
+                Caption = 'Manufacturer';
+
+                trigger OnLookup(var Text: Text): Boolean
+                var
+                    L_ItemMan: Record "Item Manufacturer Table";
+                    L_ItemManPage: Page "Item Manufacturer Page";
+                    L_SourceQuery: Query WarehouseEntryReceive;
+                    L_Events: Codeunit Events;
+                    L_MfgList: List of [Code[50]];
+                    L_MfgCode: Code[50];
+                    L_MfgFilter: Text;
+                    L_SourceZone: Code[10];
+                begin
+                    if ItemFilter = '' then
+                        Error('Please specify the Item No. before selecting a Manufacturer.');
+
+                    L_SourceZone := L_Events.GetGenDecantZone(CurrentLocationCode);
+
+                    L_SourceQuery.SetFilter(Item_No_, ItemFilter);
+                    if CurrentLocationCode <> '' then
+                        L_SourceQuery.SetFilter(Location_Code, CurrentLocationCode);
+                    if L_SourceZone <> '' then
+                        L_SourceQuery.SetFilter(Zone_Code, L_SourceZone);
+                    L_SourceQuery.SetFilter(Expiration_Date, '>=%1', WorkDate());
+                    L_SourceQuery.SetFilter(L_SourceQuery.Manufacturer_Code, '<>%1', '');
+                    L_SourceQuery.SetFilter(Qty_Base, '>%1', 0);
+                    L_SourceQuery.Open();
+                    while L_SourceQuery.Read() do
+                        if not L_MfgList.Contains(L_SourceQuery.Manufacturer_Code) then
+                            L_MfgList.Add(L_SourceQuery.Manufacturer_Code);
+                    L_SourceQuery.Close();
+
+                    if L_MfgList.Count = 0 then
+                        Error('No available stock for Item %1 at Location %2.', ItemFilter, CurrentLocationCode);
+
+                    foreach L_MfgCode in L_MfgList do begin
+                        if L_MfgFilter <> '' then
+                            L_MfgFilter += '|';
+                        L_MfgFilter += L_MfgCode;
+                    end;
+
+                    L_ItemMan.Reset();
+                    L_ItemMan.SetRange("Item No", ItemFilter);
+                    L_ItemMan.SetFilter("Manufacturer code", L_MfgFilter);
+                    L_ItemManPage.SetTableView(L_ItemMan);
+                    L_ItemManPage.LookupMode(true);
+                    if L_ItemManPage.RunModal() = Action::LookupOK then begin
+                        L_ItemManPage.GetRecord(L_ItemMan);
+                        ManufacturerFilter := L_ItemMan."Manufacturer code";
+                        QtyPerToteFilter := L_ItemMan."Qty per Tote";
+                        Text := ManufacturerFilter;
+                        exit(true);
+                    end;
+                end;
+
+                trigger OnValidate()
+                var
+                    L_ItemMan: Record "Item Manufacturer Table";
+                begin
+                    if ItemFilter = '' then
+                        Error('Please specify the Item No. before selecting a Manufacturer.');
+
+                    if ManufacturerFilter <> '' then begin
+                        L_ItemMan.Reset();
+                        L_ItemMan.SetRange("Item No", ItemFilter);
+                        L_ItemMan.SetRange("Manufacturer code", ManufacturerFilter);
+                        if L_ItemMan.FindFirst() then
+                            QtyPerToteFilter := L_ItemMan."Qty per Tote"
+                        else
+                            QtyPerToteFilter := 0;
+                    end else
+                        QtyPerToteFilter := 0;
+                end;
+            }
+
             field("Item Description"; ItemDescription)
             {
                 ApplicationArea = all;
@@ -91,6 +181,12 @@ page 99991 "Decant Screen"
                 Caption = 'Dest. Location Code';
                 TableRelation = Location.Code;
                 ToolTip = 'Specifies the destination location for GEN DECANT movement.';
+            }
+            field(QtyPerToteFilter; QtyPerToteFilter)
+            {
+                ApplicationArea = All;
+                Caption = 'Qty. Per Tote';
+                DecimalPlaces = 0 : 5;
             }
 
             repeater(General)
@@ -165,6 +261,7 @@ page 99991 "Decant Screen"
                 {
                     ApplicationArea = All;
                     ToolTip = 'Select the Manufacturer to determine Qty Per Tote.';
+                    Editable = false;
                 }
                 field("Qty Per Tote"; Rec."Qty Per Tote")
                 {
@@ -179,6 +276,7 @@ page 99991 "Decant Screen"
                 field("To Qty."; Rec."To Qty.")
                 {
                     ApplicationArea = All;
+                    Editable = false;
                 }
                 field("New Package No."; Rec."New Package No.")
                 {
@@ -233,16 +331,19 @@ page 99991 "Decant Screen"
                 var
                     GenDecantCU: Codeunit CreateDecantWhseReclassAndPost;
                 begin
+                    if ManufacturerFilter = '' then
+                        Error('Please specify the Manufacturer Code.');
                     if DestLocationCode = '' then
                         Error('Please specify the Dest. Location Code.');
+                    if QtyPerToteFilter = 0 then
+                        Error('Please specify the Qty. Per Tote.');
 
                     GenDecantCU.CalculateGenDecant(
                         Rec."Journal Template Name",
                         CurrentJnlBatchName,
                         CurrentLocationCode,
                         DestLocationCode,
-                        ItemFilter
-                    );
+                        ItemFilter, ManufacturerFilter, QtyPerToteFilter);
                     CurrPage.Update(false);
                 end;
             }
@@ -257,7 +358,17 @@ page 99991 "Decant Screen"
                 trigger OnAction()
                 var
                     GenDecantCU: Codeunit CreateDecantWhseReclassAndPost;
+                    L_DecantDetails: Record "Decant Details";
                 begin
+                    L_DecantDetails.Reset();
+                    L_DecantDetails.SetRange("Journal Batch Name", Rec."Journal Batch Name");
+                    L_DecantDetails.SetRange("Location Code", Rec."Location Code");
+                    L_DecantDetails.SetRange("Item No.", Rec."Item No.");
+                    L_DecantDetails.SetRange("Manufacturer Code", Rec."Manufacturer Code");
+                    L_DecantDetails.SetRange("New Package No.", '');
+                    if not L_DecantDetails.IsEmpty then
+                        Error('Package No. cannot be blank on Line No. %1', L_DecantDetails."Line No.");
+
                     GenDecantCU.RegisterGenDecant(
                         Rec."Journal Template Name",
                         CurrentJnlBatchName
@@ -278,20 +389,21 @@ page 99991 "Decant Screen"
         if not JnlSelected then
             Error('');
         Rec.OpenJnl(CurrentJnlBatchName, CurrentLocationCode, DestLocationCode, Rec);
-        if ItemFilter <> '' then begin
-            RecItem.Reset();
-            RecItem.SetRange("No.", ItemFilter);
-            if RecItem.FindFirst() then begin
-                ItemDescription := RecItem.Description;
-                CurrPage.Update();
-            end else begin
-                ItemDescription := '';
-                CurrPage.Update();
-            end;
-        end else begin
-            ItemDescription := '';
-            CurrPage.Update();
-        end;
+
+        // if ItemFilter <> '' then begin
+        //     RecItem.Reset();
+        //     RecItem.SetRange("No.", ItemFilter);
+        //     if RecItem.FindFirst() then begin
+        //         ItemDescription := RecItem.Description;
+        //         CurrPage.Update();
+        //     end else begin
+        //         ItemDescription := '';
+        //         CurrPage.Update();
+        //     end;
+        // end else begin
+        //     ItemDescription := '';
+        //     CurrPage.Update();
+        // end;
     end;
 
 
@@ -309,6 +421,8 @@ page 99991 "Decant Screen"
     var
         LocationFilter: Code[50];
         ItemFilter: Code[50];
+        ManufacturerFilter: Code[100];
+        QtyPerToteFilter: Decimal;
         ItemDescription: text[250];
         CurrentJnlBatchName: Code[10];
         CurrentLocationCode: Code[10];

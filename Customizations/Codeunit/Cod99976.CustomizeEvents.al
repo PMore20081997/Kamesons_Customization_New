@@ -35,8 +35,8 @@ codeunit 99976 Customize_Events
         PostedWhseReceiptLine."Manufacturer Code" := WhseItemEntryRelation."Manufacturer Code";
     end;
 
-    [EventSubscriber(ObjectType::Table, Database::"Tracking Specification", OnAfterInsertEvent, '', false, false)]
-    local procedure OnAfterInsertEvent()
+    [EventSubscriber(ObjectType::Table, Database::"Warehouse Entry", OnAfterInsertEvent, '', false, false)]
+    local procedure OnAfterInsertEventWE()
     var
         i: Integer;
     begin

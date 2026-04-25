@@ -72,6 +72,20 @@ table 99991 "Decant Details"
         field(13; "New Package No."; Code[20])
         {
             DataClassification = ToBeClassified;
+
+            trigger OnValidate()
+            var
+                L_DecantDetails: Record "Decant Details";
+            begin
+                L_DecantDetails.Reset();
+                L_DecantDetails.SetRange("Journal Batch Name", Rec."Journal Batch Name");
+                L_DecantDetails.SetRange("Location Code", Rec."Location Code");
+                L_DecantDetails.SetRange("Item No.", Rec."Item No.");
+                L_DecantDetails.SetRange("Manufacturer Code", Rec."Manufacturer Code");
+                L_DecantDetails.SetRange("New Package No.", Rec."New Package No.");
+                if not L_DecantDetails.IsEmpty then
+                    Error('New Package No. already scanned %1', Rec."New Package No.");
+            end;
         }
         field(14; "Lot No."; Code[50])
         {
@@ -265,7 +279,7 @@ table 99991 "Decant Details"
         WhseJnlBatch.SetRange(Name);
         CurrentLocationCode := WMSMgt.GetDefaultLocation();
         DestLocationCode := L_Events.GetMainWarehouse();
-        
+
         WhseJnlBatch.SetRange("Location Code", CurrentLocationCode);
 
         if WhseJnlBatch.FindFirst then begin
