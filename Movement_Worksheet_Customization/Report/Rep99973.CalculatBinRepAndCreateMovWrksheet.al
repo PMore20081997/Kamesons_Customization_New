@@ -51,8 +51,8 @@ report 99973 "Calculate Bin Rep And Movement"
                     Error(PickBulkZoneNotFoundErr);
                 if GenDecantZone = '' then
                     Error(GenDecantZoneNotFoundErr);
-                if MAInGENDCNTZONE = '' then
-                    Error('Test');
+                // if MAInGENDCNTZONE = '' then
+                //     Error('Test');
 
                 WhseWorksheetName.Get(WhseWkshTemplateName, WhseWkshName, BulkLocation);
 
@@ -192,7 +192,8 @@ report 99973 "Calculate Bin Rep And Movement"
         GenDecantZone := G_Events.GetGenDecantZone(BulkLocation);
         HighBayZone := G_Events.GetHighBayZone(BulkLocation);
         PickBulkZone := G_Events.GetBulkZone(PickBulkLocation);
-        MAInGENDCNTZONE := G_Events.GetGenDecantZone(PickBulkLocation);
+        //MAInGENDCNTZONE := G_Events.GetGenDecantZone(PickBulkLocation);
+        // MAInGENDCNTZONE := G_Events.GetGenDecantZonefromBinContent(PickBulkLocation, "Bin Content"."Item No.");
     end;
 
     local procedure GetBinFromBinContent(P_ItemNo: Code[20]; P_LocationCode: Code[10]; P_ZoneCode: Code[10]): Code[20]
@@ -243,6 +244,8 @@ report 99973 "Calculate Bin Rep And Movement"
             L_ToZoneCode := BulkDecantZone
         end
         else begin
+            MAInGENDCNTZONE := G_Events.GetGenDecantZonefromBinContent(PickBulkLocation, "Bin Content"."Item No.");
+
             if P_BinContent."Zone Code" <> MAInGENDCNTZONE then
                 exit;
 
