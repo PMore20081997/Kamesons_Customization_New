@@ -265,7 +265,8 @@ table 99991 "Decant Details"
     local procedure FindExistingBatch(CurrentJnlTemplateName: Code[10]; var CurrentLocationCode: Code[10]; var DestLocationCode: Code[10]; var CurrentJnlBatchName: Code[10]): Boolean
     var
         WhseJnlBatch: Record "Warehouse Journal Batch";
-        L_Events: Codeunit Events;
+        //L_Events: Codeunit Events;
+        L_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
     begin
         WhseJnlBatch.SetRange("Journal Template Name", CurrentJnlTemplateName);
         WhseJnlBatch.SetRange(Name, CurrentJnlBatchName);
@@ -278,7 +279,7 @@ table 99991 "Decant Details"
 
         WhseJnlBatch.SetRange(Name);
         CurrentLocationCode := WMSMgt.GetDefaultLocation();
-        DestLocationCode := L_Events.GetMainWarehouse();
+        DestLocationCode := L_KamWhseSetupLookup.GetMainLocation();
 
         WhseJnlBatch.SetRange("Location Code", CurrentLocationCode);
 

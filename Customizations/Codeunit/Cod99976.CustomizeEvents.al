@@ -74,6 +74,4 @@ codeunit 99976 Customize_Events
     //     end;
     // end;
 
-    var
-        G_Events: Codeunit Events;
 }

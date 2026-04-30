@@ -140,7 +140,8 @@ report 99973 "Calculate Bin Rep And Movement"
 
     var
         WhseWorksheetName: Record "Whse. Worksheet Name";
-        G_Events: Codeunit Events;
+        //G_Events: Codeunit Events;
+        G_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
         //G_SingleInstanceCU: Codeunit SingleInstanceCU;
         NothingToReplenishMsg: Label 'There is nothing to replenish.';
         PickBulkLocNotSetErr: Label 'The PICK BULK Location is not set. Configure it in Warehouse Setup (MAIN Warehouse) or enter it on the request page.';
@@ -182,18 +183,18 @@ report 99973 "Calculate Bin Rep And Movement"
         // PICK BULK location from request page or setup
         PickBulkLocation := LocationCode;
         if PickBulkLocation = '' then
-            PickBulkLocation := G_Events.GetMainWarehouse();
+            PickBulkLocation := G_KamWhseSetupLookup.GetMainLocation();
 
         // BULK location from setup
-        BulkLocation := G_Events.GetReceiveWarehouse();
+        BulkLocation := G_KamWhseSetupLookup.GetReceiveLocation();
 
         // Zone codes from boolean flags on Zone table
-        BulkDecantZone := G_Events.GetBulkZone(BulkLocation);
-        GenDecantZone := G_Events.GetGenDecantZone(BulkLocation);
-        HighBayZone := G_Events.GetHighBayZone(BulkLocation);
-        PickBulkZone := G_Events.GetBulkZone(PickBulkLocation);
-        //MAInGENDCNTZONE := G_Events.GetGenDecantZone(PickBulkLocation);
-        // MAInGENDCNTZONE := G_Events.GetGenDecantZonefromBinContent(PickBulkLocation, "Bin Content"."Item No.");
+        BulkDecantZone := G_KamWhseSetupLookup.GetBulkZone(BulkLocation);
+        GenDecantZone := G_KamWhseSetupLookup.GetGenDecantZone(BulkLocation);
+        HighBayZone := G_KamWhseSetupLookup.GetHighBayZone(BulkLocation);
+        PickBulkZone := G_KamWhseSetupLookup.GetBulkZone(PickBulkLocation);
+        //MAInGENDCNTZONE := G_KamWhseSetupLookup.GetGenDecantZone(PickBulkLocation);
+        // MAInGENDCNTZONE := G_KamWhseSetupLookup.GetGenDecantZonefromBinContent(PickBulkLocation, "Bin Content"."Item No.");
     end;
 
     local procedure GetBinFromBinContent(P_ItemNo: Code[20]; P_LocationCode: Code[10]; P_ZoneCode: Code[10]): Code[20]
@@ -244,7 +245,7 @@ report 99973 "Calculate Bin Rep And Movement"
             L_ToZoneCode := BulkDecantZone
         end
         else begin
-            MAInGENDCNTZONE := G_Events.GetGenDecantZonefromBinContent(PickBulkLocation, "Bin Content"."Item No.");
+            MAInGENDCNTZONE := G_KamWhseSetupLookup.GetGenDecantZonefromBinContent(PickBulkLocation, "Bin Content"."Item No.");
 
             if P_BinContent."Zone Code" <> MAInGENDCNTZONE then
                 exit;

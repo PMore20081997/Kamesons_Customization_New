@@ -93,10 +93,10 @@ page 99972 "Receive Bin Content Details"
     local procedure FillTempTable()
     var
         L_WarehouseEntryReceive: Query WarehouseEntryReceive;
-        L_Events: Codeunit Events;
+        L_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
     begin
         L_WarehouseEntryReceive.SETRANGE(L_WarehouseEntryReceive.Item_No_, Rec.GetRangeMin("Item No."));
-        L_WarehouseEntryReceive.SetRange(L_WarehouseEntryReceive.Location_Code, L_Events.GetReceiveWarehouse());
+        L_WarehouseEntryReceive.SetRange(L_WarehouseEntryReceive.Location_Code, L_KamWhseSetupLookup.GetReceiveLocation());
         // L_WarehouseEntryReceive.SetRange(L_WarehouseEntryReceive.Zone);
         L_WarehouseEntryReceive.SetFilter(L_WarehouseEntryReceive.Expiration_Date, '>=%1', WorkDate());
         L_WarehouseEntryReceive.SetFilter(L_WarehouseEntryReceive.Qty_Base, '>%1', 0);

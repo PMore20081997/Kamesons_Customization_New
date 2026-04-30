@@ -12,9 +12,9 @@ pageextension 99984 WhseItemTrackingLinesExt extends "Whse. Item Tracking Lines"
     trigger OnAfterGetRecord()
     begin
         if (Rec."Manufacture Code" = '') and (Rec."Lot No." <> '') then
-            Rec."Manufacture Code" := G_Events.LookupManufacturerCodeByLot(Rec."Item No.", Rec."Variant Code", Rec."Lot No.");
+            Rec."Manufacture Code" := G_KamReservationMgt.LookupManufacturerCodeByLot(Rec."Item No.", Rec."Variant Code", Rec."Lot No.");
     end;
 
     var
-        G_Events: Codeunit Events;
+        G_KamReservationMgt: Codeunit "Kam Reservation Mgt.";
 }

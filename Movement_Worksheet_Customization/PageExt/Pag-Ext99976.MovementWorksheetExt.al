@@ -31,11 +31,11 @@ pageextension 99976 MovementWorksheetExt extends "Movement Worksheet"
                     Location: Record Location;
                     BinContent: Record "Bin Content";
                     ReplenishBinContent: Report "Calculate Bin Rep And Movement";
-                    L_Events: Codeunit Events;
+                    L_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
                 begin
                     Location.Get(Rec."Location Code");
                     ReplenishBinContent.InitializeRequest(
-                      Rec."Worksheet Template Name", Rec.Name, L_Events.GetMainWarehouse(),
+                      Rec."Worksheet Template Name", Rec.Name, L_KamWhseSetupLookup.GetMainLocation(),
                       Location."Allow Breakbulk", false, false);
 
                     ReplenishBinContent.SetTableView(BinContent);

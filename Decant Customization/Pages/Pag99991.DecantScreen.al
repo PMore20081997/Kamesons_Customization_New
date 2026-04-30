@@ -101,7 +101,8 @@ page 99991 "Decant Screen"
                     L_ItemMan: Record "Item Manufacturer Table";
                     L_ItemManPage: Page "Item Manufacturer Page";
                     L_SourceQuery: Query WarehouseEntryReceive;
-                    L_Events: Codeunit Events;
+                    //L_Events: Codeunit Events;
+                    L_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
                     L_MfgList: List of [Code[50]];
                     L_MfgCode: Code[50];
                     L_MfgFilter: Text;
@@ -110,7 +111,7 @@ page 99991 "Decant Screen"
                     if ItemFilter = '' then
                         Error('Please specify the Item No. before selecting a Manufacturer.');
 
-                    L_SourceZone := L_Events.GetGenDecantZone(CurrentLocationCode);
+                    L_SourceZone := L_KamWhseSetupLookup.GetGenDecantZone(CurrentLocationCode);
 
                     L_SourceQuery.SetFilter(Item_No_, ItemFilter);
                     if CurrentLocationCode <> '' then
@@ -329,7 +330,7 @@ page 99991 "Decant Screen"
 
                 trigger OnAction()
                 var
-                    GenDecantCU: Codeunit CreateDecantWhseReclassAndPost;
+                    GenDecantCU: Codeunit "Decant Reclass Mgt.";
                 begin
                     if ManufacturerFilter = '' then
                         Error('Please specify the Manufacturer Code.');
@@ -357,7 +358,7 @@ page 99991 "Decant Screen"
                 PromotedIsBig = true;
                 trigger OnAction()
                 var
-                    GenDecantCU: Codeunit CreateDecantWhseReclassAndPost;
+                    GenDecantCU: Codeunit "Decant Reclass Mgt.";
                     L_DecantDetails: Record "Decant Details";
                 begin
                     L_DecantDetails.Reset();

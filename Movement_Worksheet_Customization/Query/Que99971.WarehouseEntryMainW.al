@@ -43,7 +43,4 @@ query 99971 Warehouse_Entry_Main
     begin
 
     end;
-
-    var
-        G_Events: Codeunit "Events";
 }

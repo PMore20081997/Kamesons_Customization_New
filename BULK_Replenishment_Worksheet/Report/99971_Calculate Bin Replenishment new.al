@@ -113,7 +113,8 @@ Report 99971 "Cal _Bin Replenishment New"
         L_BinContent: Record "Bin Content";
         L_PendingRepl: Record "Replenishment Worksheet";
         L_DupCheck: Record "Replenishment Worksheet";
-        L_Events: Codeunit Events;
+        //L_Events: Codeunit Events;
+        L_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
         L_BulkLocation: Code[20];
         L_BulkDecantZone: Code[20];
         //L_HighBayZone: Code[20];
@@ -128,10 +129,10 @@ Report 99971 "Cal _Bin Replenishment New"
         L_SourceQtyPerUoM: Decimal;
         L_BinQtyPerUoM: Decimal;
     begin
-        L_BulkLocation := L_Events.GetReceiveWarehouse();
-        L_BulkDecantZone := L_Events.GetBulkZone(L_BulkLocation);
-        //L_HighBayZone := L_Events.GetHighBayZone(L_BulkLocation);
-        L_PickBulkZone := L_Events.GetBulkZone(_LocationCode);
+        L_BulkLocation := L_KamWhseSetupLookup.GetReceiveLocation();
+        L_BulkDecantZone := L_KamWhseSetupLookup.GetBulkZone(L_BulkLocation);
+        //L_HighBayZone := L_KamWhseSetupLookup.GetHighBayZone(L_BulkLocation);
+        L_PickBulkZone := L_KamWhseSetupLookup.GetBulkZone(_LocationCode);
 
         // Iterate every PICK BULK Bin Content configured for this item (catches brand-new bins with no entries yet)
         L_BinContent.Reset();

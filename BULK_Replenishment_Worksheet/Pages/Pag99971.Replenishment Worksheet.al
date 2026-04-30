@@ -182,11 +182,11 @@ page 99971 "Replenishment Worksheet"
                 var
                     Location: Record Location;
                     ReplenishBinContent: Report "Cal _Bin Replenishment New";
-                    L_Events: Codeunit Events;
+                    L_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
                 begin
                     Commit();
-                    Location.Get(L_Events.GetMainWarehouse());
-                    ReplenishBinContent.InitializeRequest(Rec."Template Name", Rec."Batch Name", L_Events.GetMainWarehouse(), false);
+                    Location.Get(L_KamWhseSetupLookup.GetMainLocation());
+                    ReplenishBinContent.InitializeRequest(Rec."Template Name", Rec."Batch Name", L_KamWhseSetupLookup.GetMainLocation(), false);
                     ReplenishBinContent.Run();
                     Clear(ReplenishBinContent);
                 end;

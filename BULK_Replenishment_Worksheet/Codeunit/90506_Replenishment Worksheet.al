@@ -252,7 +252,8 @@ codeunit 99971 "Replenishment Worksheet"
         G_ReqLine."Bin Code" := _ReplenishmentWorksheet."Bin Code";
         G_ReqLine.Validate("Replenishment System", G_ReqLine."Replenishment System"::Transfer);
         //G_ReqLine.Validate("Supply From", 'BULKNDPP');
-        G_ReqLine.Validate("Supply From", G_Events.GetReceiveWarehouse());
+        //G_ReqLine.Validate("Supply From", G_Events.GetReceiveWarehouse());
+        G_ReqLine.Validate("Supply From", G_KamWhseSetupLookup.GetReceiveLocation());
         G_ReqLine.Validate("Unit of Measure Code", _ReplenishmentWorksheet."Unit of Measure Code");
         G_ReqLine.Validate("Transfer Shipment Date", WorkDate());
         G_ReqLine.Validate("Due Date", WorkDate());
@@ -300,7 +301,7 @@ codeunit 99971 "Replenishment Worksheet"
 
         //New++
         G_ReqLine: Record "Requisition Line";
-        G_Events: Codeunit Events;
+        G_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
 
 
 
