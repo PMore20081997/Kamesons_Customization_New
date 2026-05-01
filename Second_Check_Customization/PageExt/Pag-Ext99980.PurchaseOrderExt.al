@@ -1,6 +1,7 @@
 namespace Kamesons_Customization.Kamesons_Customization;
 
 using Microsoft.Purchases.Document;
+using System.Security.AccessControl;
 
 pageextension 99980 Purchase_Order_Ext extends "Purchase Order"
 {
@@ -26,6 +27,16 @@ pageextension 99980 Purchase_Order_Ext extends "Purchase Order"
                 ApplicationArea = All;
                 ToolTip = 'Specifies the value of the Second Check Date field.', Comment = '%';
                 Editable = false;
+            }
+            field(SystemCreatedAt; Rec.SystemCreatedAt)
+            {
+                ApplicationArea = All;
+                ToolTip = 'Specifies the value of the SystemCreatedAt field.', Comment = '%';
+            }
+            field(SystemCreatedBy; GetCreatedByUser(Rec.SystemCreatedBy))
+            {
+                ApplicationArea = All;
+                ToolTip = 'Specifies the value of the SystemCreatedBy field.', Comment = '%';
             }
         }
         addfirst(FactBoxes)
@@ -58,6 +69,14 @@ pageextension 99980 Purchase_Order_Ext extends "Purchase Order"
             MakeEditable := false
         else
             MakeEditable := true;
+    end;
+
+    local procedure GetCreatedByUser(P_UserSecID: Guid): Code[50]
+    var
+        L_User: Record User;
+    begin
+        If L_User.Get(P_UserSecID) then
+            exit(L_User."User Name");
     end;
 
     var

@@ -9,10 +9,8 @@ tableextension 99975 Purchase_Header_Ext extends "Purchase Header"
 {
     fields
     {
-        field(99971; "Second Check"; Option)
+        field(99971; "Second Check"; Enum "Second Check Status")
         {
-            OptionCaption = ' ,Approved,Rejected';
-            OptionMembers = " ","Approved","Rejected";
 
             trigger OnValidate()
             var

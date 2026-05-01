@@ -1,5 +1,6 @@
 namespace Kamesons_Customization.Kamesons_Customization;
 using Microsoft.Purchases.Document;
+using Microsoft.Utilities;
 using System.Security.AccessControl;
 using System.Security.User;
 
@@ -15,5 +16,33 @@ codeunit 99975 SecondCheck_Events
     begin
         if PurchaseHeader."Second Check" <> PurchaseHeader."Second Check"::Approved then
             Error('The Second Check field must be Approved before releasing this purchase order.');
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Copy Document Mgt.", OnBeforeModifyPurchHeader, '', false, false)]
+    local procedure OnBeforeModifyPurchHeader(var ToPurchHeader: Record "Purchase Header")
+    begin
+
+        if ToPurchHeader."Document Type" <> ToPurchHeader."Document Type"::Order then
+            exit;
+
+        ToPurchHeader."Second Check" := ToPurchHeader."Second Check"::" ";
+        ToPurchHeader."Second Check Date & Time" := 0DT;
+        ToPurchHeader."Second Check User" := '';
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::"Purchase Header", OnAfterInsertEvent, '', false, false)]
+    local procedure OnAfterInsertEvent()
+    var
+        i: Integer;
+    begin
+        Clear(i);
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::"Purchase Header", OnAfterModifyEvent, '', false, false)]
+    local procedure MyProcedure()
+    var
+        j: Integer;
+    begin
+        Clear(j);
     end;
 }
