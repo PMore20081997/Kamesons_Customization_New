@@ -43,6 +43,11 @@ pageextension 99951 "Warehouse Receipt Card Ext" extends "Warehouse Receipt"
                 {
                     ApplicationArea = Warehouse;
                 }
+                field("Received Pallets"; Rec."Received Pallets")
+                {
+                    ApplicationArea = All;
+                    ToolTip = 'Specifies the value of the Received Pallets field.', Comment = '%';
+                }
                 field("No. of Items"; Rec."No. of Items")
                 {
                     ApplicationArea = Warehouse;

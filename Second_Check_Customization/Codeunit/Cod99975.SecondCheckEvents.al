@@ -1,6 +1,7 @@
 namespace Kamesons_Customization.Kamesons_Customization;
 using Microsoft.Purchases.Document;
 using System.Security.AccessControl;
+using System.Security.User;
 
 codeunit 99975 SecondCheck_Events
 {

@@ -3,6 +3,7 @@ namespace Kamesons_Customization.Kamesons_Customization;
 using Microsoft.Purchases.Document;
 using System.Security.AccessControl;
 using Microsoft.CRM.Team;
+using System.Security.User;
 
 tableextension 99975 Purchase_Header_Ext extends "Purchase Header"
 {
@@ -16,13 +17,19 @@ tableextension 99975 Purchase_Header_Ext extends "Purchase Header"
             trigger OnValidate()
             var
                 L_SecondCheck_Events: Codeunit SecondCheck_Events;
+                L_UserSetup: Record "User Setup";
             begin
+                Rec."Second Check User" := UserId;
+                Rec."Second Check Date & Time" := CurrentDateTime();
+
+                if L_UserSetup.Get(UserId) and L_UserSetup."Allow Second Check" then
+                    exit;
+
                 if SystemCreatedBy = UserSecurityId() then begin
                     Error(L_SameUserSecondCheck);
                 end; //Temporary
 
-                Rec."Second Check User" := UserId;
-                Rec."Second Check Date & Time" := CurrentDateTime();
+
             end;
         }
         field(99972; "Second Check User"; Code[100])
