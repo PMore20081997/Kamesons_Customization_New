@@ -53,11 +53,119 @@ page 99991 "Decant Screen"
                 TableRelation = Location;
                 ToolTip = 'Specifies the location where the warehouse activity takes place. ';
             }
+            field(G_ItemBarcode; G_ItemBarcode)
+            {
+                ApplicationArea = All;
+                Caption = 'Item Barcode';
+                trigger OnValidate()
+                var
+                    L_ItemRef: Record "Item Reference";
+                    L_ItemMan: Record "Item Manufacturer Table";
+                    L_SourceQuery: Query WarehouseEntryReceive;
+                    L_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
+                    L_SourceZone: Code[10];
+                    L_FefoMfg: Code[50];
+                begin
+                    if G_ItemBarcode = '' then
+                        exit;
+
+                    L_ItemRef.Reset();
+                    L_ItemRef.SetRange("Reference Type", L_ItemRef."Reference Type"::"Bar Code");
+                    L_ItemRef.SetRange("Reference No.", G_ItemBarcode);
+                    if not L_ItemRef.FindFirst() then begin
+                        ItemFilter := '';
+                        ManufacturerFilter := '';
+                        QtyPerToteFilter := 0;
+                        CurrPage.Update();
+                        Error('No item found with barcode %1.', G_ItemBarcode);
+                    end;
+
+                    ItemFilter := L_ItemRef."Item No.";
+
+                    L_SourceZone := L_KamWhseSetupLookup.GetGenDecantZone(CurrentLocationCode);
+
+                    L_SourceQuery.SetFilter(Item_No_, ItemFilter);
+                    if CurrentLocationCode <> '' then
+                        L_SourceQuery.SetFilter(Location_Code, CurrentLocationCode);
+                    if L_SourceZone <> '' then
+                        L_SourceQuery.SetFilter(Zone_Code, L_SourceZone);
+                    L_SourceQuery.SetFilter(Expiration_Date, '>=%1', WorkDate());
+                    L_SourceQuery.SetFilter(Manufacturer_Code, '<>%1', '');
+                    L_SourceQuery.SetFilter(Qty_Base, '>%1', 0);
+                    L_SourceQuery.Open();
+                    if L_SourceQuery.Read() then
+                        L_FefoMfg := L_SourceQuery.Manufacturer_Code;
+                    L_SourceQuery.Close();
+
+                    if L_FefoMfg = '' then
+                        Error('No available stock for Item %1 at Location %2.', ItemFilter, CurrentLocationCode);
+
+                    ManufacturerFilter := L_FefoMfg;
+
+                    L_ItemMan.Reset();
+                    L_ItemMan.SetRange("Item No", ItemFilter);
+                    L_ItemMan.SetRange("Manufacturer code", ManufacturerFilter);
+                    if L_ItemMan.FindFirst() then
+                        QtyPerToteFilter := L_ItemMan."Qty per Tote"
+                    else
+                        QtyPerToteFilter := 0;
+
+                    CurrPage.Update();
+                end;
+            }
             field(ItemFilter; ItemFilter)
             {
                 ApplicationArea = All;
-                TableRelation = Item."No." where(BULK = const(false));
                 Caption = 'Item No.';
+
+                trigger OnLookup(var Text: Text): Boolean
+                var
+                    L_Item: Record Item;
+                    L_ItemList: Page "Item List";
+                    L_SourceQuery: Query WarehouseEntryReceive;
+                    L_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
+                    L_ItemNoList: List of [Code[20]];
+                    L_ItemNo: Code[20];
+                    L_ItemFilter: Text;
+                    L_SourceZone: Code[10];
+                begin
+                    L_SourceZone := L_KamWhseSetupLookup.GetGenDecantZone(CurrentLocationCode);
+
+                    if CurrentLocationCode <> '' then
+                        L_SourceQuery.SetFilter(Location_Code, CurrentLocationCode);
+                    if L_SourceZone <> '' then
+                        L_SourceQuery.SetFilter(Zone_Code, L_SourceZone);
+                    L_SourceQuery.SetFilter(Expiration_Date, '>=%1', WorkDate());
+                    L_SourceQuery.SetFilter(Qty_Base, '>%1', 0);
+                    L_SourceQuery.Open();
+                    while L_SourceQuery.Read() do
+                        if not L_ItemNoList.Contains(L_SourceQuery.Item_No_) then
+                            L_ItemNoList.Add(L_SourceQuery.Item_No_);
+                    L_SourceQuery.Close();
+
+                    if L_ItemNoList.Count = 0 then
+                        Error('No items with available stock at Location %1.', CurrentLocationCode);
+
+                    foreach L_ItemNo in L_ItemNoList do begin
+                        if L_ItemFilter <> '' then
+                            L_ItemFilter += '|';
+                        L_ItemFilter += L_ItemNo;
+                    end;
+
+                    L_Item.Reset();
+                    L_Item.SetFilter("No.", L_ItemFilter);
+                    L_Item.SetRange(BULK, false);
+                    L_ItemList.SetTableView(L_Item);
+                    L_ItemList.LookupMode(true);
+                    if L_ItemList.RunModal() = Action::LookupOK then begin
+                        L_ItemList.GetRecord(L_Item);
+                        ItemFilter := L_Item."No.";
+                        Text := ItemFilter;
+                        CurrPage.Update();
+                        exit(true);
+                    end;
+                end;
+
                 trigger OnValidate()
                 var
                     RecItem: Record Item;
@@ -428,4 +536,5 @@ page 99991 "Decant Screen"
         CurrentJnlBatchName: Code[10];
         CurrentLocationCode: Code[10];
         DestLocationCode: Code[10];
+        G_ItemBarcode: Code[250];
 }
