@@ -85,7 +85,7 @@ codeunit 99962 "Kam Tote Math"
                     WhseItemTrack.SetRange("Source Batch Name", WhseWkshLine."Worksheet Template Name");
                     WhseItemTrack.SetRange("Source Ref. No.", WhseWkshLine."Line No.");
                     WhseItemTrack.SetRange("Item No.", ItemNo);
-                    WhseItemTrack.SetRange("Manufacture Code", ItemMfr."Manufacturer Code");
+                    WhseItemTrack.SetRange("Manufacturer Code", ItemMfr."Manufacturer Code");
                     WhseItemTrack.CalcSums("Quantity (Base)");
                     MfgQtyBase += WhseItemTrack."Quantity (Base)";
                 until WhseWkshLine.Next() = 0;

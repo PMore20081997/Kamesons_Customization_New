@@ -284,7 +284,7 @@ codeunit 99963 "Kam Replenishment Mgt."
         WhseItemTrack."Lot No." := LotNo;
         WhseItemTrack."Expiration Date" := ExpirationDate;
         WhseItemTrack."Package No." := PackageNo;
-        WhseItemTrack."Manufacture Code" := ManufacturerCode;
+        WhseItemTrack."Manufacturer Code" := ManufacturerCode;
 
         WhseItemTrack."Qty. per Unit of Measure" := WhseWkshLine."Qty. per Unit of Measure";
         WhseItemTrack."Quantity (Base)" := QtyBase;

@@ -17,8 +17,13 @@ tableextension 99975 Purchase_Header_Ext extends "Purchase Header"
                 L_SecondCheck_Events: Codeunit SecondCheck_Events;
                 L_UserSetup: Record "User Setup";
             begin
-                Rec."Second Check User" := UserId;
-                Rec."Second Check Date & Time" := CurrentDateTime();
+                if Rec."Second Check" <> Rec."Second Check"::" " then begin
+                    Rec."Second Check User" := UserId;
+                    Rec."Second Check Date & Time" := CurrentDateTime();
+                end else begin
+                    Rec."Second Check User" := '';
+                    Rec."Second Check Date & Time" := 0DT;
+                end;
 
                 if L_UserSetup.Get(UserId) and L_UserSetup."Allow Second Check" then
                     exit;
@@ -37,6 +42,10 @@ tableextension 99975 Purchase_Header_Ext extends "Purchase Header"
         field(99973; "Second Check Date & Time"; DateTime)
         {
 
+        }
+        field(99974; "Whse. Receipt Error"; Text[1024])
+        {
+            DataClassification = ToBeClassified;
         }
     }
 

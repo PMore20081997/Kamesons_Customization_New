@@ -482,7 +482,7 @@ report 99973 "Calculate Bin Rep And Movement"
                         L_WhseItemTrackingLine.SetRange("Source Batch Name", L_WhseWkshLine."Worksheet Template Name");
                         L_WhseItemTrackingLine.SetRange("Source Ref. No.", L_WhseWkshLine."Line No.");
                         L_WhseItemTrackingLine.SetRange("Item No.", P_ItemNo);
-                        L_WhseItemTrackingLine.SetRange("Manufacture Code", L_ItemManufacturer."Manufacturer Code");
+                        L_WhseItemTrackingLine.SetRange("Manufacturer Code", L_ItemManufacturer."Manufacturer Code");
                         L_WhseItemTrackingLine.CalcSums("Quantity (Base)");
                         L_MfgQtyBase += L_WhseItemTrackingLine."Quantity (Base)";
                     until L_WhseWkshLine.Next() = 0;
@@ -587,7 +587,7 @@ report 99973 "Calculate Bin Rep And Movement"
         L_WhseItemTrackingLine."Lot No." := P_LotNo;
         L_WhseItemTrackingLine."Expiration Date" := P_ExpirationDate;
         L_WhseItemTrackingLine."Package No." := P_PackageNo;
-        L_WhseItemTrackingLine."Manufacture Code" := P_ManufacturerCode;
+        L_WhseItemTrackingLine."Manufacturer Code" := P_ManufacturerCode;
 
         L_WhseItemTrackingLine."Qty. per Unit of Measure" := P_WhseWkshLine."Qty. per Unit of Measure";
         L_WhseItemTrackingLine."Quantity (Base)" := P_QtyBase;

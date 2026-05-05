@@ -51,7 +51,7 @@ codeunit 99964 "Kam Reservation Subscribers"
     [EventSubscriber(ObjectType::Table, Database::"Warehouse Activity Line", OnAfterCopyTrackingFromWhseItemTrackingLine, '', false, false)]
     local procedure OnAfterCopyTrkgFromWhseItemTrkgLine(var WarehouseActivityLine: Record "Warehouse Activity Line"; WhseItemTrackingLine: Record "Whse. Item Tracking Line")
     begin
-        WarehouseActivityLine."Manufacturer Code" := WhseItemTrackingLine."Manufacture Code";
+        WarehouseActivityLine."Manufacturer Code" := WhseItemTrackingLine."Manufacturer Code";
     end;
 
     [EventSubscriber(ObjectType::Table, Database::"Warehouse Activity Line", OnAfterCopyTrackingFromSpec, '', false, false)]

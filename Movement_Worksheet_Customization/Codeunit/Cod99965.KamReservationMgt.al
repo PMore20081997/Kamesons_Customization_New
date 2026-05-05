@@ -107,9 +107,9 @@ codeunit 99965 "Kam Reservation Mgt."
         WhseItemTrk.SetRange("Lot No.", TrackingSpec."Lot No.");
         if TrackingSpec."Variant Code" <> '' then
             WhseItemTrk.SetRange("Variant Code", TrackingSpec."Variant Code");
-        WhseItemTrk.SetFilter("Manufacture Code", '<>%1', '');
+        WhseItemTrk.SetFilter("Manufacturer Code", '<>%1', '');
         if WhseItemTrk.FindFirst() then
-            WhseActLine."Manufacturer Code" := WhseItemTrk."Manufacture Code";
+            WhseActLine."Manufacturer Code" := WhseItemTrk."Manufacturer Code";
     end;
 
     procedure LookupManufacturerCodeByLot(ItemNo: Code[20]; VariantCode: Code[10]; LotNo: Code[50]): Code[50]

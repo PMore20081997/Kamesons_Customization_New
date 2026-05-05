@@ -6,14 +6,16 @@ using Microsoft.Warehouse.Structure;
 using Microsoft.Warehouse.Activity;
 using Microsoft.Inventory.Tracking;
 using Microsoft.Warehouse.History;
+using Microsoft.Warehouse.Tracking;
+using Microsoft.Inventory.Item.Catalog;
 
 codeunit 99976 Customize_Events
 {
-    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Purchases Warehouse Mgt.", OnPurchLine2ReceiptLineOnAfterUpdateReceiptLine, '', false, false)]
-    local procedure OnPurchLine2ReceiptLineOnAfterUpdateReceiptLine(var WarehouseReceiptLine: Record "Warehouse Receipt Line"; PurchaseLine: Record "Purchase Line")
-    begin
-        WarehouseReceiptLine."Manufacturer Code" := PurchaseLine."Manufacturer Code";
-    end;
+    // [EventSubscriber(ObjectType::Codeunit, Codeunit::"Purchases Warehouse Mgt.", OnPurchLine2ReceiptLineOnAfterUpdateReceiptLine, '', false, false)]
+    // local procedure OnPurchLine2ReceiptLineOnAfterUpdateReceiptLine(var WarehouseReceiptLine: Record "Warehouse Receipt Line"; PurchaseLine: Record "Purchase Line")
+    // begin
+    //     WarehouseReceiptLine."Manufacturer Code" := PurchaseLine."Manufacturer Code";
+    // end;
 
 
     //New++
@@ -34,15 +36,52 @@ codeunit 99976 Customize_Events
     begin
         PostedWhseReceiptLine."Manufacturer Code" := WhseItemEntryRelation."Manufacturer Code";
     end;
-
-    [EventSubscriber(ObjectType::Table, Database::"Warehouse Entry", OnAfterInsertEvent, '', false, false)]
-    local procedure OnAfterInsertEventWE()
-    var
-        i: Integer;
-    begin
-        Clear(i);
-    end;
     //New--
+
+    // Posted Whse. Receipt Line -> Warehouse Activity Line (Put-away from Warehouse Receipt).
+    // Mirrors how Lot No. / Expiration Date flow into the activity line during put-away creation.
+    // [EventSubscriber(ObjectType::Table, Database::"Warehouse Activity Line", OnAfterCopyTrackingFromPostedWhseRcptLine, '', false, false)]
+    // local procedure WhseActLine_OnAfterCopyTrkgFromPostedWhseRcptLine(PostedWhseRcptLine: Record "Posted Whse. Receipt Line"; var WarehouseActivityLine: Record "Warehouse Activity Line")
+    // begin
+    //     WarehouseActivityLine."Manufacturer Code" := PostedWhseRcptLine."Manufacturer Code";
+    // end;
+
+    // Auto-fill Manufacturer Code from Item Reference (Reference Type = Bar Code) when Lot No. is entered
+    // on Item Tracking Lines (Tracking Specification — used by Purchase Order tracking).
+    [EventSubscriber(ObjectType::Table, Database::"Tracking Specification", OnAfterValidateEvent, 'Lot No.', false, false)]
+    local procedure TrackingSpec_OnAfterValidateLotNo_AssignMfrCode(var Rec: Record "Tracking Specification")
+    var
+        ItemReference: Record "Item Reference";
+    begin
+        if Rec."Lot No." = '' then
+            exit;
+        if Rec."Item No." = '' then
+            exit;
+
+        ItemReference.SetRange("Item No.", Rec."Item No.");
+        ItemReference.SetRange("Variant Code", Rec."Variant Code");
+        ItemReference.SetRange("Reference Type", ItemReference."Reference Type"::"Bar Code");
+        if ItemReference.FindFirst() then
+            Rec."Manufacturer Code" := ItemReference.Manufacturer;
+    end;
+
+    // Same behavior for Warehouse Item Tracking Lines (used by Warehouse Receipt).
+    [EventSubscriber(ObjectType::Table, Database::"Whse. Item Tracking Line", OnAfterValidateEvent, 'Lot No.', false, false)]
+    local procedure WhseItemTrkgLine_OnAfterValidateLotNo_AssignMfrCode(var Rec: Record "Whse. Item Tracking Line")
+    var
+        ItemReference: Record "Item Reference";
+    begin
+        if Rec."Lot No." = '' then
+            exit;
+        if Rec."Item No." = '' then
+            exit;
+
+        ItemReference.SetRange("Item No.", Rec."Item No.");
+        ItemReference.SetRange("Variant Code", Rec."Variant Code");
+        ItemReference.SetRange("Reference Type", ItemReference."Reference Type"::"Bar Code");
+        if ItemReference.FindFirst() then
+            Rec."Manufacturer Code" := ItemReference.Manufacturer;
+    end;
 
     // Restrict Main Warehouse to a single Item / Location / Zone / Bin combination.
     // Why: business rule — one item must live in exactly one bin at the Main location.

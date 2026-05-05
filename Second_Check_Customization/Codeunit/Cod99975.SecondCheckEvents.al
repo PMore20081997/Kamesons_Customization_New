@@ -29,20 +29,4 @@ codeunit 99975 SecondCheck_Events
         ToPurchHeader."Second Check Date & Time" := 0DT;
         ToPurchHeader."Second Check User" := '';
     end;
-
-    [EventSubscriber(ObjectType::Table, Database::"Purchase Header", OnAfterInsertEvent, '', false, false)]
-    local procedure OnAfterInsertEvent()
-    var
-        i: Integer;
-    begin
-        Clear(i);
-    end;
-
-    [EventSubscriber(ObjectType::Table, Database::"Purchase Header", OnAfterModifyEvent, '', false, false)]
-    local procedure MyProcedure()
-    var
-        j: Integer;
-    begin
-        Clear(j);
-    end;
 }

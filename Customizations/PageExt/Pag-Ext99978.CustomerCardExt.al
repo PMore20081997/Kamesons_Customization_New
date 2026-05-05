@@ -6,8 +6,8 @@ pageextension 99978 Customer_Card_Ext extends "Customer Card"
 {
     layout
     {
-        addlast(General)
-        {
+        addlast(Shipping)
+        {       
             
             field(Dispensary; Rec.Dispensary)
             {

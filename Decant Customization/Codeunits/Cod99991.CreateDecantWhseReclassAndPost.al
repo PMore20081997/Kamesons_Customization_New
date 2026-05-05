@@ -185,7 +185,7 @@ codeunit 99991 "Decant Reclass Mgt."
         until DecantDetails.Next() = 0;
 
         // Post via the standard warehouse journal posting routine
-        WhseJnlLine.Reset();
+        /*WhseJnlLine.Reset();
         WhseJnlLine.SetRange("Journal Template Name", WhseJnlBatch."Journal Template Name");
         WhseJnlLine.SetRange("Journal Batch Name", WhseJnlBatch.Name);
         WhseJnlLine.SetRange("Location Code", WhseJnlBatch."Location Code");
@@ -195,7 +195,7 @@ codeunit 99991 "Decant Reclass Mgt."
 
         Commit();
         if not Codeunit.Run(Codeunit::"Whse. Jnl.-Register Batch", WhseJnlLine) then
-            Error(PostingFailedErr, GetLastErrorText());
+            Error(PostingFailedErr, GetLastErrorText());*/
 
         // Only delete the buffer once posting succeeded
         DecantDetails.SetRange("Journal Template Name", TemplateName);
