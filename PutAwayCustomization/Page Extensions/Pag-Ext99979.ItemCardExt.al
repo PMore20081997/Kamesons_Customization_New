@@ -8,15 +8,10 @@ pageextension 99979 Item_Card_Ext extends "Item Card"
     {
         addlast(Item)
         {
-            field(BULK; Rec.BULK)
+            field("Routing Type"; Rec."Routing Type")
             {
                 ApplicationArea = All;
-                ToolTip = 'Specifies the value of the BULK field.', Comment = '%';
-            }
-            field("Static"; Rec."Static")
-            {
-                ApplicationArea = All;
-                ToolTip = 'Specifies whether this item should be put away to the Static bin at the Receive Location.';
+                ToolTip = 'Specifies how this item is routed during put-away. Flowrack = neither Bulk nor Static. Switching this value is blocked while stock for this item still sits in the previous type''s bin in the Main Warehouse.';
             }
         }
         addafter(VariantMandatoryDefaultNo)

@@ -9,21 +9,24 @@ using Microsoft.Inventory.Item;
 ///
 /// PURPOSE
 ///   When stock is received at the Receive Location (PICK BULK), route the
-///   put-away line to one of four bins based on item flags:
+///   put-away line based on Item."Routing Type":
 ///
-///     Item.BULK   = TRUE                     -> Bulk bin
-///     Item.Static = TRUE                     -> Static bin
-///     both flags  = FALSE                    -> Flowrack bin   (was GEN DECANT)
-///     overflow / older expiry / capacity hit -> HighBay bin
+///     Routing Type = BULK                    -> Bulk bin
+///     Routing Type = Static or Flowrack      -> Flowrack (GEN DECANT) bin
+///     overflow / newer expiry / capacity hit -> HighBay bin
 ///
-///   Boolean flags now live on Bin (Bulk / Static / Flowrack / HighBay)
-///   rather than on Zone. Item.BULK and Item.Static are mutually exclusive.
+///   At put-away, Static and Flowrack items share the GEN DECANT bin and use
+///   the same Max-Qty rule against the Main-WH bin. The Static-vs-Flowrack
+///   split only matters during the decant phase (different capacity rules
+///   there) and is not a put-away concern.
+///
+///   Routing booleans live on Bin (Bulk / Static / Flowrack / HighBay).
 ///
 /// HIGH-LEVEL RULES
 ///   1. Only triggers at the configured Receive Location.
 ///   2. Only acts on Put-Away Place lines from a Purchase Order source.
 ///   3. If incoming line's expiry is NEWER than the latest existing expiry
-///      already on the target bin, the entire line is sent to HighBay
+///      already in the target bin, the entire line is sent to HighBay
 ///      (the decant face must keep the freshest stock).
 ///   4. If routing the line to the target bin would exceed the equivalent
 ///      Main-Warehouse bin's Max Qty, the line is split: the spillover goes
@@ -100,7 +103,6 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         SplitLine: Record "Warehouse Activity Line";
         IsHandled: Boolean;
         TargetType: Enum "Put-Away Target Zone NDPP";
-        BinMaxBaseQty: Decimal;
         SpaceLeftInDecant: Decimal;
     begin
         OnBeforeHandleBinCapacity(WhseActivityLine, IsHandled);
@@ -124,11 +126,7 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         if not TryGetMainBinContent(WhseActivityLine."Item No.", TargetType, MainBinContent) then
             exit;
 
-        if MainBinContent."Max. Qty." <= 0 then
-            exit; // No cap — nothing to enforce.
-
-        BinMaxBaseQty := MainBinContent."Max. Qty." * MainBinContent."Qty. per Unit of Measure";
-        SpaceLeftInDecant := BinMaxBaseQty - G_BinContentQty;
+        SpaceLeftInDecant := ResolveSpaceLeft(WhseActivityLine, Item, MainBinContent);
 
         // Decant bin already at/over capacity — push everything to High-Bay.
         if SpaceLeftInDecant <= 0 then begin
@@ -139,7 +137,7 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         end;
 
         // Decant bin can absorb the whole line — leave alone.
-        if (G_BinContentQty + WhseActivityLine."Qty. (Base)") <= BinMaxBaseQty then begin
+        if WhseActivityLine."Qty. (Base)" <= SpaceLeftInDecant then begin
             ClearReservedQty();
             exit;
         end;
@@ -187,16 +185,69 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         exit(true);
     end;
 
-    /// <summary>Maps Item flags to the target bin type.</summary>
+    /// <summary>
+    /// Maps Item routing type to the put-away target bin type.
+    ///
+    /// NOTE: At put-away, BOTH Static and Flowrack items land in the GEN DECANT
+    /// (Flowrack) bin. The Static-vs-Flowrack distinction only matters during
+    /// the decant phase, where they have different capacity rules. Put-away
+    /// just uses the Main-WH GEN DECANT bin's Max Qty for both.
+    /// </summary>
     local procedure DetermineTargetType(Item: Record Item): Enum "Put-Away Target Zone NDPP"
     var
         TargetType: Enum "Put-Away Target Zone NDPP";
     begin
-        if Item.BULK then
-            exit(TargetType::BulkDecant);
-        if Item."Static" then
-            exit(TargetType::"Static");
-        exit(TargetType::GenDecant);
+        case Item."Routing Type" of
+            Item."Routing Type"::BULK:
+                exit(TargetType::BulkDecant);
+            else
+                // Static and Flowrack both route to GEN DECANT at put-away.
+                exit(TargetType::GenDecant);
+        end;
+    end;
+
+    /// <summary>
+    /// Returns the base-qty SPACE LEFT in the put-away target bin (already net
+    /// of stock currently in or pending into Main WH).
+    ///
+    ///   Flowrack -> EmptyTotes x QtyPerTote(line.Manufacturer)
+    ///               EmptyTotes already accounts for filled totes, so this
+    ///               value is net — DO NOT subtract G_BinContentQty again.
+    ///
+    ///   BULK / Static -> (Max Qty x Qty per UoM) - G_BinContentQty
+    ///                    Max Qty is a gross capacity, so we subtract whatever
+    ///                    is already on hand or inbound at Main WH.
+    ///
+    /// Returns 0 (or less) when there's no room — caller routes everything to
+    /// HighBay in that case. If a Flowrack line lacks tote setup, falls back
+    /// to the Max Qty path so incomplete master data doesn't dump everything
+    /// to HighBay.
+    /// </summary>
+    local procedure ResolveSpaceLeft(var WhseActivityLine: Record "Warehouse Activity Line"; Item: Record Item; var MainBinContent: Record "Bin Content"): Decimal
+    var
+        QtyPerTote: Decimal;
+        BinMaxBaseQty: Decimal;
+        TargetTotes: Integer;
+        FilledTotes: Integer;
+        EmptyTotes: Integer;
+    begin
+        if Item."Routing Type" = Item."Routing Type"::Flowrack then begin
+            QtyPerTote := KamToteMath.GetQtyPerTote(WhseActivityLine."Item No.", WhseActivityLine."Manufacturer Code");
+            TargetTotes := MainBinContent."Number of Totes in a Bin";
+            if (QtyPerTote > 0) and (TargetTotes > 0) then begin
+                FilledTotes := KamToteMath.CountTotesInFLOWRACKBin(MainBinContent);
+                EmptyTotes := TargetTotes - FilledTotes;
+                if EmptyTotes < 0 then
+                    EmptyTotes := 0;
+                exit(EmptyTotes * QtyPerTote);
+            end;
+        end;
+
+        // BULK / Static / Flowrack-fallback — Max Qty rule, net of reserved qty.
+        BinMaxBaseQty := MainBinContent."Max. Qty." * MainBinContent."Qty. per Unit of Measure";
+        if BinMaxBaseQty <= 0 then
+            exit(0);
+        exit(BinMaxBaseQty - G_BinContentQty);
     end;
 
     /// <summary>
@@ -468,6 +519,7 @@ codeunit 99983 "Put-Away Mgt. NDPP"
 
     var
         G_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
+        KamToteMath: Codeunit "Kam Tote Math";
         G_BinContentQty: Decimal;
         G_IsExecuting: Boolean;
         G_LineSpacing: Boolean;

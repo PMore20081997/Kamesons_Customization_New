@@ -16,10 +16,11 @@ codeunit 99962 "Kam Tote Math"
     Access = Public;
 
     /// <summary>
-    /// Whole totes currently sitting in a PICK BULK bin, summed across manufacturers.
-    /// Partial-tote remainders are dropped (whole-tote handling rule).
+    /// Totes currently occupying a bin, summed across manufacturers.
+    /// Counts each manufacturer's qty divided by Qty-per-Tote, rounded UP —
+    /// partial totes still occupy a slot (190 qty / 100 per tote = 2 totes).
     /// </summary>
-    procedure CountTotesInPickBulkBin(BinContent: Record "Bin Content"): Integer
+    procedure CountTotesInFLOWRACKBin(BinContent: Record "Bin Content"): Integer
     var
         WhseEntryQry: Query Warehouse_Entry_Main;
         QtyPerTote: Decimal;
@@ -33,8 +34,8 @@ codeunit 99962 "Kam Tote Math"
         WhseEntryQry.Open();
         while WhseEntryQry.Read() do begin
             QtyPerTote := GetQtyPerTote(BinContent."Item No.", WhseEntryQry.Manufacturer_Code);
-            if (QtyPerTote > 0) and (WhseEntryQry.Qty___Base_ >= QtyPerTote) then
-                Totes += Round(WhseEntryQry.Qty___Base_ / QtyPerTote, 1, '<');
+            if (QtyPerTote > 0) and (WhseEntryQry.Qty___Base_ > 0) then
+                Totes += Round(WhseEntryQry.Qty___Base_ / QtyPerTote, 1, '>');
         end;
         WhseEntryQry.Close();
         exit(Totes);
@@ -90,8 +91,8 @@ codeunit 99962 "Kam Tote Math"
                     MfgQtyBase += WhseItemTrack."Quantity (Base)";
                 until WhseWkshLine.Next() = 0;
 
-            if MfgQtyBase >= ItemMfr."Qty per Tote" then
-                Totes += Round(MfgQtyBase / ItemMfr."Qty per Tote", 1, '<');
+            if MfgQtyBase > 0 then
+                Totes += Round(MfgQtyBase / ItemMfr."Qty per Tote", 1, '>');
         until ItemMfr.Next() = 0;
         exit(Totes);
     end;
