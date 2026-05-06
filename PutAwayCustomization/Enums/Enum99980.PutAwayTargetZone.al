@@ -24,4 +24,8 @@ enum 99980 "Put-Away Target Zone NDPP"
     {
         Caption = 'High Bay';
     }
+    value(3; "Static")
+    {
+        Caption = 'Static';
+    }
 }

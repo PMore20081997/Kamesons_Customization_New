@@ -30,6 +30,21 @@
             "environmentName": "Demo",
             "tenant": "c41892ae-4cb0-4027-9474-bbee40007d4d",
             "schemaUpdateMode":"ForceSync"
+        },
+        {
+            "type": "al",
+            "request": "launch",
+            "name": "AdeshClaude",
+            "breakOnError": true,
+            "launchBrowser": true,
+            "enableLongRunningSqlStatements": true,
+            "enableSqlInformationDebugger": true,
+            "environmentType": "Sandbox",
+            "startupObjectType": "Query",
+            "startupObjectId": 99981,
+            "environmentName": "AdeshClaude",
+            "tenant": "c41892ae-4cb0-4027-9474-bbee40007d4d",
+            "schemaUpdateMode":"ForceSync"
         }
     ]
 }

@@ -10,6 +10,23 @@ tableextension 99974 Item_Ext extends Item
         {
             Caption = 'BULK';
             DataClassification = ToBeClassified;
+
+            trigger OnValidate()
+            begin
+                if Rec.BULK and Rec."Static" then
+                    Error(BothFlagsErr);
+            end;
+        }
+        field(99978; "Static"; Boolean)
+        {
+            Caption = 'Static';
+            DataClassification = ToBeClassified;
+
+            trigger OnValidate()
+            begin
+                if Rec."Static" and Rec.BULK then
+                    Error(BothFlagsErr);
+            end;
         }
         field(99972; "DTCategory"; Text[10])
         {
@@ -46,4 +63,7 @@ tableextension 99974 Item_Ext extends Item
             //DecimalPlaces = 0 : 5;
         }
     }
+
+    var
+        BothFlagsErr: Label 'An item cannot be flagged as both BULK and Static. Enable only one of these flags or leave both disabled.';
 }

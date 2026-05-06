@@ -1,6 +1,6 @@
 {
   "id": "eacf13ae-cd24-4d44-b114-53a1b1db9896",
-  "name": "Kamesons_Customization",
+  "name": "Kamsons_Customization",
   "publisher": "Default Publisher",
   "version": "1.0.0.0",
   "brief": "",
@@ -18,10 +18,10 @@
       "version": "1.0.0.0"
     },
     {
-      "id": "932326fa-e5e0-46a0-87c9-1aa01a038111",
-      "name": "Ochannel 2.0",
+      "id": "0a10dfb9-c53c-4222-9ca2-25758f9ff410",
+      "name": "Independent Pharma Documents",
       "publisher": "Robosol",
-      "version": "27.0.0.0"
+      "version": "19.0.0.0"
     }
   ],
   "screenshots": [],
