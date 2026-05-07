@@ -27,7 +27,7 @@ codeunit 99991 "Decant Reclass Mgt."
 
     // -- Public API -----------------------------------------------------------
 
-    procedure CalculateGenDecant(
+    procedure CalculateDecant(
         TemplateName: Code[10];
         BatchName: Code[10];
         SourceLocationCode: Code[10];
@@ -42,6 +42,9 @@ codeunit 99991 "Decant Reclass Mgt."
         WhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
         ItemTrackingMgt: Codeunit "Item Tracking Management";
         ItemTrackingSetup: Record "Item Tracking Setup";
+        ConsumedFromSource: Dictionary of [Text, Decimal];
+        SourceKey: Text;
+        AvailableFromSource: Decimal;
         SourceZone: Code[10];
         DestZone: Code[10];
         NextLineNo: Integer;
@@ -59,8 +62,8 @@ codeunit 99991 "Decant Reclass Mgt."
 
         ValidateCalculateInputs(SourceLocationCode, DestLocationCode);
 
-        SourceZone := WhseSetupLookup.GetGenDecantZone(SourceLocationCode);
-        DestZone := WhseSetupLookup.GetGenDecantZonefromBinContent(DestLocationCode, ItemFilter);
+        SourceZone := WhseSetupLookup.GetDecantZone(SourceLocationCode);
+        DestZone := WhseSetupLookup.GetDecantZonefromBinContent(DestLocationCode, ItemFilter);
 
         if SourceZone = '' then
             Error(GenDecantZoneMissingErr, SourceLocationCode);
@@ -99,6 +102,15 @@ codeunit 99991 "Decant Reclass Mgt."
                         if SourceQtyPerUoM = 0 then
                             SourceQtyPerUoM := 1;
 
+                        // Subtract anything earlier destination bins already allocated from this source row.
+                        SourceKey := MakeSourceKey(SourceQuery);
+                        if ConsumedFromSource.ContainsKey(SourceKey) then
+                            AvailableFromSource := SourceQuery.Qty_Base - ConsumedFromSource.Get(SourceKey)
+                        else
+                            AvailableFromSource := SourceQuery.Qty_Base;
+                        if AvailableFromSource <= 0 then
+                            continue;
+
                         QtyPerTote := ResolveQtyPerTote(
                             SourceQuery.Item_No_,
                             SourceQuery.Manufacturer_Code,
@@ -106,7 +118,7 @@ codeunit 99991 "Decant Reclass Mgt."
                             QtyPerToteOverride);
 
                         if QtyPerTote > 0 then begin
-                            RemainingFromLot := SourceQuery.Qty_Base;
+                            RemainingFromLot := AvailableFromSource;
 
                             while (RemainingFromLot > 0) and (RemainingCapacity > 0) do begin
                                 ToteQty := MinOf3(QtyPerTote, RemainingFromLot, RemainingCapacity);
@@ -127,6 +139,12 @@ codeunit 99991 "Decant Reclass Mgt."
                                 TotesCreatedForBin += 1;
                                 RemainingFromLot -= ToteQty;
                                 RemainingCapacity -= ToteQty;
+
+                                // Mark this much of the source row as consumed so later bins skip it.
+                                if ConsumedFromSource.ContainsKey(SourceKey) then
+                                    ConsumedFromSource.Set(SourceKey, ConsumedFromSource.Get(SourceKey) + ToteQty)
+                                else
+                                    ConsumedFromSource.Add(SourceKey, ToteQty);
                             end;
                         end;
                     end;
@@ -140,72 +158,116 @@ codeunit 99991 "Decant Reclass Mgt."
         if BinsSkippedNoMaxQty > 0 then
             Message(BinsSkippedMsg, BinsSkippedNoMaxQty);
 
-        LogTelemetry('CalculateGenDecant', SourceLocationCode, DestLocationCode, NextLineNo, StartTime);
+        LogTelemetry('CalculateDecant', SourceLocationCode, DestLocationCode, NextLineNo, StartTime);
     end;
 
-    procedure RegisterGenDecant(TemplateName: Code[10]; BatchName: Code[10])
+    procedure RegisterDecant(TemplateName: Code[10]; BatchName: Code[10])
     var
         DecantDetails: Record "Decant Details";
-        WhseJnlLine: Record "Warehouse Journal Line";
-        WhseJnlRegisterBatch: Codeunit "Whse. Jnl.-Register Batch";
-        WhseJnlBatch: Record "Warehouse Journal Batch";
-        NextLineNo: Integer;
-        StartTime: DateTime;
+        ItemJnlLine: Record "Item Journal Line";
+        ItemJnlTemplate: Record "Item Journal Template";
+        ItemJnlBatch: Record "Item Journal Batch";
+        Line: Integer;
+        ReclassTemplateName: Code[10];
+        ReclassBatchName: Code[10];
+        DocNo: Code[20];
     begin
-        StartTime := CurrentDateTime();
-
+        DecantDetails.Reset();
         DecantDetails.SetRange("Journal Template Name", TemplateName);
         DecantDetails.SetRange("Journal Batch Name", BatchName);
         if not DecantDetails.FindSet() then
-            Error(NoLinesToRegisterErr);
+            Error('No lines to register.');
 
-        // Validate every line has a New Package No. before we start writing
-        DecantDetails.SetRange("New Package No.", '');
-        if not DecantDetails.IsEmpty() then begin
-            DecantDetails.FindFirst();
-            Error(MissingNewPackageErr, DecantDetails."Line No.");
+        if not Confirm('Do you want to create Item Reclassification Journal lines?') then
+            exit;
+
+        // Find Item Journal Template of type Transfer (Item Reclassification)
+        ItemJnlTemplate.Reset();
+        ItemJnlTemplate.SetRange(Type, ItemJnlTemplate.Type::Transfer);
+        if not ItemJnlTemplate.FindFirst() then
+            Error('No Item Journal Template of type Transfer found. Please create one.');
+        ReclassTemplateName := ItemJnlTemplate.Name;
+
+        // Find or create batch
+        ItemJnlBatch.Reset();
+        ItemJnlBatch.SetRange("Journal Template Name", ReclassTemplateName);
+        ItemJnlBatch.SetRange(Name, 'GENDECANT');
+        if not ItemJnlBatch.FindFirst() then begin
+            ItemJnlBatch.Init();
+            ItemJnlBatch."Journal Template Name" := ReclassTemplateName;
+            ItemJnlBatch.Name := 'GENDECANT';
+            ItemJnlBatch.Description := 'GEN DECANT Reclassification';
+            ItemJnlBatch.Insert(true);
         end;
-        DecantDetails.SetRange("New Package No.");
+        ReclassBatchName := ItemJnlBatch.Name;
 
-        // Resolve / create the warehouse journal batch we'll post to
-        ResolveWhseJournalBatch(TemplateName, BatchName, DecantDetails."Location Code", WhseJnlBatch);
+        // Clear existing journal lines in this batch
+        ItemJnlLine.Reset();
+        ItemJnlLine.SetRange("Journal Template Name", ReclassTemplateName);
+        ItemJnlLine.SetRange("Journal Batch Name", ReclassBatchName);
+        if ItemJnlLine.FindSet() then
+            ItemJnlLine.DeleteAll(true);
 
-        // Wipe any leftover lines in the target whse journal batch
-        WhseJnlLine.SetRange("Journal Template Name", WhseJnlBatch."Journal Template Name");
-        WhseJnlLine.SetRange("Journal Batch Name", WhseJnlBatch.Name);
-        WhseJnlLine.SetRange("Location Code", WhseJnlBatch."Location Code");
-        WhseJnlLine.DeleteAll(true);
+        Line := 10000;
+        DocNo := 'GENDEC-' + Format(WorkDate(), 0, '<Year4><Month,2><Day,2>');
 
-        NextLineNo := 10000;
         DecantDetails.FindSet();
         repeat
-            BuildWhseJnlLine(WhseJnlLine, WhseJnlBatch, DecantDetails, NextLineNo);
-            WhseJnlLine.Insert(true);
-            NextLineNo += 10000;
+            // Create Item Journal Line (Entry Type = Transfer for Reclassification)
+            ItemJnlLine.Init();
+            ItemJnlLine."Journal Template Name" := ReclassTemplateName;
+            ItemJnlLine."Journal Batch Name" := ReclassBatchName;
+            ItemJnlLine."Line No." := Line;
+            ItemJnlLine.Validate("Posting Date", WorkDate());
+            ItemJnlLine."Document No." := DocNo;
+            ItemJnlLine."Entry Type" := ItemJnlLine."Entry Type"::Transfer;
+            ItemJnlLine.Validate("Item No.", DecantDetails."Item No.");
+            if DecantDetails."Variant Code" <> '' then
+                ItemJnlLine.Validate("Variant Code", DecantDetails."Variant Code");
+            ItemJnlLine.Validate("Location Code", DecantDetails."Location Code");
+            ItemJnlLine.Validate("New Location Code", DecantDetails."To Location Code");
+            ItemJnlLine."Bin Code" := DecantDetails."From Bin Code";
+            ItemJnlLine."New Bin Code" := DecantDetails."To Bin Code";
+            ItemJnlLine."Manufacturer Code" := DecantDetails."Manufacturer Code";
+            ItemJnlLine.Validate(Quantity, DecantDetails."To Qty.");
+            if DecantDetails."Unit of Measure Code" <> '' then
+                ItemJnlLine.Validate("Unit of Measure Code", DecantDetails."Unit of Measure Code");
+            ItemJnlLine.Insert(true);
+
+            // Create item tracking (Reservation Entry) with Lot and pre-assigned New Package from Decant Details
+            CreateItemTrackingForReclassLine(
+                ItemJnlLine,
+                DecantDetails."Lot No.",
+                DecantDetails."Expiry Date",
+                DecantDetails."Package No.",
+                DecantDetails."New Package No.", DecantDetails."Manufacturer Code"
+            );
+
+            Line += 10000;
         until DecantDetails.Next() = 0;
 
-        // Post via the standard warehouse journal posting routine
-        /*WhseJnlLine.Reset();
-        WhseJnlLine.SetRange("Journal Template Name", WhseJnlBatch."Journal Template Name");
-        WhseJnlLine.SetRange("Journal Batch Name", WhseJnlBatch.Name);
-        WhseJnlLine.SetRange("Location Code", WhseJnlBatch."Location Code");
+        // Post the reclass journal lines (Codeunit 23 iterates the filtered batch)
+        // ItemJnlLine.Reset();
+        // ItemJnlLine.SetRange("Journal Template Name", ReclassTemplateName);
+        // ItemJnlLine.SetRange("Journal Batch Name", ReclassBatchName);
+        // if ItemJnlLine.FindFirst() then begin
+        //     // Commit();
+        //     // if not Codeunit.Run(Codeunit::"Item Jnl.-Post Batch", ItemJnlLine) then
+        //     //     Error('Posting of GEN DECANT reclassification failed:\%1', GetLastErrorText());
+        //     Codeunit.Run(Codeunit::"Item Jnl.-Post Batch", ItemJnlLine);
 
-        if not WhseJnlLine.FindFirst() then
-            Error(NoLinesToRegisterErr);
 
-        Commit();
-        if not Codeunit.Run(Codeunit::"Whse. Jnl.-Register Batch", WhseJnlLine) then
-            Error(PostingFailedErr, GetLastErrorText());*/
 
-        // Only delete the buffer once posting succeeded
+        // end;
+
+        // Clean up Decant Details only after successful post
+        DecantDetails.Reset();
         DecantDetails.SetRange("Journal Template Name", TemplateName);
         DecantDetails.SetRange("Journal Batch Name", BatchName);
         DecantDetails.DeleteAll();
 
-        LogTelemetry('RegisterGenDecant', WhseJnlBatch."Location Code", '', NextLineNo, StartTime);
-        Message(RegisterCompletedMsg, WhseJnlBatch."Journal Template Name", WhseJnlBatch.Name);
+        Message('GEN DECANT reclassification posted successfully.\Template: %1, Batch: %2', ReclassTemplateName, ReclassBatchName);
     end;
-
     // -- Internals ------------------------------------------------------------
 
     local procedure ValidateCalculateInputs(SourceLocationCode: Code[10]; DestLocationCode: Code[10])
@@ -215,6 +277,62 @@ codeunit 99991 "Decant Reclass Mgt."
         if DestLocationCode = '' then
             Error(DestLocationMissingErr);
     end;
+
+    local procedure CreateItemTrackingForReclassLine(var ItemJnlLine: Record "Item Journal Line"; LotNo: Code[50]; ExpirationDate: Date; OldPackageNo: Code[50]; NewPackageNo: Code[50]; _ManufacturerCode: Code[100])
+    var
+        TempReservEntry: Record "Reservation Entry";
+        CreateReservEntry: Codeunit "Create Reserv. Entry";
+        ReservStatus: Enum "Reservation Status";
+        ReservEntry: Record "Reservation Entry";
+    begin
+        TempReservEntry.Init();
+        TempReservEntry."Lot No." := LotNo;
+        if ExpirationDate <> 0D then
+            TempReservEntry."Expiration Date" := ExpirationDate;
+
+        CreateReservEntry.CreateReservEntryFor(
+            DATABASE::"Item Journal Line",
+            ItemJnlLine."Entry Type".AsInteger(),
+            ItemJnlLine."Journal Template Name",
+            ItemJnlLine."Journal Batch Name",
+            0,
+            ItemJnlLine."Line No.",
+            ItemJnlLine."Qty. per Unit of Measure",
+            ItemJnlLine.Quantity,
+            ItemJnlLine.Quantity,
+            TempReservEntry
+        );
+        CreateReservEntry.SetDates(0D, ExpirationDate);
+        CreateReservEntry.CreateEntry(
+            ItemJnlLine."Item No.",
+            ItemJnlLine."Variant Code",
+            ItemJnlLine."Location Code",
+            '',
+            0D,
+            0D,
+            0,
+            ReservStatus::Surplus
+        );
+
+        // Update the created Reservation Entry with New tracking fields for reclassification
+        ReservEntry.Reset();
+        ReservEntry.SetRange("Source Type", DATABASE::"Item Journal Line");
+        ReservEntry.SetRange("Source Subtype", ItemJnlLine."Entry Type".AsInteger());
+        ReservEntry.SetRange("Source ID", ItemJnlLine."Journal Template Name");
+        ReservEntry.SetRange("Source Batch Name", ItemJnlLine."Journal Batch Name");
+        ReservEntry.SetRange("Source Ref. No.", ItemJnlLine."Line No.");
+        ReservEntry.SetRange("Lot No.", LotNo);
+        if ReservEntry.FindLast() then begin
+            ReservEntry."New Lot No." := LotNo;
+            ReservEntry."Package No." := OldPackageNo;
+            ReservEntry."New Package No." := NewPackageNo;
+            ReservEntry."Manufacturer Code" := _ManufacturerCode;
+            if ExpirationDate <> 0D then
+                ReservEntry."New Expiration Date" := ExpirationDate;
+            ReservEntry.Modify();
+        end;
+    end;
+
 
     local procedure ClearBuffer(TemplateName: Code[10]; BatchName: Code[10])
     var
@@ -301,72 +419,20 @@ codeunit 99991 "Decant Reclass Mgt."
         DecantDetails.ModifyAll("Number of Totes", TotesCreated);
     end;
 
-    local procedure ResolveWhseJournalBatch(
-        TemplateName: Code[10];
-        BatchName: Code[10];
-        LocationCode: Code[10];
-        var WhseJnlBatch: Record "Warehouse Journal Batch")
+    local procedure MakeSourceKey(SourceQuery: Query WarehouseEntryReceive): Text
     begin
-        WhseJnlBatch.SetRange("Journal Template Name", TemplateName);
-        WhseJnlBatch.SetRange(Name, BatchName);
-        WhseJnlBatch.SetRange("Location Code", LocationCode);
-        if WhseJnlBatch.FindFirst() then
-            exit;
-
-        WhseJnlBatch.Init();
-        WhseJnlBatch."Journal Template Name" := TemplateName;
-        WhseJnlBatch.Name := BatchName;
-        WhseJnlBatch."Location Code" := LocationCode;
-        WhseJnlBatch.Description := DefaultBatchDescTok;
-        WhseJnlBatch.Insert(true);
-    end;
-
-    local procedure BuildWhseJnlLine(
-        var WhseJnlLine: Record "Warehouse Journal Line";
-        WhseJnlBatch: Record "Warehouse Journal Batch";
-        DecantDetails: Record "Decant Details";
-        LineNo: Integer)
-    var
-        NoSeriesMgt: Codeunit "No. Series";
-    begin
-        WhseJnlLine.Init();
-        WhseJnlLine."Journal Template Name" := WhseJnlBatch."Journal Template Name";
-        WhseJnlLine."Journal Batch Name" := WhseJnlBatch.Name;
-        WhseJnlLine."Location Code" := DecantDetails."Location Code";
-        WhseJnlLine."Line No." := LineNo;
-        WhseJnlLine.Validate("Registering Date", WorkDate());
-        WhseJnlLine.Validate("Item No.", DecantDetails."Item No.");
-        if DecantDetails."Variant Code" <> '' then
-            WhseJnlLine.Validate("Variant Code", DecantDetails."Variant Code");
-        WhseJnlLine.Validate("Unit of Measure Code", DecantDetails."Unit of Measure Code");
-
-        WhseJnlLine."Source Code" := SourceCodeTok;
-        WhseJnlLine."Reason Code" := DecantDetails."Reason Code";
-        WhseJnlLine."Whse. Document No." := DecantDetails."Journal Batch Name";
-
-        // Source bin
-        WhseJnlLine.Validate("From Zone Code", DecantDetails."From Zone Code");
-        WhseJnlLine.Validate("From Bin Code", DecantDetails."From Bin Code");
-
-        // Destination bin
-        WhseJnlLine.Validate("To Zone Code", DecantDetails."To Zone Code");
-        WhseJnlLine.Validate("To Bin Code", DecantDetails."To Bin Code");
-
-        WhseJnlLine.Validate(Quantity, DecantDetails."To Qty.");
-
-        // Lot/package tracking — these go straight onto the journal line in
-        // BC v22+; before that, use the Whse. Item Tracking Lines page.
-        WhseJnlLine."Lot No." := DecantDetails."Lot No.";
-        WhseJnlLine."New Lot No." := DecantDetails."Lot No.";
-        WhseJnlLine."Package No." := DecantDetails."Package No.";
-        WhseJnlLine."New Package No." := DecantDetails."New Package No.";
-        WhseJnlLine."Expiration Date" := DecantDetails."Expiry Date";
-        WhseJnlLine."New Expiration Date" := DecantDetails."Expiry Date";
-
-        // Custom field on Whse. Journal Line for manufacturer (assumes the
-        // Movement Worksheet customisation has already added it; if not,
-        // remove this line)
-        // WhseJnlLine."Manufacturer Code" := DecantDetails."Manufacturer Code";
+        // Uniquely identifies one row in the source FEFO query so we can track
+        // qty already allocated to earlier destination bins within a single Calculate run.
+        exit(
+            SourceQuery.Item_No_ + '|' +
+            SourceQuery.Variant_Code + '|' +
+            SourceQuery.Location_Code + '|' +
+            SourceQuery.Zone_Code + '|' +
+            SourceQuery.Bin_Code + '|' +
+            SourceQuery.Lot_No_ + '|' +
+            SourceQuery.Package_No_ + '|' +
+            SourceQuery.Manufacturer_Code + '|' +
+            SourceQuery.Unit_of_Measure_Code);
     end;
 
     local procedure MinOf3(A: Decimal; B: Decimal; C: Decimal): Decimal
@@ -401,8 +467,16 @@ codeunit 99991 "Decant Reclass Mgt."
 
     // -- Integration events ---------------------------------------------------
 
+    [EventSubscriber(ObjectType::Table, Database::"Package No. Information", OnAfterInsertEvent, '', false, false)]
+    local procedure MyProcedure()
+    var
+        i: Integer;
+    begin
+
+    end;
+
     [IntegrationEvent(false, false)]
-    local procedure OnBeforeCalculateGenDecant(
+    local procedure OnBeforeCalculateDecant(
         var SourceLocationCode: Code[10];
         var DestLocationCode: Code[10];
         var IsHandled: Boolean)
@@ -410,7 +484,7 @@ codeunit 99991 "Decant Reclass Mgt."
     end;
 
     [IntegrationEvent(false, false)]
-    local procedure OnAfterCalculateGenDecant(
+    local procedure OnAfterCalculateDecant(
         TemplateName: Code[10];
         BatchName: Code[10];
         LinesCreated: Integer)
@@ -418,7 +492,7 @@ codeunit 99991 "Decant Reclass Mgt."
     end;
 
     [IntegrationEvent(false, false)]
-    local procedure OnBeforeRegisterGenDecant(
+    local procedure OnBeforeRegisterDecant(
         var TemplateName: Code[10];
         var BatchName: Code[10];
         var IsHandled: Boolean)
@@ -426,7 +500,7 @@ codeunit 99991 "Decant Reclass Mgt."
     end;
 
     [IntegrationEvent(false, false)]
-    local procedure OnAfterRegisterGenDecant(
+    local procedure OnAfterRegisterDecant(
         TemplateName: Code[10];
         BatchName: Code[10])
     begin
@@ -442,7 +516,7 @@ codeunit 99991 "Decant Reclass Mgt."
         MissingNewPackageErr: Label 'New Package No. is required on Decant Detail line %1 before registration.', Comment = '%1 = Line No.';
         PostingFailedErr: Label 'Warehouse journal registration failed:\%1', Comment = '%1 = error text from BC posting routine';
         BinsSkippedMsg: Label '%1 destination bin(s) were skipped because Max. Qty. is zero. Configure bin capacity to include them.', Comment = '%1 = number of bins';
-        RegisterCompletedMsg: Label 'GEN DECANT reclassification registered successfully.\Template: %1\nBatch: %2', Comment = '%1 = template, %2 = batch';
+        RegisterCompletedMsg: Label 'Decant reclassification registered successfully.\Template: %1\nBatch: %2', Comment = '%1 = template, %2 = batch';
         DefaultBatchDescTok: Label 'GEN DECANT', Locked = true;
         SourceCodeTok: Label 'WHSEJNL', Locked = true;
         TelemetryMsgTok: Label 'Decant %1 completed.', Locked = true, Comment = '%1 = event name';

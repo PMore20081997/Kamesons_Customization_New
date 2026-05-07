@@ -191,7 +191,7 @@ report 99973 "Calculate Bin Rep And Movement"
 
         // Zone codes from boolean flags on Zone table
         BulkDecantZone := G_KamWhseSetupLookup.GetBulkZone(ReceiveLocation);
-        GenDecantZone := G_KamWhseSetupLookup.GetGenDecantZone(ReceiveLocation);
+        GenDecantZone := G_KamWhseSetupLookup.GetDecantZone(ReceiveLocation);
         HighBayZone := G_KamWhseSetupLookup.GetHighBayZone(ReceiveLocation);
         PickBulkZone := G_KamWhseSetupLookup.GetBulkZone(PickBulkLocation);
         //MAInGENDCNTZONE := G_KamWhseSetupLookup.GetGenDecantZone(PickBulkLocation);
@@ -250,7 +250,7 @@ report 99973 "Calculate Bin Rep And Movement"
             L_Item."Routing Type"::Flowrack,
             L_Item."Routing Type"::"Static":
                 begin
-                    MAInGENDCNTZONE := G_KamWhseSetupLookup.GetGenDecantZonefromBinContent(PickBulkLocation, "Bin Content"."Item No.");
+                    MAInGENDCNTZONE := G_KamWhseSetupLookup.GetDecantZonefromBinContent(PickBulkLocation, "Bin Content"."Item No.");
                     if P_BinContent."Zone Code" <> MAInGENDCNTZONE then
                         exit;
                     L_ToZoneCode := GenDecantZone;

@@ -115,8 +115,8 @@ Report 99971 "Cal _Bin Replenishment New"
         L_DupCheck: Record "Replenishment Worksheet";
         //L_Events: Codeunit Events;
         L_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
-        L_BulkLocation: Code[20];
-        L_BulkDecantZone: Code[20];
+        L_ReceiveLocation: Code[20];
+        L_ReceiveDecantZone: Code[20];
         //L_HighBayZone: Code[20];
         L_PickBulkZone: Code[20];
         L_CurrentQtyBase: Decimal;
@@ -129,9 +129,9 @@ Report 99971 "Cal _Bin Replenishment New"
         L_SourceQtyPerUoM: Decimal;
         L_BinQtyPerUoM: Decimal;
     begin
-        L_BulkLocation := L_KamWhseSetupLookup.GetReceiveLocation();
-        L_BulkDecantZone := L_KamWhseSetupLookup.GetBulkZone(L_BulkLocation);
-        //L_HighBayZone := L_KamWhseSetupLookup.GetHighBayZone(L_BulkLocation);
+        L_ReceiveLocation := L_KamWhseSetupLookup.GetReceiveLocation();
+        L_ReceiveDecantZone := L_KamWhseSetupLookup.GetBulkZone(L_ReceiveLocation);
+        //L_HighBayZone := L_KamWhseSetupLookup.GetHighBayZone(L_ReceiveLocation);
         L_PickBulkZone := L_KamWhseSetupLookup.GetBulkZone(_LocationCode);
 
         // Iterate every PICK BULK Bin Content configured for this item (catches brand-new bins with no entries yet)
@@ -158,9 +158,9 @@ Report 99971 "Cal _Bin Replenishment New"
 
                     // Source: BULK location, BULK DECANT or HIGHBAY zones, FEFO (query is ordered by Expiration_Date asc)
                     L_SourceQ.SetFilter(L_SourceQ.Item_No_, '%1', _ItemNo);
-                    L_SourceQ.SetFilter(L_SourceQ.Location_Code, '%1', L_BulkLocation);
+                    L_SourceQ.SetFilter(L_SourceQ.Location_Code, '%1', L_ReceiveLocation);
                     // L_SourceQ.SetFilter(L_SourceQ.Zone_Code, '%1|%2', L_BulkDecantZone, L_HighBayZone);
-                    L_SourceQ.SetFilter(L_SourceQ.Zone_Code, '%1', L_BulkDecantZone);
+                    L_SourceQ.SetFilter(L_SourceQ.Zone_Code, '%1', L_ReceiveDecantZone);
                     L_SourceQ.SetFilter(L_SourceQ.Expiration_Date, '>=%1', WorkDate());
                     L_SourceQ.SetFilter(L_SourceQ.Qty_Base, '>%1', 0);
                     L_SourceQ.SetFilter(L_SourceQ.Manufacturer_Code, '<>%1', '');

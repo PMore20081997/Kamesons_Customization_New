@@ -61,6 +61,7 @@ page 99991 "Decant Screen"
                 var
                     L_ItemRef: Record "Item Reference";
                     L_ItemMan: Record "Item Manufacturer Table";
+                    L_Item: Record Item;
                     L_SourceQuery: Query WarehouseEntryReceive;
                     L_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
                     L_SourceZone: Code[10];
@@ -80,9 +81,23 @@ page 99991 "Decant Screen"
                         Error('No item found with barcode %1.', G_ItemBarcode);
                     end;
 
+                    if not L_Item.Get(L_ItemRef."Item No.") then
+                        Error('Item %1 not found.', L_ItemRef."Item No.");
+
+                    if not (L_Item."Routing Type" in
+                            [L_Item."Routing Type"::Flowrack, L_Item."Routing Type"::"Static"])
+                    then begin
+                        ItemFilter := '';
+                        ManufacturerFilter := '';
+                        QtyPerToteFilter := 0;
+                        CurrPage.Update();
+                        Error('Item %1 has Routing Type %2. Decant Screen accepts only Flowrack or Static items.',
+                            L_Item."No.", Format(L_Item."Routing Type"));
+                    end;
+
                     ItemFilter := L_ItemRef."Item No.";
 
-                    L_SourceZone := L_KamWhseSetupLookup.GetGenDecantZone(CurrentLocationCode);
+                    L_SourceZone := L_KamWhseSetupLookup.GetDecantZone(CurrentLocationCode);
 
                     L_SourceQuery.SetFilter(Item_No_, ItemFilter);
                     if CurrentLocationCode <> '' then
@@ -129,7 +144,7 @@ page 99991 "Decant Screen"
                     L_ItemFilter: Text;
                     L_SourceZone: Code[10];
                 begin
-                    L_SourceZone := L_KamWhseSetupLookup.GetGenDecantZone(CurrentLocationCode);
+                    L_SourceZone := L_KamWhseSetupLookup.GetDecantZone(CurrentLocationCode);
 
                     if CurrentLocationCode <> '' then
                         L_SourceQuery.SetFilter(Location_Code, CurrentLocationCode);
@@ -219,7 +234,7 @@ page 99991 "Decant Screen"
                     if ItemFilter = '' then
                         Error('Please specify the Item No. before selecting a Manufacturer.');
 
-                    L_SourceZone := L_KamWhseSetupLookup.GetGenDecantZone(CurrentLocationCode);
+                    L_SourceZone := L_KamWhseSetupLookup.GetDecantZone(CurrentLocationCode);
 
                     L_SourceQuery.SetFilter(Item_No_, ItemFilter);
                     if CurrentLocationCode <> '' then
@@ -426,19 +441,19 @@ page 99991 "Decant Screen"
             //         //FillTempTable();
             //     end;
             // }
-            action("Calculate GEN DECANT")
+            action("Calculate Decant")
             {
                 ApplicationArea = All;
-                Caption = 'Calculate GEN DECANT';
+                Caption = 'Calculate Decant';
                 Image = Calculate;
                 Promoted = true;
                 PromotedCategory = Process;
                 PromotedIsBig = true;
-                ToolTip = 'Calculates items to move from source GEN DECANT zone to destination GEN DECANT zone based on empty totes.';
+                ToolTip = 'Calculates items to move from the source GEN DECANT zone to the destination GEN DECANT zone, based on empty totes. Works for both Flowrack and Static routing-type items.';
 
                 trigger OnAction()
                 var
-                    GenDecantCU: Codeunit "Decant Reclass Mgt.";
+                    DecantMgt: Codeunit "Decant Reclass Mgt.";
                 begin
                     if ManufacturerFilter = '' then
                         Error('Please specify the Manufacturer Code.');
@@ -447,7 +462,7 @@ page 99991 "Decant Screen"
                     if QtyPerToteFilter = 0 then
                         Error('Please specify the Qty. Per Tote.');
 
-                    GenDecantCU.CalculateGenDecant(
+                    DecantMgt.CalculateDecant(
                         Rec."Journal Template Name",
                         CurrentJnlBatchName,
                         CurrentLocationCode,
@@ -466,7 +481,7 @@ page 99991 "Decant Screen"
                 PromotedIsBig = true;
                 trigger OnAction()
                 var
-                    GenDecantCU: Codeunit "Decant Reclass Mgt.";
+                    DecantMgt: Codeunit "Decant Reclass Mgt.";
                     L_DecantDetails: Record "Decant Details";
                 begin
                     L_DecantDetails.Reset();
@@ -478,7 +493,7 @@ page 99991 "Decant Screen"
                     if not L_DecantDetails.IsEmpty then
                         Error('Package No. cannot be blank on Line No. %1', L_DecantDetails."Line No.");
 
-                    GenDecantCU.RegisterGenDecant(
+                    DecantMgt.RegisterDecant(
                         Rec."Journal Template Name",
                         CurrentJnlBatchName
                     );

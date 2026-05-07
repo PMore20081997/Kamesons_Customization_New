@@ -14,6 +14,12 @@ page 99971 "Replenishment Worksheet"
     {
         area(Content)
         {
+            field("Batch Name"; Rec."Batch Name")
+            {
+                ApplicationArea = All;
+                ToolTip = 'Specifies the value of the Batch Name field.', Comment = '%';
+                Visible = false;
+            }
             field(CurrentJnlBatchName; CurrentJnlBatchName)
             {
                 ApplicationArea = Basic, Suite;
@@ -32,6 +38,118 @@ page 99971 "Replenishment Worksheet"
                     CheckName(CurrentJnlBatchName, Rec);
                     CurrentJnlBatchNameOnAfterValidate();
                 end;
+            }
+            field(CurrentLocationCode; CurrentLocationCode)
+            {
+                ApplicationArea = Location;
+                Caption = 'Location Code';
+                Editable = false;
+                Lookup = true;
+                TableRelation = Location;
+                ToolTip = 'Specifies the source location for the replenishment (Receive location).';
+            }
+            field(G_ItemBarcode; G_ItemBarcode)
+            {
+                ApplicationArea = All;
+                Caption = 'Item Barcode';
+
+                trigger OnValidate()
+                var
+                    L_ItemRef: Record "Item Reference";
+                    L_Item: Record Item;
+                begin
+                    if G_ItemBarcode = '' then begin
+                        ItemFilter := '';
+                        ItemDescription := '';
+                        ApplyItemFilter();
+                        CurrPage.Update();
+                        exit;
+                    end;
+
+                    L_ItemRef.Reset();
+                    L_ItemRef.SetRange("Reference Type", L_ItemRef."Reference Type"::"Bar Code");
+                    L_ItemRef.SetRange("Reference No.", G_ItemBarcode);
+                    if not L_ItemRef.FindFirst() then begin
+                        ItemFilter := '';
+                        ItemDescription := '';
+                        ApplyItemFilter();
+                        CurrPage.Update();
+                        Error('No item found with barcode %1.', G_ItemBarcode);
+                    end;
+
+                    ItemFilter := L_ItemRef."Item No.";
+                    if L_Item.Get(ItemFilter) then begin
+                        if L_Item."Routing Type" <> "Item Routing Type NDPP"::BULK then begin
+                            ItemFilter := '';
+                            ItemDescription := '';
+                            ApplyItemFilter();
+                            CurrPage.Update();
+                            Error('Item %1 has Routing Type %2. Only BULK items are allowed.', L_Item."No.", L_Item."Routing Type");
+                        end;
+                        ItemDescription := L_Item.Description;
+                    end else
+                        ItemDescription := '';
+
+                    ApplyItemFilter();
+                    CurrPage.Update();
+                end;
+            }
+            field(ItemFilter; ItemFilter)
+            {
+                ApplicationArea = All;
+                Caption = 'Item No.';
+                TableRelation = Item."No.";
+
+                trigger OnLookup(var Text: Text): Boolean
+                var
+                    L_Item: Record Item;
+                    L_ItemList: Page "Item List";
+                begin
+                    L_Item.Reset();
+                    L_Item.SetFilter("Routing Type", '%1', "Item Routing Type NDPP"::BULK);
+                    L_ItemList.SetTableView(L_Item);
+                    L_ItemList.LookupMode(true);
+                    if L_ItemList.RunModal() = Action::LookupOK then begin
+                        L_ItemList.GetRecord(L_Item);
+                        ItemFilter := L_Item."No.";
+                        ItemDescription := L_Item.Description;
+                        Text := ItemFilter;
+                        ApplyItemFilter();
+                        CurrPage.Update();
+                        exit(true);
+                    end;
+                end;
+
+                trigger OnValidate()
+                var
+                    RecItem: Record Item;
+                begin
+                    if ItemFilter <> '' then begin
+                        RecItem.Reset();
+                        RecItem.SetRange("No.", ItemFilter);
+                        if RecItem.FindFirst() then
+                            ItemDescription := RecItem.Description
+                        else
+                            ItemDescription := '';
+                    end else
+                        ItemDescription := '';
+                    ApplyItemFilter();
+                    CurrPage.Update();
+                end;
+            }
+            field("Item Description"; ItemDescription)
+            {
+                ApplicationArea = All;
+                Caption = 'Item Description';
+                Editable = false;
+            }
+            field(DestLocationCodeField; DestLocationCode)
+            {
+                ApplicationArea = All;
+                Caption = 'Dest. Location Code';
+                Editable = false;
+                TableRelation = Location.Code;
+                ToolTip = 'Specifies the destination location (MAIN Warehouse).';
             }
             repeater(GroupName)
             {
@@ -183,12 +301,18 @@ page 99971 "Replenishment Worksheet"
                     Location: Record Location;
                     ReplenishBinContent: Report "Cal _Bin Replenishment New";
                     L_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
+                    L_Item: Record Item;
                 begin
                     Commit();
                     Location.Get(L_KamWhseSetupLookup.GetMainLocation());
                     ReplenishBinContent.InitializeRequest(Rec."Template Name", Rec."Batch Name", L_KamWhseSetupLookup.GetMainLocation(), false);
+                    if ItemFilter <> '' then begin
+                        L_Item.SetFilter("No.", ItemFilter);
+                        ReplenishBinContent.SetTableView(L_Item);
+                    end;
                     ReplenishBinContent.Run();
                     Clear(ReplenishBinContent);
+                    CurrPage.Update(false);
                 end;
             }
             action(Register)
@@ -250,6 +374,11 @@ page 99971 "Replenishment Worksheet"
     }
     var
         CurrentJnlBatchName: Code[10];
+        CurrentLocationCode: Code[10];
+        DestLocationCode: Code[10];
+        ItemFilter: Code[50];
+        ItemDescription: Text[250];
+        G_ItemBarcode: Code[250];
         ItemJnlMgt: Codeunit ItemJnlManagement;
         Text000: Label '%1 journal';
         Text001: Label 'RECURRING';
@@ -360,11 +489,14 @@ page 99971 "Replenishment Worksheet"
     var
         ClientTypeManagement: Codeunit "Client Type Management";
         ServerSetting: Codeunit "Server Setting";
+        L_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
         JnlSelected: Boolean;
     begin
         if Rec.IsOpenedFromBatch() then begin
             CurrentJnlBatchName := Rec."Batch Name";
             Rec.OpenJnl(CurrentJnlBatchName, Rec);
+            CurrentLocationCode := L_KamWhseSetupLookup.GetReceiveLocation();
+            DestLocationCode := L_KamWhseSetupLookup.GetMainLocation();
             exit;
         end;
 
@@ -373,6 +505,17 @@ page 99971 "Replenishment Worksheet"
         if not JnlSelected then
             Error('');
         Rec.OpenJnl(CurrentJnlBatchName, Rec);
+        CurrentLocationCode := L_KamWhseSetupLookup.GetReceiveLocation();
+        DestLocationCode := L_KamWhseSetupLookup.GetMainLocation();
+    end;
+
+    local procedure ApplyItemFilter()
+    begin
+        Rec.FilterGroup := 0;
+        if ItemFilter <> '' then
+            Rec.SetFilter("Item No.", ItemFilter)
+        else
+            Rec.SetRange("Item No.");
     end;
 
 
