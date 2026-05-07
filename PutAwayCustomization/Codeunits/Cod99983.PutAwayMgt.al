@@ -25,10 +25,14 @@ using Microsoft.Inventory.Item;
 /// HIGH-LEVEL RULES
 ///   1. Only triggers at the configured Receive Location.
 ///   2. Only acts on Put-Away Place lines from a Purchase Order source.
-///   3. If incoming line's expiry is NEWER than the latest existing expiry
-///      already in the target bin, the entire line is sent to HighBay
-///      (the decant face must keep the freshest stock).
-///   4. If routing the line to the target bin would exceed the equivalent
+///   3. BULK Min-Qty top-up bypass: for BULK items, if on-hand qty across the
+///      Main-WH and Receive BULK DECANT bins is below the Main-WH bin's Min
+///      Qty, the line is routed to BULK DECANT regardless of expiry. The
+///      Max-Qty cap in HandleBinCapacity still splits overflow to HighBay.
+///   4. Expiry check (when not bypassed): if incoming line's expiry is NEWER
+///      than the latest existing expiry already in the target bin, the entire
+///      line is sent to HighBay (the decant face must keep the freshest stock).
+///   5. If routing the line to the target bin would exceed the equivalent
 ///      Main-Warehouse bin's Max Qty, the line is split: the spillover goes
 ///      to HighBay.
 /// </summary>
@@ -65,30 +69,73 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         if IsLineInHighBay(WhseActivityLine) then
             exit;
 
-        // 1. Decide initial target bin from item flags (BULK and Static are mutually exclusive).
+        // 1. Decide initial target bin from item flags.
         TargetType := DetermineTargetType(Item);
 
-        // 2. Compare expiry against the latest expiry already in the target bin.
-        LastDecantExpiry := GetLatestDecantExpiry(WhseActivityLine."Item No.", TargetType);
-
         ClearReservedQty();
+
+        // 2. Min-Qty top-up bypass (BULK only):
+        //    If on-hand qty in BULK DECANT (Main + Receive) is below Min Qty,
+        //    skip the expiry check and route everything to BULK DECANT — the
+        //    Max-Qty cap in HandleBinCapacity will still split overflow to
+        //    HighBay. The decant face must stay above Min Qty even at the cost
+        //    of holding fresher stock with older.
+        if (TargetType = TargetType::BulkDecant) and IsBulkDecantBelowMinQty(WhseActivityLine."Item No.") then begin
+            AssignTargetBin(WhseActivityLine, TargetType);
+            G_BinContentQty := CalcReservedQty(WhseActivityLine."Item No.", TargetType);
+            OnAfterRoutePutAwayLine(WhseActivityLine);
+            exit;
+        end;
+
+        // 3. Otherwise compare expiry against the latest expiry already in the target bin.
+        LastDecantExpiry := GetLatestDecantExpiry(WhseActivityLine."Item No.", TargetType);
 
         if (LastDecantExpiry = 0D) or (WhseActivityLine."Expiration Date" <= LastDecantExpiry) then begin
             AssignTargetBin(WhseActivityLine, TargetType);
             G_BinContentQty := CalcReservedQty(WhseActivityLine."Item No.", TargetType);
-        end else begin
+        end else
             // Incoming stock is fresher than what's on the decant face — push to HighBay.
-            //
-            // FUTURE — Min Qty fallback (commented until confirmed):
-            //   If existing target-bin stock is BELOW Min Qty, keep enough of the
-            //   incoming line to top the bin up to Min Qty and only send the
-            //   remainder to HighBay. Uncomment the block below once approved.
-            //
-            // ApplyMinQtyFallbackOrHighBay(WhseActivityLine, TargetType);
             AssignTargetBin(WhseActivityLine, TargetType::HighBay);
-        end;
 
         OnAfterRoutePutAwayLine(WhseActivityLine);
+    end;
+
+    /// <summary>
+    /// TRUE when on-hand qty for the item across Main WH and Receive Location
+    /// BULK DECANT bins is below the Main-WH BULK bin's Min Qty (in base units).
+    /// Drives the "top up regardless of expiry" rule for BULK items.
+    /// </summary>
+    local procedure IsBulkDecantBelowMinQty(ItemNo: Code[20]): Boolean
+    var
+        MainBinContent: Record "Bin Content";
+        ReceiveBinContent: Record "Bin Content";
+        ReceiveZone: Code[10];
+        AvailableBaseQty: Decimal;
+        MinBaseQty: Decimal;
+    begin
+        if not TryGetMainBinContent(ItemNo, "Put-Away Target Zone NDPP"::BulkDecant, MainBinContent) then
+            exit(false); // No Main WH BULK bin / no setup — can't evaluate, skip the bypass.
+
+        MinBaseQty := MainBinContent."Min. Qty." * MainBinContent."Qty. per Unit of Measure";
+        if MinBaseQty <= 0 then
+            exit(false); // No Min Qty configured — bypass disabled for this item.
+
+        MainBinContent.CalcFields("Quantity (Base)");
+        AvailableBaseQty := MainBinContent."Quantity (Base)";
+
+        ReceiveZone := GetTargetZoneCode(G_KamWhseSetupLookup.GetReceiveLocation(), "Put-Away Target Zone NDPP"::BulkDecant);
+        if ReceiveZone <> '' then begin
+            ReceiveBinContent.SetRange("Location Code", G_KamWhseSetupLookup.GetReceiveLocation());
+            ReceiveBinContent.SetRange("Zone Code", ReceiveZone);
+            ReceiveBinContent.SetRange("Item No.", ItemNo);
+            if ReceiveBinContent.FindSet() then
+                repeat
+                    ReceiveBinContent.CalcFields("Quantity (Base)");
+                    AvailableBaseQty += ReceiveBinContent."Quantity (Base)";
+                until ReceiveBinContent.Next() = 0;
+        end;
+
+        exit(AvailableBaseQty < MinBaseQty);
     end;
 
     /// <summary>

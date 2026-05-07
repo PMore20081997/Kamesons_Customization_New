@@ -46,41 +46,44 @@ codeunit 99976 Customize_Events
     //     WarehouseActivityLine."Manufacturer Code" := PostedWhseRcptLine."Manufacturer Code";
     // end;
 
-    // Auto-fill Manufacturer Code from Item Reference (Reference Type = Bar Code) when Lot No. is entered
-    // on Item Tracking Lines (Tracking Specification — used by Purchase Order tracking).
+    // Auto-fill Manufacturer Code from the source Purchase Line when Lot No. is
+    // entered on Item Tracking Lines (Tracking Specification — used by Purchase
+    // Order tracking). Source Type 39 = "Purchase Line".
     [EventSubscriber(ObjectType::Table, Database::"Tracking Specification", OnAfterValidateEvent, 'Lot No.', false, false)]
     local procedure TrackingSpec_OnAfterValidateLotNo_AssignMfrCode(var Rec: Record "Tracking Specification")
     var
-        ItemReference: Record "Item Reference";
+        L_PurchLine: Record "Purchase Line";
+        L_PurchDocType: Enum "Purchase Document Type";
     begin
         if Rec."Lot No." = '' then
             exit;
-        if Rec."Item No." = '' then
+        if Rec."Source Type" <> Database::"Purchase Line" then
             exit;
 
-        ItemReference.SetRange("Item No.", Rec."Item No.");
-        ItemReference.SetRange("Variant Code", Rec."Variant Code");
-        ItemReference.SetRange("Reference Type", ItemReference."Reference Type"::"Bar Code");
-        if ItemReference.FindFirst() then
-            Rec."Manufacturer Code" := ItemReference.Manufacturer;
+        L_PurchDocType := Enum::"Purchase Document Type".FromInteger(Rec."Source Subtype");
+        if L_PurchLine.Get(L_PurchDocType, Rec."Source ID", Rec."Source Ref. No.") then
+            Rec."Manufacturer Code" := L_PurchLine."Manufacturer Code";
     end;
 
     // Same behavior for Warehouse Item Tracking Lines (used by Warehouse Receipt).
+    // Source Type 5768 = "Warehouse Receipt Line"; navigate Whse Rcpt Line ->
+    // Purchase Line via its Source No. / Source Line No.
     [EventSubscriber(ObjectType::Table, Database::"Whse. Item Tracking Line", OnAfterValidateEvent, 'Lot No.', false, false)]
     local procedure WhseItemTrkgLine_OnAfterValidateLotNo_AssignMfrCode(var Rec: Record "Whse. Item Tracking Line")
     var
-        ItemReference: Record "Item Reference";
+        L_WhseRcptLine: Record "Warehouse Receipt Line";
+        L_PurchLine: Record "Purchase Line";
     begin
         if Rec."Lot No." = '' then
             exit;
-        if Rec."Item No." = '' then
+        if Rec."Source Type" <> Database::"Warehouse Receipt Line" then
             exit;
-
-        ItemReference.SetRange("Item No.", Rec."Item No.");
-        ItemReference.SetRange("Variant Code", Rec."Variant Code");
-        ItemReference.SetRange("Reference Type", ItemReference."Reference Type"::"Bar Code");
-        if ItemReference.FindFirst() then
-            Rec."Manufacturer Code" := ItemReference.Manufacturer;
+        if not L_WhseRcptLine.Get(Rec."Source ID", Rec."Source Ref. No.") then
+            exit;
+        if L_WhseRcptLine."Source Document" <> L_WhseRcptLine."Source Document"::"Purchase Order" then
+            exit;
+        if L_PurchLine.Get(L_PurchLine."Document Type"::Order, L_WhseRcptLine."Source No.", L_WhseRcptLine."Source Line No.") then
+            Rec."Manufacturer Code" := L_PurchLine."Manufacturer Code";
     end;
 
     // Restrict Main Warehouse to a single Item / Location / Zone / Bin combination.

@@ -10,6 +10,7 @@ using Microsoft.Warehouse.Worksheet;
 using Microsoft.Inventory.Item;
 using Microsoft.Warehouse.Tracking;
 using Microsoft.Warehouse.Ledger;
+using Microsoft.Warehouse.Activity;
 
 report 99973 "Calculate Bin Rep And Movement"
 {
@@ -300,6 +301,7 @@ report 99973 "Calculate Bin Rep And Movement"
             L_MaxQtyBase
             - L_PickBulkAvailBase
             - GetDestinationZoneAvailQty(P_BinContent."Item No.", P_ToZoneCode)
+            - GetActivityQtyToDestination(P_BinContent."Item No.", P_ToZoneCode)
             - GetQtyAlreadyInWorksheet(P_BinContent."Item No.", P_ToZoneCode);
         if L_NeedQtyBase <= 0 then
             exit;
@@ -350,6 +352,7 @@ report 99973 "Calculate Bin Rep And Movement"
         L_TargetTotes: Integer;
         L_PickBulkTotes: Integer;
         L_DestTotes: Integer;
+        L_ActivityTotes: Integer;
         L_PendingTotes: Integer;
         L_TotesNeeded: Integer;
         L_TotesAvail: Integer;
@@ -368,8 +371,9 @@ report 99973 "Calculate Bin Rep And Movement"
 
         L_PickBulkTotes := GetPickBulkTotes(P_BinContent);
         L_DestTotes := GetDestinationTotes(P_BinContent."Item No.", P_ToZoneCode);
+        L_ActivityTotes := GetActivityTotesToDestination(P_BinContent."Item No.", P_ToZoneCode);
         L_PendingTotes := GetPendingTotesInWorksheet(P_BinContent."Item No.", P_ToZoneCode);
-        L_TotesNeeded := L_TargetTotes - L_PickBulkTotes - L_DestTotes - L_PendingTotes;
+        L_TotesNeeded := L_TargetTotes - L_PickBulkTotes - L_DestTotes - L_ActivityTotes - L_PendingTotes;
         if L_TotesNeeded <= 0 then
             exit;
 
@@ -441,6 +445,48 @@ report 99973 "Calculate Bin Rep And Movement"
                 L_TotalAvail += L_DestBinContent.CalcQtyAvailToTake(0);
             until L_DestBinContent.Next() = 0;
         exit(L_TotalAvail);
+    end;
+
+    local procedure GetActivityQtyToDestination(P_ItemNo: Code[20]; P_ToZoneCode: Code[10]): Decimal
+    var
+        L_WhseActLine: Record "Warehouse Activity Line";
+    begin
+        // Qty already in flight via registered Movement documents (not yet posted) heading
+        // into the destination zone. Treated as indirectly available toward Min. Qty.
+        L_WhseActLine.SetRange("Activity Type", L_WhseActLine."Activity Type"::Movement);
+        L_WhseActLine.SetRange("Action Type", L_WhseActLine."Action Type"::Place);
+        L_WhseActLine.SetRange("Location Code", ReceiveLocation);
+        L_WhseActLine.SetRange("Zone Code", P_ToZoneCode);
+        L_WhseActLine.SetRange("Item No.", P_ItemNo);
+        L_WhseActLine.CalcSums("Qty. Outstanding (Base)");
+        exit(L_WhseActLine."Qty. Outstanding (Base)");
+    end;
+
+    local procedure GetActivityTotesToDestination(P_ItemNo: Code[20]; P_ToZoneCode: Code[10]): Integer
+    var
+        L_ItemManufacturer: Record "Item Manufacturer Table";
+        L_WhseActLine: Record "Warehouse Activity Line";
+        L_MfgQtyBase: Decimal;
+        L_Totes: Integer;
+    begin
+        // Per-manufacturer whole-tote count of in-flight Movement Place lines into destination.
+        L_ItemManufacturer.SetRange("Item No", P_ItemNo);
+        L_ItemManufacturer.SetFilter("Qty per Tote", '>%1', 0);
+        if L_ItemManufacturer.FindSet() then
+            repeat
+                L_WhseActLine.Reset();
+                L_WhseActLine.SetRange("Activity Type", L_WhseActLine."Activity Type"::Movement);
+                L_WhseActLine.SetRange("Action Type", L_WhseActLine."Action Type"::Place);
+                L_WhseActLine.SetRange("Location Code", ReceiveLocation);
+                L_WhseActLine.SetRange("Zone Code", P_ToZoneCode);
+                L_WhseActLine.SetRange("Item No.", P_ItemNo);
+                L_WhseActLine.SetRange("Manufacturer Code", L_ItemManufacturer."Manufacturer Code");
+                L_WhseActLine.CalcSums("Qty. Outstanding (Base)");
+                L_MfgQtyBase := L_WhseActLine."Qty. Outstanding (Base)";
+                if L_MfgQtyBase >= L_ItemManufacturer."Qty per Tote" then
+                    L_Totes += Round(L_MfgQtyBase / L_ItemManufacturer."Qty per Tote", 1, '<');
+            until L_ItemManufacturer.Next() = 0;
+        exit(L_Totes);
     end;
 
     local procedure GetDestinationTotes(P_ItemNo: Code[20]; P_ToZoneCode: Code[10]): Integer
