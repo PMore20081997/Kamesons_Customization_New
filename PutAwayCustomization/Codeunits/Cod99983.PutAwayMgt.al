@@ -235,8 +235,14 @@ codeunit 99983 "Put-Away Mgt. NDPP"
             QtyPerTote := KamToteMath.GetQtyPerTote(WhseActivityLine."Item No.", WhseActivityLine."Manufacturer Code");
             TargetTotes := MainBinContent."Number of Totes in a Bin";
             if (QtyPerTote > 0) and (TargetTotes > 0) then begin
+                // FilledTotes counts posted Warehouse Entries.
+                // PendingTotes counts outstanding put-away lines pointing at the
+                // Receive GEN DECANT zone (earlier lines in the same batch, plus
+                // any prior un-posted put-aways) excluding the current line —
+                // without this, line #2 of a batch would re-claim the same
+                // totes line #1 just consumed.
                 FilledTotes := KamToteMath.CountTotesInFLOWRACKBin(MainBinContent);
-                EmptyTotes := TargetTotes - FilledTotes;
+                EmptyTotes := TargetTotes - FilledTotes - CountPendingFlowrackTotes(WhseActivityLine);
                 if EmptyTotes < 0 then
                     EmptyTotes := 0;
                 exit(EmptyTotes * QtyPerTote);
@@ -483,6 +489,48 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     begin
         Clear(G_IsExecuting);
         G_IsExecuting := true;
+    end;
+
+    /// <summary>
+    /// Sums totes already booked into the Receive GEN DECANT zone by un-posted
+    /// put-away Place lines for the same item, EXCLUDING the line currently
+    /// being processed (matched by Activity Type/No./Line No.).
+    ///
+    /// This catches earlier lines from the same Create Put-Away batch that
+    /// have been inserted but not yet posted — without it, every line in the
+    /// batch would compute the same EmptyTotes count and oversubscribe the bin.
+    /// </summary>
+    local procedure CountPendingFlowrackTotes(var CurrentLine: Record "Warehouse Activity Line"): Integer
+    var
+        OtherLine: Record "Warehouse Activity Line";
+        GenDecantZone: Code[10];
+        QtyPerTote: Decimal;
+        Totes: Integer;
+    begin
+        GenDecantZone := GetTargetZoneCode(G_KamWhseSetupLookup.GetReceiveLocation(), "Put-Away Target Zone NDPP"::GenDecant);
+        if GenDecantZone = '' then
+            exit(0);
+
+        OtherLine.SetRange("Activity Type", OtherLine."Activity Type"::"Put-away");
+        OtherLine.SetRange("Action Type", OtherLine."Action Type"::Place);
+        OtherLine.SetRange("Item No.", CurrentLine."Item No.");
+        OtherLine.SetRange("Location Code", G_KamWhseSetupLookup.GetReceiveLocation());
+        OtherLine.SetRange("Zone Code", GenDecantZone);
+        OtherLine.SetFilter("Qty. Outstanding (Base)", '>%1', 0);
+        if OtherLine.FindSet() then
+            repeat
+                if not IsSameLine(OtherLine, CurrentLine) then begin
+                    QtyPerTote := KamToteMath.GetQtyPerTote(CurrentLine."Item No.", OtherLine."Manufacturer Code");
+                    if QtyPerTote > 0 then
+                        Totes += Round(OtherLine."Qty. Outstanding (Base)" / QtyPerTote, 1, '>');
+                end;
+            until OtherLine.Next() = 0;
+        exit(Totes);
+    end;
+
+    local procedure IsSameLine(A: Record "Warehouse Activity Line"; B: Record "Warehouse Activity Line"): Boolean
+    begin
+        exit((A."Activity Type" = B."Activity Type") and (A."No." = B."No.") and (A."Line No." = B."Line No."));
     end;
 
     procedure IsExecuting(): Boolean

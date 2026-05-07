@@ -154,7 +154,7 @@ page 99991 "Decant Screen"
 
                     L_Item.Reset();
                     L_Item.SetFilter("No.", L_ItemFilter);
-                    L_Item.SetRange(BULK, false);
+                    L_Item.SetFilter("Routing Type", '<>%1', "Item Routing Type NDPP"::BULK);
                     L_ItemList.SetTableView(L_Item);
                     L_ItemList.LookupMode(true);
                     if L_ItemList.RunModal() = Action::LookupOK then begin

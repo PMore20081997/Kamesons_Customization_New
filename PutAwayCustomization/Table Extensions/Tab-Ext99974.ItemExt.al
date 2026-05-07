@@ -28,25 +28,25 @@ tableextension 99974 Item_Ext extends Item
                     exit;
 
                 CheckMainWHBinEmpty(xRec."Routing Type");
-                SyncLegacyFlags();
+                //SyncLegacyFlags();
             end;
         }
-        field(99971; "BULK"; Boolean)
-        {
-            Caption = 'BULK';
-            DataClassification = ToBeClassified;
-            ObsoleteState = Pending;
-            ObsoleteReason = 'Replaced by "Routing Type". Auto-synced for backward compatibility — read "Routing Type" instead.';
-            ObsoleteTag = 'US40488';
-        }
-        field(99978; "Static"; Boolean)
-        {
-            Caption = 'Static';
-            DataClassification = ToBeClassified;
-            ObsoleteState = Pending;
-            ObsoleteReason = 'Replaced by "Routing Type". Auto-synced for backward compatibility — read "Routing Type" instead.';
-            ObsoleteTag = 'US40488';
-        }
+        // field(99971; "BULK"; Boolean)
+        // {
+        //     Caption = 'BULK';
+        //     DataClassification = ToBeClassified;
+        //     ObsoleteState = Pending;
+        //     ObsoleteReason = 'Replaced by "Routing Type". Auto-synced for backward compatibility — read "Routing Type" instead.';
+        //     ObsoleteTag = 'US40488';
+        // }
+        // field(99978; "Static"; Boolean)
+        // {
+        //     Caption = 'Static';
+        //     DataClassification = ToBeClassified;
+        //     ObsoleteState = Pending;
+        //     ObsoleteReason = 'Replaced by "Routing Type". Auto-synced for backward compatibility — read "Routing Type" instead.';
+        //     ObsoleteTag = 'US40488';
+        // }
         field(99972; "DTCategory"; Text[10])
         {
             Caption = 'DT Category';
@@ -119,26 +119,26 @@ tableextension 99974 Item_Ext extends Item
     /// so existing callers (Movement Worksheet, Replenishment) keep seeing
     /// the right values until they migrate to "Routing Type".
     /// </summary>
-    local procedure SyncLegacyFlags()
-    begin
-        case Rec."Routing Type" of
-            Rec."Routing Type"::BULK:
-                begin
-                    Rec.BULK := true;
-                    Rec."Static" := false;
-                end;
-            Rec."Routing Type"::"Static":
-                begin
-                    Rec.BULK := false;
-                    Rec."Static" := true;
-                end;
-            Rec."Routing Type"::Flowrack:
-                begin
-                    Rec.BULK := false;
-                    Rec."Static" := false;
-                end;
-        end;
-    end;
+    // local procedure SyncLegacyFlags()
+    // begin
+    //     case Rec."Routing Type" of
+    //         Rec."Routing Type"::BULK:
+    //             begin
+    //                 Rec.BULK := true;
+    //                 Rec."Static" := false;
+    //             end;
+    //         Rec."Routing Type"::"Static":
+    //             begin
+    //                 Rec.BULK := false;
+    //                 Rec."Static" := true;
+    //             end;
+    //         Rec."Routing Type"::Flowrack:
+    //             begin
+    //                 Rec.BULK := false;
+    //                 Rec."Static" := false;
+    //             end;
+    //     end;
+    // end;
 
     var
         KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";

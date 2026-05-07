@@ -9,6 +9,7 @@ using Kamesons_Customization.Kamesons_Customization;
 using Microsoft.Warehouse.Worksheet;
 using Microsoft.Inventory.Item;
 using Microsoft.Warehouse.Tracking;
+using Microsoft.Warehouse.Ledger;
 
 report 99973 "Calculate Bin Rep And Movement"
 {
@@ -41,8 +42,8 @@ report 99973 "Calculate Bin Rep And Movement"
 
                 if PickBulkLocation = '' then
                     Error(PickBulkLocNotSetErr);
-                if BulkLocation = '' then
-                    Error(BulkLocNotSetErr);
+                if ReceiveLocation = '' then
+                    Error(ReceiveLocNotSetErr);
                 if BulkDecantZone = '' then
                     Error(BulkDecantZoneNotFoundErr);
                 if HighBayZone = '' then
@@ -54,7 +55,7 @@ report 99973 "Calculate Bin Rep And Movement"
                 // if MAInGENDCNTZONE = '' then
                 //     Error('Test');
 
-                WhseWorksheetName.Get(WhseWkshTemplateName, WhseWkshName, BulkLocation);
+                WhseWorksheetName.Get(WhseWkshTemplateName, WhseWkshName, ReceiveLocation);
 
                 // SetRange("Location Code", PickBulkLocation);
                 // SetRange("Zone Code", PickBulkZone);
@@ -100,7 +101,7 @@ report 99973 "Calculate Bin Rep And Movement"
                         begin
                             InitializeLocations();
                             WhseWorksheetName.SetRange("Worksheet Template Name", WhseWkshTemplateName);
-                            WhseWorksheetName.SetRange("Location Code", BulkLocation);
+                            WhseWorksheetName.SetRange("Location Code", ReceiveLocation);
                             if PAGE.RunModal(0, WhseWorksheetName) = ACTION::LookupOK then
                                 WhseWkshName := WhseWorksheetName.Name;
                         end;
@@ -108,7 +109,7 @@ report 99973 "Calculate Bin Rep And Movement"
                         trigger OnValidate()
                         begin
                             InitializeLocations();
-                            WhseWorksheetName.Get(WhseWkshTemplateName, WhseWkshName, BulkLocation);
+                            WhseWorksheetName.Get(WhseWkshTemplateName, WhseWkshName, ReceiveLocation);
                         end;
                     }
                     field(LocCode; LocationCode)
@@ -145,7 +146,7 @@ report 99973 "Calculate Bin Rep And Movement"
         //G_SingleInstanceCU: Codeunit SingleInstanceCU;
         NothingToReplenishMsg: Label 'There is nothing to replenish.';
         PickBulkLocNotSetErr: Label 'The PICK BULK Location is not set. Configure it in Warehouse Setup (MAIN Warehouse) or enter it on the request page.';
-        BulkLocNotSetErr: Label 'The BULK Location is not set. Configure the RECEIVE Warehouse in Warehouse Setup.';
+        ReceiveLocNotSetErr: Label 'The BULK Location is not set. Configure the RECEIVE Warehouse in Warehouse Setup.';
         BulkDecantZoneNotFoundErr: Label 'No zone with the Bulk flag was found in the BULK Location.';
         HighBayZoneNotFoundErr: Label 'No zone with the High Bay flag was found in the BULK Location.';
         PickBulkZoneNotFoundErr: Label 'No zone with the Bulk flag was found in the PICK BULK Location.';
@@ -158,7 +159,7 @@ report 99973 "Calculate Bin Rep And Movement"
         HideDialog: Boolean;
         LocationCode: Code[10];
         AllowBreakbulk: Boolean;
-        BulkLocation: Code[10];
+        ReceiveLocation: Code[10];
         PickBulkLocation: Code[10];
         BulkDecantZone: Code[10];
         GenDecantZone: Code[10];
@@ -186,12 +187,12 @@ report 99973 "Calculate Bin Rep And Movement"
             PickBulkLocation := G_KamWhseSetupLookup.GetMainLocation();
 
         // BULK location from setup
-        BulkLocation := G_KamWhseSetupLookup.GetReceiveLocation();
+        ReceiveLocation := G_KamWhseSetupLookup.GetReceiveLocation();
 
         // Zone codes from boolean flags on Zone table
-        BulkDecantZone := G_KamWhseSetupLookup.GetBulkZone(BulkLocation);
-        GenDecantZone := G_KamWhseSetupLookup.GetGenDecantZone(BulkLocation);
-        HighBayZone := G_KamWhseSetupLookup.GetHighBayZone(BulkLocation);
+        BulkDecantZone := G_KamWhseSetupLookup.GetBulkZone(ReceiveLocation);
+        GenDecantZone := G_KamWhseSetupLookup.GetGenDecantZone(ReceiveLocation);
+        HighBayZone := G_KamWhseSetupLookup.GetHighBayZone(ReceiveLocation);
         PickBulkZone := G_KamWhseSetupLookup.GetBulkZone(PickBulkLocation);
         //MAInGENDCNTZONE := G_KamWhseSetupLookup.GetGenDecantZone(PickBulkLocation);
         // MAInGENDCNTZONE := G_KamWhseSetupLookup.GetGenDecantZonefromBinContent(PickBulkLocation, "Bin Content"."Item No.");
@@ -215,7 +216,7 @@ report 99973 "Calculate Bin Rep And Movement"
     begin
         L_WhseWkshLine.SetRange("Worksheet Template Name", WhseWkshTemplateName);
         L_WhseWkshLine.SetRange(Name, WhseWkshName);
-        L_WhseWkshLine.SetRange("Location Code", BulkLocation);
+        L_WhseWkshLine.SetRange("Location Code", ReceiveLocation);
         if L_WhseWkshLine.FindLast() then
             NextLineNo := L_WhseWkshLine."Line No." + 10000
         else
@@ -233,34 +234,44 @@ report 99973 "Calculate Bin Rep And Movement"
             exit;
 
 
-        L_Item.SetLoadFields(BULK);
+        L_Item.SetLoadFields("Routing Type");
         if not L_Item.Get(P_BinContent."Item No.") then
             exit;
 
-        // Destination zone + bin in BULK Location
-        if L_Item.BULK then begin
-            if P_BinContent."Zone Code" <> PickBulkZone then
+        // Routing Type drives destination zone in BULK Location.
+        // BULK -> BULK DECANT; Flowrack and Static -> GEN DECANT (both pulled from HIGHBAY).
+        case L_Item."Routing Type" of
+            L_Item."Routing Type"::BULK:
+                begin
+                    if P_BinContent."Zone Code" <> PickBulkZone then
+                        exit;
+                    L_ToZoneCode := BulkDecantZone;
+                end;
+            L_Item."Routing Type"::Flowrack,
+            L_Item."Routing Type"::"Static":
+                begin
+                    MAInGENDCNTZONE := G_KamWhseSetupLookup.GetGenDecantZonefromBinContent(PickBulkLocation, "Bin Content"."Item No.");
+                    if P_BinContent."Zone Code" <> MAInGENDCNTZONE then
+                        exit;
+                    L_ToZoneCode := GenDecantZone;
+                end;
+            else
                 exit;
-
-            L_ToZoneCode := BulkDecantZone
-        end
-        else begin
-            MAInGENDCNTZONE := G_KamWhseSetupLookup.GetGenDecantZonefromBinContent(PickBulkLocation, "Bin Content"."Item No.");
-
-            if P_BinContent."Zone Code" <> MAInGENDCNTZONE then
-                exit;
-
-            L_ToZoneCode := GenDecantZone;
         end;
 
-        L_ToBinCode := GetBinFromBinContent(P_BinContent."Item No.", BulkLocation, L_ToZoneCode);
+        L_ToBinCode := GetBinFromBinContent(P_BinContent."Item No.", ReceiveLocation, L_ToZoneCode);
         if L_ToBinCode = '' then
             exit;
 
-        if L_Item.BULK then
-            ProcessBulkItem(P_BinContent, L_ToZoneCode, L_ToBinCode)
-        else
-            ProcessNonBulkItem(P_BinContent, L_ToZoneCode, L_ToBinCode);
+        case L_Item."Routing Type" of
+            L_Item."Routing Type"::BULK,
+            L_Item."Routing Type"::"Static":
+                // Qty-based, Max. Qty. of the iterated bin (PICK BULK for BULK; GEN DECANT for Static).
+                ProcessBulkItem(P_BinContent, L_ToZoneCode, L_ToBinCode);
+            L_Item."Routing Type"::Flowrack:
+                // Tote-based, Number of Totes in a Bin.
+                ProcessNonBulkItem(P_BinContent, L_ToZoneCode, L_ToBinCode);
+        end;
     end;
 
     local procedure ProcessBulkItem(var P_BinContent: Record "Bin Content"; P_ToZoneCode: Code[10]; P_ToBinCode: Code[20])
@@ -285,16 +296,16 @@ report 99973 "Calculate Bin Rep And Movement"
         if L_MaxQtyBase <= 0 then
             exit;
 
-        L_NeedQtyBase := L_MaxQtyBase - GetDestinationZoneAvailQty(P_BinContent."Item No.", P_ToZoneCode);
-        if L_NeedQtyBase <= 0 then
-            exit;
-
-        L_NeedQtyBase -= GetQtyAlreadyInWorksheet(P_BinContent."Item No.", P_ToZoneCode);
+        L_NeedQtyBase :=
+            L_MaxQtyBase
+            - L_PickBulkAvailBase
+            - GetDestinationZoneAvailQty(P_BinContent."Item No.", P_ToZoneCode)
+            - GetQtyAlreadyInWorksheet(P_BinContent."Item No.", P_ToZoneCode);
         if L_NeedQtyBase <= 0 then
             exit;
 
         // FEFO from HIGHBAY, partial-lot allowed.
-        L_FEFOQuery.SetFilter(L_FEFOQuery.Location_Code, '%1', BulkLocation);
+        L_FEFOQuery.SetFilter(L_FEFOQuery.Location_Code, '%1', ReceiveLocation);
         L_FEFOQuery.SetFilter(L_FEFOQuery.Zone_Code, '%1', HighBayZone);
         L_FEFOQuery.SetFilter(L_FEFOQuery.Item_No_, '%1', P_BinContent."Item No.");
         L_FEFOQuery.SetFilter(L_FEFOQuery.Quantity_Base, '>%1', 0);
@@ -338,6 +349,7 @@ report 99973 "Calculate Bin Rep And Movement"
         L_MoveQtyBase: Decimal;
         L_TargetTotes: Integer;
         L_PickBulkTotes: Integer;
+        L_DestTotes: Integer;
         L_PendingTotes: Integer;
         L_TotesNeeded: Integer;
         L_TotesAvail: Integer;
@@ -355,13 +367,14 @@ report 99973 "Calculate Bin Rep And Movement"
             exit;
 
         L_PickBulkTotes := GetPickBulkTotes(P_BinContent);
+        L_DestTotes := GetDestinationTotes(P_BinContent."Item No.", P_ToZoneCode);
         L_PendingTotes := GetPendingTotesInWorksheet(P_BinContent."Item No.", P_ToZoneCode);
-        L_TotesNeeded := L_TargetTotes - L_PickBulkTotes - L_PendingTotes;
+        L_TotesNeeded := L_TargetTotes - L_PickBulkTotes - L_DestTotes - L_PendingTotes;
         if L_TotesNeeded <= 0 then
             exit;
 
         // FEFO from HIGHBAY — whole totes only, per manufacturer's Qty per Tote.
-        L_FEFOQuery.SetFilter(L_FEFOQuery.Location_Code, '%1', BulkLocation);
+        L_FEFOQuery.SetFilter(L_FEFOQuery.Location_Code, '%1', ReceiveLocation);
         L_FEFOQuery.SetFilter(L_FEFOQuery.Zone_Code, '%1', HighBayZone);
         L_FEFOQuery.SetFilter(L_FEFOQuery.Item_No_, '%1', P_BinContent."Item No.");
         L_FEFOQuery.SetFilter(L_FEFOQuery.Quantity_Base, '>%1', 0);
@@ -407,7 +420,7 @@ report 99973 "Calculate Bin Rep And Movement"
     begin
         L_WhseWkshLine.SetRange("Worksheet Template Name", WhseWkshTemplateName);
         L_WhseWkshLine.SetRange(Name, WhseWkshName);
-        L_WhseWkshLine.SetRange("Location Code", BulkLocation);
+        L_WhseWkshLine.SetRange("Location Code", ReceiveLocation);
         L_WhseWkshLine.SetRange("From Zone Code", HighBayZone);
         L_WhseWkshLine.SetRange("To Zone Code", P_ToZoneCode);
         L_WhseWkshLine.SetRange("Item No.", P_ItemNo);
@@ -420,7 +433,7 @@ report 99973 "Calculate Bin Rep And Movement"
         L_DestBinContent: Record "Bin Content";
         L_TotalAvail: Decimal;
     begin
-        L_DestBinContent.SetRange("Location Code", BulkLocation);
+        L_DestBinContent.SetRange("Location Code", ReceiveLocation);
         L_DestBinContent.SetRange("Zone Code", P_ToZoneCode);
         L_DestBinContent.SetRange("Item No.", P_ItemNo);
         if L_DestBinContent.FindSet() then
@@ -428,6 +441,32 @@ report 99973 "Calculate Bin Rep And Movement"
                 L_TotalAvail += L_DestBinContent.CalcQtyAvailToTake(0);
             until L_DestBinContent.Next() = 0;
         exit(L_TotalAvail);
+    end;
+
+    local procedure GetDestinationTotes(P_ItemNo: Code[20]; P_ToZoneCode: Code[10]): Integer
+    var
+        L_ItemManufacturer: Record "Item Manufacturer Table";
+        L_WhseEntry: Record "Warehouse Entry";
+        L_MfgQtyBase: Decimal;
+        L_Totes: Integer;
+    begin
+        // Totes already staged in the destination zone (Receive Location), counted per
+        // manufacturer using each manufacturer's Qty per Tote. Partial-tote qty ignored.
+        L_ItemManufacturer.SetRange("Item No", P_ItemNo);
+        L_ItemManufacturer.SetFilter("Qty per Tote", '>%1', 0);
+        if L_ItemManufacturer.FindSet() then
+            repeat
+                L_WhseEntry.Reset();
+                L_WhseEntry.SetRange("Item No.", P_ItemNo);
+                L_WhseEntry.SetRange("Location Code", ReceiveLocation);
+                L_WhseEntry.SetRange("Zone Code", P_ToZoneCode);
+                L_WhseEntry.SetRange("Manufacturer Code", L_ItemManufacturer."Manufacturer Code");
+                L_WhseEntry.CalcSums("Qty. (Base)");
+                L_MfgQtyBase := L_WhseEntry."Qty. (Base)";
+                if L_MfgQtyBase >= L_ItemManufacturer."Qty per Tote" then
+                    L_Totes += Round(L_MfgQtyBase / L_ItemManufacturer."Qty per Tote", 1, '>');
+            until L_ItemManufacturer.Next() = 0;
+        exit(L_Totes);
     end;
 
     local procedure GetPickBulkTotes(var P_BinContent: Record "Bin Content"): Integer
@@ -470,7 +509,7 @@ report 99973 "Calculate Bin Rep And Movement"
 
                 L_WhseWkshLine.SetRange("Worksheet Template Name", WhseWkshTemplateName);
                 L_WhseWkshLine.SetRange(Name, WhseWkshName);
-                L_WhseWkshLine.SetRange("Location Code", BulkLocation);
+                L_WhseWkshLine.SetRange("Location Code", ReceiveLocation);
                 L_WhseWkshLine.SetRange("From Zone Code", HighBayZone);
                 L_WhseWkshLine.SetRange("To Zone Code", P_ToZoneCode);
                 L_WhseWkshLine.SetRange("Item No.", P_ItemNo);
@@ -511,7 +550,7 @@ report 99973 "Calculate Bin Rep And Movement"
         L_WhseItemTrackingLine.SetRange("Source Type", DATABASE::"Whse. Worksheet Line");
         L_WhseItemTrackingLine.SetRange("Source ID", WhseWkshName);
         L_WhseItemTrackingLine.SetRange("Source Batch Name", WhseWkshTemplateName);
-        L_WhseItemTrackingLine.SetRange("Location Code", BulkLocation);
+        L_WhseItemTrackingLine.SetRange("Location Code", ReceiveLocation);
         L_WhseItemTrackingLine.SetRange("Item No.", P_ItemNo);
         L_WhseItemTrackingLine.SetRange("Lot No.", P_LotNo);
         L_WhseItemTrackingLine.CalcSums("Quantity (Base)");
@@ -526,7 +565,7 @@ report 99973 "Calculate Bin Rep And Movement"
         L_WhseWkshLine.Init();
         L_WhseWkshLine."Worksheet Template Name" := WhseWkshTemplateName;
         L_WhseWkshLine.Name := WhseWkshName;
-        L_WhseWkshLine."Location Code" := BulkLocation;
+        L_WhseWkshLine."Location Code" := ReceiveLocation;
         L_WhseWkshLine."Line No." := NextLineNo;
 
         L_WhseWkshLine.Validate("Item No.", P_BinContent."Item No.");

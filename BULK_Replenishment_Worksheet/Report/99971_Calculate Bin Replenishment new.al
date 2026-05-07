@@ -19,7 +19,7 @@ Report 99971 "Cal _Bin Replenishment New"
 
             trigger OnPreDataItem()
             begin
-                Item.SetFilter(Bulk, '%1', true);
+                Item.SetFilter("Routing Type", '%1', "Item Routing Type NDPP"::BULK);
 
                 SetWhseWorksheet(WhseWkshTemplateName, WhseWkshName, LocationCode);
             end;
