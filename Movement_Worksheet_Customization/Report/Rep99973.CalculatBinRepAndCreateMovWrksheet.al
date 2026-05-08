@@ -21,7 +21,6 @@ report 99973 "Calculate Bin Rep And Movement"
     {
         dataitem("Bin Content"; "Bin Content")
         {
-            // DataItemTableView = sorting("Location Code", "Item No.", "Warehouse Class Code", Fixed, "Bin Ranking") order(descending) where(Fixed = filter(true), "Min. Qty." = filter(> 0));
             DataItemTableView = sorting("Location Code", "Item No.", "Warehouse Class Code", Fixed, "Bin Ranking") order(descending) where("Min. Qty." = filter(> 0));
             RequestFilterFields = "Item No.", "Bin Code";
 
@@ -53,13 +52,8 @@ report 99973 "Calculate Bin Rep And Movement"
                     Error(PickBulkZoneNotFoundErr);
                 if GenDecantZone = '' then
                     Error(GenDecantZoneNotFoundErr);
-                // if MAInGENDCNTZONE = '' then
-                //     Error('Test');
 
                 WhseWorksheetName.Get(WhseWkshTemplateName, WhseWkshName, ReceiveLocation);
-
-                // SetRange("Location Code", PickBulkLocation);
-                // SetRange("Zone Code", PickBulkZone);
 
                 SetNextLineNo();
                 LinesInserted := 0;
@@ -142,9 +136,7 @@ report 99973 "Calculate Bin Rep And Movement"
 
     var
         WhseWorksheetName: Record "Whse. Worksheet Name";
-        //G_Events: Codeunit Events;
         G_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
-        //G_SingleInstanceCU: Codeunit SingleInstanceCU;
         NothingToReplenishMsg: Label 'There is nothing to replenish.';
         PickBulkLocNotSetErr: Label 'The PICK BULK Location is not set. Configure it in Warehouse Setup (MAIN Warehouse) or enter it on the request page.';
         ReceiveLocNotSetErr: Label 'The BULK Location is not set. Configure the RECEIVE Warehouse in Warehouse Setup.';
@@ -195,8 +187,6 @@ report 99973 "Calculate Bin Rep And Movement"
         GenDecantZone := G_KamWhseSetupLookup.GetDecantZone(ReceiveLocation);
         HighBayZone := G_KamWhseSetupLookup.GetHighBayZone(ReceiveLocation);
         PickBulkZone := G_KamWhseSetupLookup.GetBulkZone(PickBulkLocation);
-        //MAInGENDCNTZONE := G_KamWhseSetupLookup.GetGenDecantZone(PickBulkLocation);
-        // MAInGENDCNTZONE := G_KamWhseSetupLookup.GetGenDecantZonefromBinContent(PickBulkLocation, "Bin Content"."Item No.");
     end;
 
     local procedure GetBinFromBinContent(P_ItemNo: Code[20]; P_LocationCode: Code[10]; P_ZoneCode: Code[10]): Code[20]
@@ -578,7 +568,7 @@ report 99973 "Calculate Bin Rep And Movement"
         exit(L_Totes);
     end;
 
-    local procedure GetQtyPerTote(P_ItemNo: Code[20]; P_ManufacturerCode: Code[100]): Decimal
+    local procedure GetQtyPerTote(P_ItemNo: Code[20]; P_ManufacturerCode: Code[10]): Decimal
     var
         L_ItemManufacturer: Record "Item Manufacturer Table";
     begin
@@ -603,7 +593,7 @@ report 99973 "Calculate Bin Rep And Movement"
         exit(L_WhseItemTrackingLine."Quantity (Base)");
     end;
 
-    local procedure InsertMovementWkshLine(var P_BinContent: Record "Bin Content"; P_LotNo: Code[50]; P_ExpirationDate: Date; P_UoMCode: Code[10]; P_QtyPerUoM: Decimal; P_MoveQtyBase: Decimal; P_ToZoneCode: Code[10]; P_ToBinCode: Code[20]; P_FromBinCode: Code[20]; P_ManufacturerCode: Code[100]; P_PackageNo: Code[50])
+    local procedure InsertMovementWkshLine(var P_BinContent: Record "Bin Content"; P_LotNo: Code[50]; P_ExpirationDate: Date; P_UoMCode: Code[10]; P_QtyPerUoM: Decimal; P_MoveQtyBase: Decimal; P_ToZoneCode: Code[10]; P_ToBinCode: Code[20]; P_FromBinCode: Code[20]; P_ManufacturerCode: Code[10]; P_PackageNo: Code[50])
     var
         L_WhseWkshLine: Record "Whse. Worksheet Line";
         L_Item: Record Item;
@@ -642,7 +632,7 @@ report 99973 "Calculate Bin Rep And Movement"
         LinesInserted += 1;
     end;
 
-    local procedure InsertWhseItemTrackingLine(var P_WhseWkshLine: Record "Whse. Worksheet Line"; P_LotNo: Code[50]; P_ExpirationDate: Date; P_QtyBase: Decimal; P_ManufacturerCode: Code[100]; P_PackageNo: Code[50])
+    local procedure InsertWhseItemTrackingLine(var P_WhseWkshLine: Record "Whse. Worksheet Line"; P_LotNo: Code[50]; P_ExpirationDate: Date; P_QtyBase: Decimal; P_ManufacturerCode: Code[10]; P_PackageNo: Code[50])
     var
         L_WhseItemTrackingLine: Record "Whse. Item Tracking Line";
         L_NextEntryNo: Integer;
@@ -680,14 +670,4 @@ report 99973 "Calculate Bin Rep And Movement"
 
         L_WhseItemTrackingLine.Insert(true);
     end;
-
-    // trigger OnPreReport()
-    // begin
-    //     G_SingleInstanceCU.ExecutedFromCustomMovementWorksheet(true);
-    // end;
-
-    // trigger OnPostReport()
-    // begin
-    //     G_SingleInstanceCU.ExecutedFromCustomMovementWorksheet(false);
-    // end;
 }

@@ -112,7 +112,7 @@ codeunit 99965 "Kam Reservation Mgt."
             WhseActLine."Manufacturer Code" := WhseItemTrk."Manufacturer Code";
     end;
 
-    procedure LookupManufacturerCodeByLot(ItemNo: Code[20]; VariantCode: Code[10]; LotNo: Code[50]): Code[50]
+    procedure LookupManufacturerCodeByLot(ItemNo: Code[20]; VariantCode: Code[10]; LotNo: Code[50]): Code[10]
     var
         WhseEntry: Record "Warehouse Entry";
     begin

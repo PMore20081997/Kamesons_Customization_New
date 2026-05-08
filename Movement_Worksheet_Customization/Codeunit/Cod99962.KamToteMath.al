@@ -41,7 +41,7 @@ codeunit 99962 "Kam Tote Math"
         exit(Totes);
     end;
 
-    procedure GetQtyPerTote(ItemNo: Code[20]; ManufacturerCode: Code[50]): Decimal
+    procedure GetQtyPerTote(ItemNo: Code[20]; ManufacturerCode: Code[10]): Decimal
     var
         ItemMfr: Record "Item Manufacturer Table";
     begin

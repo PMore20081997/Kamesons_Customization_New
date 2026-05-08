@@ -4,7 +4,8 @@ tableextension 99979 SalesAndRecExt extends "Sales & Receivables Setup"
     {
         field(99971; "Replenishment Date Filter"; DateFormula)
         {
-
+            Caption = 'Replenishment Date Filter';
+            DataClassification = CustomerContent;
         }
     }
 }

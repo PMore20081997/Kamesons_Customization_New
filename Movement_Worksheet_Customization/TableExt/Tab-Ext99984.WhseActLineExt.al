@@ -6,10 +6,10 @@ tableextension 99984 WhseActLineExt extends "Warehouse Activity Line"
 {
     fields
     {
-        field(99971; "Manufacturer Code"; Code[100])
+        field(99971; "Manufacturer Code"; Code[10])
         {
             Caption = 'Manufacturer Code';
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
         }
     }
 }
