@@ -30,11 +30,11 @@ codeunit 99984 "Put-Away Subscribers NDPP"
         PutAwayMgt.HandleBinCapacity(Rec);
     end;
 
-    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Whse.-Post Receipt", OnCreatePutAwayDocOnBeforeCreatePutAwayRun, '', false, false)]
-    local procedure OnCreatePutAwayDocOnBeforeCreatePutAwayRun()
-    begin
-        PutAwayMgt.StartExecution();
-    end;
+    // [EventSubscriber(ObjectType::Codeunit, Codeunit::"Whse.-Post Receipt", OnCreatePutAwayDocOnBeforeCreatePutAwayRun, '', false, false)]
+    // local procedure OnCreatePutAwayDocOnBeforeCreatePutAwayRun()
+    // begin
+    //     PutAwayMgt.StartExecution();
+    // end;
 
     [EventSubscriber(ObjectType::Table, Database::"Warehouse Activity Line", OnBeforeInsertNewWhseActivLine, '', false, false)]
     local procedure OnBeforeInsertNewWhseActivLine(var NewWarehouseActivityLine: Record "Warehouse Activity Line")

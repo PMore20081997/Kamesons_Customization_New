@@ -402,7 +402,9 @@ codeunit 99983 "Put-Away Mgt. NDPP"
                 Bin.SetRange(HighBay, true);
         end;
         if Bin.FindFirst() then
-            exit(Bin."Zone Code");
+            exit(Bin."Zone Code")
+        else
+            exit('');
     end;
 
     /// <summary>
@@ -460,65 +462,8 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         exit(MainQty + ReceivedQty);
     end;
 
-    // ---------------------------------------------------------------------
-    // FUTURE — Min Qty fallback when incoming stock is fresher than decant.
-    //
-    // Today, when the incoming line's expiry is newer than what's on the
-    // decant face, the whole line is sent to HighBay so the older stock is
-    // consumed first. The drawback: if the existing decant stock is below
-    // Min Qty, the decant face stays under-stocked until a manual movement.
-    //
-    // Once approved, uncomment the block below and replace the
-    //     AssignTargetBin(..., TargetType::HighBay)
-    // call in RoutePutAwayLine with:
-    //     ApplyMinQtyFallbackOrHighBay(WhseActivityLine, TargetType);
-    //
-    // local procedure ApplyMinQtyFallbackOrHighBay(var WhseActivityLine: Record "Warehouse Activity Line"; TargetType: Enum "Put-Away Target Zone NDPP")
-    // var
-    //     MainBinContent: Record "Bin Content";
-    //     SplitLine: Record "Warehouse Activity Line";
-    //     ExistingQty: Decimal;
-    //     MinBaseQty: Decimal;
-    //     QtyToTopUp: Decimal;
-    // begin
-    //     if not TryGetMainBinContent(WhseActivityLine."Item No.", TargetType, MainBinContent) then begin
-    //         AssignTargetBin(WhseActivityLine, "Put-Away Target Zone NDPP"::HighBay);
-    //         exit;
-    //     end;
-    //
-    //     MinBaseQty := MainBinContent."Min. Qty." * MainBinContent."Qty. per Unit of Measure";
-    //     if MinBaseQty <= 0 then begin
-    //         AssignTargetBin(WhseActivityLine, "Put-Away Target Zone NDPP"::HighBay);
-    //         exit;
-    //     end;
-    //
-    //     ExistingQty := CalcReservedQty(WhseActivityLine."Item No.", TargetType);
-    //     QtyToTopUp := MinBaseQty - ExistingQty;
-    //
-    //     if QtyToTopUp <= 0 then begin
-    //         AssignTargetBin(WhseActivityLine, "Put-Away Target Zone NDPP"::HighBay);
-    //         exit;
-    //     end;
-    //
-    //     if QtyToTopUp >= WhseActivityLine."Qty. (Base)" then begin
-    //         AssignTargetBin(WhseActivityLine, TargetType);
-    //         exit;
-    //     end;
-    //
-    //     // Keep `QtyToTopUp` on the decant face, send the rest to HighBay via SplitLine.
-    //     AssignTargetBin(WhseActivityLine, TargetType);
-    //     WhseActivityLine.Validate("Qty. to Handle (Base)", QtyToTopUp);
-    //     WhseActivityLine.Modify();
-    //
-    //     SplitLine.Copy(WhseActivityLine);
-    //     G_LineSpacing := true;
-    //     WhseActivityLine.SplitLine(SplitLine);
-    //     WhseActivityLine.Copy(SplitLine);
-    //     G_LineSpacing := false;
-    // end;
-    // ---------------------------------------------------------------------
 
-    procedure ClearReservedQty()
+    local procedure ClearReservedQty()
     begin
         Clear(G_BinContentQty);
     end;
@@ -532,11 +477,6 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         AssignTargetBin(WhseActivityLine, "Put-Away Target Zone NDPP"::HighBay);
     end;
 
-    procedure StartExecution()
-    begin
-        Clear(G_IsExecuting);
-        G_IsExecuting := true;
-    end;
 
     /// <summary>
     /// Sums totes already booked into the Receive GEN DECANT zone by un-posted
@@ -558,10 +498,11 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         if GenDecantZone = '' then
             exit(0);
 
-        OtherLine.SetRange("Activity Type", OtherLine."Activity Type"::"Put-away");
-        OtherLine.SetRange("Action Type", OtherLine."Action Type"::Place);
+        OtherLine.SetCurrentKey("Item No.", "Location Code");
         OtherLine.SetRange("Item No.", CurrentLine."Item No.");
         OtherLine.SetRange("Location Code", G_KamWhseSetupLookup.GetReceiveLocation());
+        OtherLine.SetRange("Activity Type", OtherLine."Activity Type"::"Put-away");
+        OtherLine.SetRange("Action Type", OtherLine."Action Type"::Place);
         OtherLine.SetRange("Zone Code", GenDecantZone);
         OtherLine.SetFilter("Qty. Outstanding (Base)", '>%1', 0);
         if OtherLine.FindSet() then
@@ -578,16 +519,6 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     local procedure IsSameLine(A: Record "Warehouse Activity Line"; B: Record "Warehouse Activity Line"): Boolean
     begin
         exit((A."Activity Type" = B."Activity Type") and (A."No." = B."No.") and (A."Line No." = B."Line No."));
-    end;
-
-    procedure IsExecuting(): Boolean
-    begin
-        exit(G_IsExecuting);
-    end;
-
-    procedure StopExecution()
-    begin
-        G_IsExecuting := false;
     end;
 
     // ---------- Integration events (extension points) ----------
@@ -616,6 +547,5 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         G_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
         KamToteMath: Codeunit "Kam Tote Math";
         G_BinContentQty: Decimal;
-        G_IsExecuting: Boolean;
         G_LineSpacing: Boolean;
 }
