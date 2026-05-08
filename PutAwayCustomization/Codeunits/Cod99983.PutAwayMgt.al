@@ -38,6 +38,9 @@ using Microsoft.Inventory.Item;
 /// </summary>
 codeunit 99983 "Put-Away Mgt. NDPP"
 {
+
+    // SingleInstance is required so G_LineSpacing is visible to the
+    // OnSplitLineOnBeforeRenumberAllLines subscriber during SplitLine() calls.
     SingleInstance = true;
     Permissions = tabledata "Warehouse Activity Line" = rm,
                   tabledata "Bin Content" = r,
@@ -69,10 +72,12 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         if IsLineInHighBay(WhseActivityLine) then
             exit;
 
+        // Defensive: prior runs of HandleBinCapacity that exited mid-split could
+        // theoretically leave G_LineSpacing stuck at TRUE — reset on every entry.
+        G_LineSpacing := false;
+
         // 1. Decide initial target bin from item flags.
         TargetType := DetermineTargetType(Item);
-
-        ClearReservedQty();
 
         // 2. Min-Qty top-up bypass (BULK only):
         //    If on-hand qty in BULK DECANT (Main + Receive) is below Min Qty,
@@ -82,7 +87,6 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         //    of holding fresher stock with older.
         if (TargetType = TargetType::BulkDecant) and IsBulkDecantBelowMinQty(WhseActivityLine."Item No.") then begin
             AssignTargetBin(WhseActivityLine, TargetType);
-            G_BinContentQty := CalcReservedQty(WhseActivityLine."Item No.", TargetType);
             OnAfterRoutePutAwayLine(WhseActivityLine);
             exit;
         end;
@@ -90,10 +94,9 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         // 3. Otherwise compare expiry against the latest expiry already in the target bin.
         LastDecantExpiry := GetLatestDecantExpiry(WhseActivityLine."Item No.", TargetType);
 
-        if (LastDecantExpiry = 0D) or (WhseActivityLine."Expiration Date" <= LastDecantExpiry) then begin
-            AssignTargetBin(WhseActivityLine, TargetType);
-            G_BinContentQty := CalcReservedQty(WhseActivityLine."Item No.", TargetType);
-        end else
+        if (LastDecantExpiry = 0D) or (WhseActivityLine."Expiration Date" <= LastDecantExpiry) then
+            AssignTargetBin(WhseActivityLine, TargetType)
+        else
             // Incoming stock is fresher than what's on the decant face — push to HighBay.
             AssignTargetBin(WhseActivityLine, TargetType::HighBay);
 
@@ -162,6 +165,9 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         if not Item.Get(WhseActivityLine."Item No.") then
             exit;
 
+        // Defensive: don't trust prior state for the SplitLine signal.
+        G_LineSpacing := false;
+
         // Only relevant if the line is currently sitting in a Decant bin (Bulk / Static / Flowrack).
         if IsLineInHighBay(WhseActivityLine) then
             exit;
@@ -179,15 +185,12 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         if SpaceLeftInDecant <= 0 then begin
             AssignTargetBin(WhseActivityLine, "Put-Away Target Zone NDPP"::HighBay);
             WhseActivityLine.Modify();
-            ClearReservedQty();
             exit;
         end;
 
         // Decant bin can absorb the whole line — leave alone.
-        if WhseActivityLine."Qty. (Base)" <= SpaceLeftInDecant then begin
-            ClearReservedQty();
+        if WhseActivityLine."Qty. (Base)" <= SpaceLeftInDecant then
             exit;
-        end;
 
         // Split: keep `SpaceLeftInDecant` in the decant bin, send the rest to HighBay.
         WhseActivityLine.Validate("Qty. to Handle (Base)", SpaceLeftInDecant);
@@ -198,8 +201,6 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         WhseActivityLine.SplitLine(SplitLine);
         WhseActivityLine.Copy(SplitLine);
         G_LineSpacing := false;
-
-        ClearReservedQty();
 
         OnAfterHandleBinCapacity(WhseActivityLine);
     end;
@@ -254,24 +255,30 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     end;
 
     /// <summary>
-    /// Returns the base-qty SPACE LEFT in the put-away target bin (already net
-    /// of stock currently in or pending into Main WH).
+    /// Returns the base-qty SPACE LEFT in the put-away target bin.
     ///
     ///   Flowrack -> EmptyTotes x QtyPerTote(line.Manufacturer)
-    ///               EmptyTotes already accounts for filled totes, so this
-    ///               value is net — DO NOT subtract G_BinContentQty again.
+    ///               EmptyTotes already nets out filled + pending put-away
+    ///               totes (CountPendingFlowrackTotes), so the result is the
+    ///               actual space available.
     ///
-    ///   BULK / Static -> (Max Qty x Qty per UoM) - G_BinContentQty
-    ///                    Max Qty is a gross capacity, so we subtract whatever
-    ///                    is already on hand or inbound at Main WH.
+    ///   BULK / Static -> (Max Qty x Qty per UoM)
+    ///                    - CalcReservedQty(...)               // live qty in zone
+    ///                    + (current line's qty if it targets this zone)
+    ///                    Bin Content updates as soon as a Place line is inserted,
+    ///                    so by the time HandleBinCapacity runs, the current
+    ///                    line's own qty is already counted inside CalcReservedQty.
+    ///                    Adding it back gives "space available BEFORE this line"
+    ///                    — the correct basis for deciding how much of the line
+    ///                    fits in the decant bin and how much spills to HighBay.
     ///
-    /// Returns 0 (or less) when there's no room — caller routes everything to
-    /// HighBay in that case. If a Flowrack line lacks tote setup, falls back
-    /// to the Max Qty path so incomplete master data doesn't dump everything
-    /// to HighBay.
+    /// Returns 0 (or less) when there's no room. If a Flowrack line lacks tote
+    /// setup, falls back to the Max Qty path so incomplete master data doesn't
+    /// dump everything to HighBay.
     /// </summary>
     local procedure ResolveSpaceLeft(var WhseActivityLine: Record "Warehouse Activity Line"; Item: Record Item; var MainBinContent: Record "Bin Content"): Decimal
     var
+        TargetType: Enum "Put-Away Target Zone NDPP";
         QtyPerTote: Decimal;
         BinMaxBaseQty: Decimal;
         TargetTotes: Integer;
@@ -283,11 +290,11 @@ codeunit 99983 "Put-Away Mgt. NDPP"
             TargetTotes := MainBinContent."Number of Totes in a Bin";
             if (QtyPerTote > 0) and (TargetTotes > 0) then begin
                 // FilledTotes counts posted Warehouse Entries.
-                // PendingTotes counts outstanding put-away lines pointing at the
-                // Receive GEN DECANT zone (earlier lines in the same batch, plus
-                // any prior un-posted put-aways) excluding the current line —
-                // without this, line #2 of a batch would re-claim the same
-                // totes line #1 just consumed.
+                // CountPendingFlowrackTotes counts outstanding put-away lines
+                // pointing at the Receive GEN DECANT zone (earlier lines in the
+                // same batch + any prior un-posted put-aways), excluding the
+                // current line — without it, line #2 of a batch would re-claim
+                // the same totes line #1 just consumed.
                 FilledTotes := KamToteMath.CountTotesInFLOWRACKBin(MainBinContent);
                 EmptyTotes := TargetTotes - FilledTotes - CountPendingFlowrackTotes(WhseActivityLine);
                 if EmptyTotes < 0 then
@@ -296,11 +303,17 @@ codeunit 99983 "Put-Away Mgt. NDPP"
             end;
         end;
 
-        // BULK / Static / Flowrack-fallback — Max Qty rule, net of reserved qty.
+        // BULK / Static / Flowrack-fallback — Max Qty rule, net of qty already
+        // in the zone, with the current line's own qty added back so we're
+        // computing "space BEFORE this line", not "space AFTER".
         BinMaxBaseQty := MainBinContent."Max. Qty." * MainBinContent."Qty. per Unit of Measure";
         if BinMaxBaseQty <= 0 then
             exit(0);
-        exit(BinMaxBaseQty - G_BinContentQty);
+
+        TargetType := DetermineTargetType(Item);
+        exit(BinMaxBaseQty
+             - CalcReservedQty(WhseActivityLine."Item No.", TargetType)
+             + GetCurrentLineSelfContribution(WhseActivityLine, TargetType));
     end;
 
     /// <summary>
@@ -462,11 +475,29 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         exit(MainQty + ReceivedQty);
     end;
 
-
-    local procedure ClearReservedQty()
+    /// <summary>
+    /// Returns the current Put-Away line's own outstanding qty IF it currently
+    /// targets the requested zone — otherwise 0.
+    ///
+    /// Bin Content FlowFields update as soon as a Place line is inserted, so
+    /// by the time HandleBinCapacity runs for the current line, that line's
+    /// own qty is already inside CalcReservedQty. Adding it back here gives
+    /// callers "space available BEFORE this line" — the right basis for
+    /// deciding how much fits in the decant bin and how much spills to HighBay.
+    /// Without this add-back, the bin would always look full.
+    /// </summary>
+    local procedure GetCurrentLineSelfContribution(var WhseActivityLine: Record "Warehouse Activity Line"; TargetType: Enum "Put-Away Target Zone NDPP"): Decimal
+    var
+        TargetZone: Code[10];
     begin
-        Clear(G_BinContentQty);
+        TargetZone := GetTargetZoneCode(WhseActivityLine."Location Code", TargetType);
+        if TargetZone = '' then
+            exit(0);
+        if WhseActivityLine."Zone Code" <> TargetZone then
+            exit(0);
+        exit(WhseActivityLine."Qty. Outstanding (Base)");
     end;
+
 
     /// <summary>
     /// Forces a Put-Away line into the High-Bay bin — used for split-line
@@ -546,6 +577,5 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     var
         G_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
         KamToteMath: Codeunit "Kam Tote Math";
-        G_BinContentQty: Decimal;
         G_LineSpacing: Boolean;
 }

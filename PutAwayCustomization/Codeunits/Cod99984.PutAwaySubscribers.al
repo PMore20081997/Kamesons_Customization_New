@@ -25,20 +25,22 @@ codeunit 99984 "Put-Away Subscribers NDPP"
     [EventSubscriber(ObjectType::Table, Database::"Warehouse Activity Line", OnAfterInsertEvent, '', false, false)]
     local procedure OnAfterInsertWhseActivityLine(var Rec: Record "Warehouse Activity Line")
     begin
+        // Pre-filter at subscriber level — this event fires for every Whse Activity
+        // Line insert system-wide (picks, movements, transfers, all locations). The
+        // cheap field reads here avoid codeunit dispatch + Item.Get for unrelated lines.
         if Rec.IsTemporary() then
+            exit;
+        if not IsPutAwayPlaceFromPO(Rec) then
             exit;
         PutAwayMgt.HandleBinCapacity(Rec);
     end;
 
-    // [EventSubscriber(ObjectType::Codeunit, Codeunit::"Whse.-Post Receipt", OnCreatePutAwayDocOnBeforeCreatePutAwayRun, '', false, false)]
-    // local procedure OnCreatePutAwayDocOnBeforeCreatePutAwayRun()
-    // begin
-    //     PutAwayMgt.StartExecution();
-    // end;
-
     [EventSubscriber(ObjectType::Table, Database::"Warehouse Activity Line", OnBeforeInsertNewWhseActivLine, '', false, false)]
     local procedure OnBeforeInsertNewWhseActivLine(var NewWarehouseActivityLine: Record "Warehouse Activity Line")
     begin
+        // Same system-wide event — only act when the split line belongs to OUR flow.
+        if not IsPutAwayPlaceFromPO(NewWarehouseActivityLine) then
+            exit;
         // The new line came from a SplitLine() call — push the spillover to High-Bay.
         PutAwayMgt.RoutePutAwayLineAsHighBay(NewWarehouseActivityLine);
     end;
@@ -48,9 +50,28 @@ codeunit 99984 "Put-Away Subscribers NDPP"
     var
         Spacing: Integer;
     begin
+        // GetSplitLineSpacing returns 0 unless we're mid-split inside HandleBinCapacity,
+        // so callers from unrelated split flows don't get our 5000 spacing.
         Spacing := PutAwayMgt.GetSplitLineSpacing();
         if Spacing > 0 then
             LineSpacing := Spacing;
+    end;
+
+    /// <summary>
+    /// Cheap shared check — TRUE only for Put-Away Place lines from a Purchase
+    /// Order. Used by every system-wide subscriber to bail before calling into
+    /// the management codeunit. Mirrors PutAwayMgt.IsEligibleForRouting but
+    /// without the Receive-Location lookup (the Mgt codeunit re-checks that).
+    /// </summary>
+    local procedure IsPutAwayPlaceFromPO(var WhseActLine: Record "Warehouse Activity Line"): Boolean
+    begin
+        if WhseActLine."Activity Type" <> WhseActLine."Activity Type"::"Put-away" then
+            exit(false);
+        if WhseActLine."Action Type" <> WhseActLine."Action Type"::Place then
+            exit(false);
+        if WhseActLine."Source Document" <> WhseActLine."Source Document"::"Purchase Order" then
+            exit(false);
+        exit(true);
     end;
 
     var
