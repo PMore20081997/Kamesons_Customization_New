@@ -155,10 +155,11 @@ codeunit 99961 "Kam Whse Setup Lookup"
     var
         L_BinContent: Record "Bin Content";
     begin
-        L_BinContent.Reset();
         L_BinContent.SetRange("Location Code", P_LocationCode);
         L_BinContent.SetRange("Item No.", _ItemNo);
         if L_BinContent.FindFirst() then
             exit(L_BinContent."Zone Code");
+
+        exit('');
     end;
 }

@@ -8,7 +8,8 @@ pageextension 99975 ItemManufacturerExt extends "Item Manufacturer Page"
             field("Qty per Tote"; Rec."Qty per Tote")
             {
                 ApplicationArea = All;
-                ToolTip = 'Specifies the value of the Max. Qty per Tote field.', Comment = '%';
+                Caption = 'Qty per Tote';
+                ToolTip = 'Specifies the value of the Max. Qty per Tote field.';
             }
         }
     }

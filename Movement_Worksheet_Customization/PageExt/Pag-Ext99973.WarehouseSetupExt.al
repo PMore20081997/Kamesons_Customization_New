@@ -8,12 +8,14 @@ pageextension 99973 WarehouseSetupExt extends "Warehouse Setup"
             field("MAIN Warehouse"; Rec."MAIN Warehouse")
             {
                 ApplicationArea = All;
-                ToolTip = 'Specifies the value of the MAIN Warehouse field.', Comment = '%';
+                Caption = 'MAIN Warehouse';
+                ToolTip = 'Specifies the value of the MAIN Warehouse field.';
             }
             field("RECEIVE Warehouse"; Rec."RECEIVE Warehouse")
             {
                 ApplicationArea = All;
-                ToolTip = 'Specifies the value of the RECEIVE Warehouse field.', Comment = '%';
+                Caption = 'RECEIVE Warehouse';
+                ToolTip = 'Specifies the value of the RECEIVE Warehouse field.';
             }
         }
     }

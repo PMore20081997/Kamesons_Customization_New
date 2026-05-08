@@ -7,7 +7,8 @@ pageextension 99974 BinContentExt extends "Bin Contents"
             field("Number of Totes in a Bin"; Rec."Number of Totes in a Bin")
             {
                 ApplicationArea = All;
-                ToolTip = 'Specifies the value of the Number of Totes in a Bin field.', Comment = '%';
+                Caption = 'Number of Totes in a Bin';
+                ToolTip = 'Specifies the value of the Number of Totes in a Bin field.';
             }
         }
     }

@@ -1,6 +1,8 @@
 namespace Kamesons_Customization.Kamesons_Customization;
 
 using Microsoft.Inventory.Item;
+using Microsoft.Warehouse.Activity;
+using Microsoft.Warehouse.Ledger;
 using Microsoft.Warehouse.Structure;
 using Microsoft.Warehouse.Tracking;
 using Microsoft.Warehouse.Worksheet;
@@ -146,6 +148,105 @@ codeunit 99962 "Kam Tote Math"
                 Total += BinContent.CalcQtyAvailToTake(0);
             until BinContent.Next() = 0;
         exit(Total);
+    end;
+
+    /// <summary>
+    /// Qty already in flight via registered Movement documents (not yet posted) heading
+    /// into the destination zone. Treated as indirectly available toward Min. Qty.
+    /// </summary>
+    procedure GetActivityQtyToDestination(LocationCode: Code[20]; ZoneCode: Code[10]; ItemNo: Code[20]): Decimal
+    var
+        WhseActLine: Record "Warehouse Activity Line";
+    begin
+        WhseActLine.SetRange("Activity Type", WhseActLine."Activity Type"::Movement);
+        WhseActLine.SetRange("Action Type", WhseActLine."Action Type"::Place);
+        WhseActLine.SetRange("Location Code", LocationCode);
+        WhseActLine.SetRange("Zone Code", ZoneCode);
+        WhseActLine.SetRange("Item No.", ItemNo);
+        WhseActLine.CalcSums("Qty. Outstanding (Base)");
+        exit(WhseActLine."Qty. Outstanding (Base)");
+    end;
+
+    /// <summary>
+    /// Per-manufacturer whole-tote count of in-flight Movement Place lines into destination.
+    /// </summary>
+    procedure GetActivityTotesToDestination(LocationCode: Code[20]; ZoneCode: Code[10]; ItemNo: Code[20]): Integer
+    var
+        ItemMfr: Record "Item Manufacturer Table";
+        WhseActLine: Record "Warehouse Activity Line";
+        MfgQtyBase: Decimal;
+        Totes: Integer;
+    begin
+        ItemMfr.SetRange("Item No", ItemNo);
+        ItemMfr.SetFilter("Qty per Tote", '>%1', 0);
+        if ItemMfr.FindSet() then
+            repeat
+                WhseActLine.Reset();
+                WhseActLine.SetRange("Activity Type", WhseActLine."Activity Type"::Movement);
+                WhseActLine.SetRange("Action Type", WhseActLine."Action Type"::Place);
+                WhseActLine.SetRange("Location Code", LocationCode);
+                WhseActLine.SetRange("Zone Code", ZoneCode);
+                WhseActLine.SetRange("Item No.", ItemNo);
+                WhseActLine.SetRange("Manufacturer Code", ItemMfr."Manufacturer Code");
+                WhseActLine.CalcSums("Qty. Outstanding (Base)");
+                MfgQtyBase := WhseActLine."Qty. Outstanding (Base)";
+                if MfgQtyBase >= ItemMfr."Qty per Tote" then
+                    Totes += Round(MfgQtyBase / ItemMfr."Qty per Tote", 1, '<');
+            until ItemMfr.Next() = 0;
+        exit(Totes);
+    end;
+
+    /// <summary>
+    /// Totes already staged in the destination zone, counted per manufacturer using each
+    /// manufacturer's Qty per Tote.
+    /// </summary>
+    procedure GetDestinationTotes(LocationCode: Code[20]; ZoneCode: Code[10]; ItemNo: Code[20]): Integer
+    var
+        ItemMfr: Record "Item Manufacturer Table";
+        WhseEntry: Record "Warehouse Entry";
+        MfgQtyBase: Decimal;
+        Totes: Integer;
+    begin
+        ItemMfr.SetRange("Item No", ItemNo);
+        ItemMfr.SetFilter("Qty per Tote", '>%1', 0);
+        if ItemMfr.FindSet() then
+            repeat
+                WhseEntry.Reset();
+                WhseEntry.SetRange("Item No.", ItemNo);
+                WhseEntry.SetRange("Location Code", LocationCode);
+                WhseEntry.SetRange("Zone Code", ZoneCode);
+                WhseEntry.SetRange("Manufacturer Code", ItemMfr."Manufacturer Code");
+                WhseEntry.CalcSums("Qty. (Base)");
+                MfgQtyBase := WhseEntry."Qty. (Base)";
+                if MfgQtyBase >= ItemMfr."Qty per Tote" then
+                    Totes += Round(MfgQtyBase / ItemMfr."Qty per Tote", 1, '>');
+            until ItemMfr.Next() = 0;
+        exit(Totes);
+    end;
+
+    /// <summary>
+    /// Whole totes currently inside a PICK BULK bin, summed per manufacturer.
+    /// </summary>
+    procedure GetPickBulkTotes(BinContent: Record "Bin Content"): Integer
+    var
+        WhseEntryQry: Query Warehouse_Entry_Main;
+        QtyPerTote: Decimal;
+        Totes: Integer;
+    begin
+        WhseEntryQry.SetFilter(WhseEntryQry.Item_No_, '%1', BinContent."Item No.");
+        WhseEntryQry.SetFilter(WhseEntryQry.Location_Code, '%1', BinContent."Location Code");
+        WhseEntryQry.SetFilter(WhseEntryQry.Zone_Code, '%1', BinContent."Zone Code");
+        WhseEntryQry.SetFilter(WhseEntryQry.Bin_Code, '%1', BinContent."Bin Code");
+        WhseEntryQry.SetFilter(WhseEntryQry.Qty___Base_, '>%1', 0);
+        WhseEntryQry.Open();
+        while WhseEntryQry.Read() do begin
+            QtyPerTote := GetQtyPerTote(BinContent."Item No.", WhseEntryQry.Manufacturer_Code);
+            if QtyPerTote > 0 then
+                if WhseEntryQry.Qty___Base_ >= QtyPerTote then
+                    Totes += Round(WhseEntryQry.Qty___Base_ / QtyPerTote, 1, '>');
+        end;
+        WhseEntryQry.Close();
+        exit(Totes);
     end;
 
     /// <summary>Look up the bin code holding the item in a given zone.</summary>

@@ -415,9 +415,9 @@ codeunit 99983 "Put-Away Mgt. NDPP"
                 Bin.SetRange(HighBay, true);
         end;
         if Bin.FindFirst() then
-            exit(Bin."Zone Code")
-        else
-            exit('');
+            exit(Bin."Zone Code");
+
+        exit('');
     end;
 
     /// <summary>

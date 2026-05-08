@@ -1,310 +1,386 @@
-// namespace Kamesons_Customization.Kamesons_Customization;
+namespace Kamesons_Customization.Kamesons_Customization;
 
-// using Microsoft.Inventory.Item;
-// using Microsoft.Warehouse.Structure;
-// using Microsoft.Warehouse.Tracking;
-// using Microsoft.Warehouse.Worksheet;
+using Microsoft.Inventory.Item;
+using Microsoft.Warehouse.Structure;
+using Microsoft.Warehouse.Tracking;
+using Microsoft.Warehouse.Worksheet;
 
-// /// <summary>
-// /// Facade for movement-worksheet replenishment.
-// /// Page actions and the report dataitem trigger delegate here so business logic is
-// /// in one place and unit-testable. Publishes integration events so other extensions
-// /// can pre-empt or post-process every line.
-// /// </summary>
-// codeunit 99963 "Kam Replenishment Mgt."
-// {
-//     Access = Public;
+/// <summary>
+/// Facade for movement-worksheet replenishment.
+/// The report (and any future page action) delegates here so business logic
+/// is in one place and unit-testable. Publishes integration events so other
+/// extensions can pre-empt or post-process every line.
+/// </summary>
+codeunit 99963 "Kam Replenishment Mgt."
+{
+    Access = Public;
+    SingleInstance = true;
 
-//     var
-//         WhseSetup: Codeunit "Kam Whse Setup Lookup";
-//         ToteMath: Codeunit "Kam Tote Math";
-//         WkshTemplateName: Code[10];
-//         WkshName: Code[10];
-//         BulkLocation: Code[10];
-//         PickBulkLocation: Code[10];
-//         BulkDecantZone: Code[10];
-//         HighBayZone: Code[10];
-//         PickBulkZone: Code[10];
-//         DoNotFillQtytoHandle: Boolean;
-//         NextLineNo: Integer;
-//         LinesInserted: Integer;
+    var
+        ToteMath: Codeunit "Kam Tote Math";
+        SetupLookup: Codeunit "Kam Whse Setup Lookup";
+        WhseWkshTemplateName: Code[10];
+        WhseWkshName: Code[10];
+        PickBulkLocation: Code[10];
+        ReceiveLocation: Code[10];
+        BulkDecantZone: Code[10];
+        GenDecantZone: Code[10];
+        HighBayZone: Code[10];
+        PickBulkZone: Code[10];
+        DoNotFillQtytoHandle: Boolean;
+        NextLineNo: Integer;
+        LinesInserted: Integer;
+        PickBulkLocNotSetErr: Label 'The PICK BULK Location is not set. Configure it in Warehouse Setup (MAIN Warehouse) or enter it on the request page.';
+        ReceiveLocNotSetErr: Label 'The BULK Location is not set. Configure the RECEIVE Warehouse in Warehouse Setup.';
+        BulkDecantZoneNotFoundErr: Label 'No zone with the Bulk flag was found in the BULK Location.';
+        HighBayZoneNotFoundErr: Label 'No zone with the High Bay flag was found in the BULK Location.';
+        PickBulkZoneNotFoundErr: Label 'No zone with the Bulk flag was found in the PICK BULK Location.';
+        GenDecantZoneNotFoundErr: Label 'No zone with the General Decant flag was found in the BULK Location.';
 
-//     procedure Initialize(WkshTemplate: Code[10]; Wksh: Code[10]; PickBulkLoc: Code[10]; SkipQtyToHandle: Boolean)
-//     begin
-//         WkshTemplateName := WkshTemplate;
-//         WkshName := Wksh;
-//         PickBulkLocation := PickBulkLoc;
-//         if PickBulkLocation = '' then
-//             PickBulkLocation := WhseSetup.GetMainLocation();
-//         BulkLocation := WhseSetup.GetReceiveLocation();
-//         BulkDecantZone := WhseSetup.GetBulkZone(BulkLocation);
-//         HighBayZone := WhseSetup.GetHighBayZone(BulkLocation);
-//         PickBulkZone := WhseSetup.GetBulkZone(PickBulkLocation);
-//         DoNotFillQtytoHandle := SkipQtyToHandle;
-//         SetNextLineNo();
-//         LinesInserted := 0;
-//     end;
+    /// <summary>
+    /// Captures request parameters, resolves all warehouse zones, and primes the
+    /// next worksheet line number. Must be called once before the first
+    /// ProcessBinContent call (typically in OnPreDataItem).
+    /// </summary>
+    procedure Initialize(WkshTemplate: Code[10]; Wksh: Code[10]; PickBulkLoc: Code[10]; SkipQtyToHandle: Boolean)
+    begin
+        WhseWkshTemplateName := WkshTemplate;
+        WhseWkshName := Wksh;
+        DoNotFillQtytoHandle := SkipQtyToHandle;
 
-//     procedure GetLinesInserted(): Integer
-//     begin
-//         exit(LinesInserted);
-//     end;
+        PickBulkLocation := PickBulkLoc;
+        if PickBulkLocation = '' then
+            PickBulkLocation := SetupLookup.GetMainLocation();
+        ReceiveLocation := SetupLookup.GetReceiveLocation();
 
-//     procedure ProcessBinContent(var BinContent: Record "Bin Content")
-//     var
-//         Item: Record Item;
-//         ToZoneCode: Code[10];
-//         ToBinCode: Code[20];
-//         IsHandled: Boolean;
-//     begin
-//         OnBeforeProcessBinContent(BinContent, IsHandled);
-//         if IsHandled then
-//             exit;
+        BulkDecantZone := SetupLookup.GetBulkZone(ReceiveLocation);
+        GenDecantZone := SetupLookup.GetDecantZone(ReceiveLocation);
+        HighBayZone := SetupLookup.GetHighBayZone(ReceiveLocation);
+        PickBulkZone := SetupLookup.GetBulkZone(PickBulkLocation);
 
-//         if BinContent."Location Code" <> PickBulkLocation then
-//             exit;
+        if PickBulkLocation = '' then
+            Error(PickBulkLocNotSetErr);
+        if ReceiveLocation = '' then
+            Error(ReceiveLocNotSetErr);
+        if BulkDecantZone = '' then
+            Error(BulkDecantZoneNotFoundErr);
+        if HighBayZone = '' then
+            Error(HighBayZoneNotFoundErr);
+        if PickBulkZone = '' then
+            Error(PickBulkZoneNotFoundErr);
+        if GenDecantZone = '' then
+            Error(GenDecantZoneNotFoundErr);
 
-//         Item.SetLoadFields(BULK);
-//         if not Item.Get(BinContent."Item No.") then
-//             exit;
+        SetNextLineNo();
+        LinesInserted := 0;
+    end;
 
-//         if Item.BULK then begin
-//             if BinContent."Zone Code" <> PickBulkZone then
-//                 exit;
-//             ToZoneCode := BulkDecantZone;
-//         end else begin
-//             if not WhseSetup.TryGetGenDecantZone(PickBulkLocation, ToZoneCode) then
-//                 exit;
-//             if BinContent."Zone Code" <> ToZoneCode then
-//                 exit;
-//             ToZoneCode := WhseSetup.GetGenDecantZone(BulkLocation);
-//         end;
+    /// <summary>
+    /// Dispatcher entry point. Skips bins not in PICK BULK Location; routes to the
+    /// qty-based or tote-based processor based on Item.Routing Type.
+    /// </summary>
+    procedure ProcessBinContent(var BinContent: Record "Bin Content")
+    var
+        Item: Record Item;
+        ToZoneCode: Code[10];
+        ToBinCode: Code[20];
+        MainGenDecantZone: Code[10];
+        IsHandled: Boolean;
+    begin
+        OnBeforeProcessBinContent(BinContent, IsHandled);
+        if IsHandled then
+            exit;
 
-//         ToBinCode := ToteMath.GetBinForItemInZone(BulkLocation, ToZoneCode, BinContent."Item No.");
-//         if ToBinCode = '' then
-//             exit;
+        if BinContent."Location Code" <> PickBulkLocation then
+            exit;
 
-//         if Item.BULK then
-//             ProcessBulkItem(BinContent, ToZoneCode, ToBinCode)
-//         else
-//             ProcessNonBulkItem(BinContent, ToZoneCode, ToBinCode);
+        Item.SetLoadFields("Routing Type");
+        if not Item.Get(BinContent."Item No.") then
+            exit;
 
-//         OnAfterProcessBinContent(BinContent);
-//     end;
+        case Item."Routing Type" of
+            Item."Routing Type"::BULK:
+                begin
+                    if BinContent."Zone Code" <> PickBulkZone then
+                        exit;
+                    ToZoneCode := BulkDecantZone;
+                end;
+            Item."Routing Type"::Flowrack,
+            Item."Routing Type"::"Static":
+                begin
+                    MainGenDecantZone := SetupLookup.GetDecantZonefromBinContent(PickBulkLocation, BinContent."Item No.");
+                    if BinContent."Zone Code" <> MainGenDecantZone then
+                        exit;
+                    ToZoneCode := GenDecantZone;
+                end;
+            else
+                exit;
+        end;
 
-//     local procedure ProcessBulkItem(var BinContent: Record "Bin Content"; ToZoneCode: Code[10]; ToBinCode: Code[20])
-//     var
-//         FEFOQry: Query "FEFO Whse Entry HIGHBAY";
-//         AvailBase: Decimal;
-//         MinBase: Decimal;
-//         MaxBase: Decimal;
-//         NeedBase: Decimal;
-//         LotAvailBase: Decimal;
-//         PendingLotBase: Decimal;
-//         MoveBase: Decimal;
-//     begin
-//         AvailBase := BinContent.CalcQtyAvailToTake(0);
-//         MinBase := BinContent."Min. Qty." * BinContent."Qty. per Unit of Measure";
-//         if AvailBase >= MinBase then
-//             exit;
+        ToBinCode := ToteMath.GetBinForItemInZone(ReceiveLocation, ToZoneCode, BinContent."Item No.");
+        if ToBinCode = '' then
+            exit;
 
-//         MaxBase := BinContent."Max. Qty." * BinContent."Qty. per Unit of Measure";
-//         if MaxBase <= 0 then
-//             exit;
+        case Item."Routing Type" of
+            Item."Routing Type"::BULK,
+            Item."Routing Type"::"Static":
+                ProcessBulkItem(BinContent, ToZoneCode, ToBinCode);
+            Item."Routing Type"::Flowrack:
+                ProcessNonBulkItem(BinContent, ToZoneCode, ToBinCode);
+        end;
 
-//         NeedBase := MaxBase - ToteMath.GetDestinationZoneAvailQty(BulkLocation, ToZoneCode, BinContent."Item No.");
-//         if NeedBase <= 0 then
-//             exit;
+        OnAfterProcessBinContent(BinContent);
+    end;
 
-//         NeedBase -= ToteMath.GetQtyAlreadyInWorksheet(WkshTemplateName, WkshName, BulkLocation, HighBayZone, ToZoneCode, BinContent."Item No.");
-//         if NeedBase <= 0 then
-//             exit;
+    procedure GetLinesInserted(): Integer
+    begin
+        exit(LinesInserted);
+    end;
 
-//         FEFOQry.SetFilter(FEFOQry.Location_Code, '=%1', BulkLocation);
-//         FEFOQry.SetFilter(FEFOQry.Zone_Code, '=%1', HighBayZone);
-//         FEFOQry.SetFilter(FEFOQry.Item_No_, '=%1', BinContent."Item No.");
-//         FEFOQry.SetFilter(FEFOQry.Quantity_Base, '>%1', 0);
-//         FEFOQry.Open();
-//         while FEFOQry.Read() and (NeedBase > 0) do begin
-//             LotAvailBase := FEFOQry.Quantity_Base;
-//             PendingLotBase := ToteMath.GetLotQtyAlreadyInWorksheet(WkshTemplateName, WkshName, BulkLocation, BinContent."Item No.", FEFOQry.Lot_No_);
-//             LotAvailBase -= PendingLotBase;
+    local procedure ProcessBulkItem(var BinContent: Record "Bin Content"; ToZoneCode: Code[10]; ToBinCode: Code[20])
+    var
+        FEFOQuery: Query "FEFO Whse Entry HIGHBAY";
+        PickBulkAvailBase: Decimal;
+        MinQtyBase: Decimal;
+        MaxQtyBase: Decimal;
+        NeedQtyBase: Decimal;
+        LotAvailBase: Decimal;
+        PendingLotBase: Decimal;
+        MoveQtyBase: Decimal;
+    begin
+        // Trigger: PICK BULK bin available qty < PICK BULK Min. Qty.
+        PickBulkAvailBase := BinContent.CalcQtyAvailToTake(0);
+        MinQtyBase := BinContent."Min. Qty." * BinContent."Qty. per Unit of Measure";
+        if PickBulkAvailBase >= MinQtyBase then
+            exit;
 
-//             if LotAvailBase > 0 then begin
-//                 if LotAvailBase >= NeedBase then
-//                     MoveBase := NeedBase
-//                 else
-//                     MoveBase := LotAvailBase;
+        MaxQtyBase := BinContent."Max. Qty." * BinContent."Qty. per Unit of Measure";
+        if MaxQtyBase <= 0 then
+            exit;
 
-//                 InsertMovementWkshLine(BinContent, FEFOQry.Lot_No_, FEFOQry.Expiration_Date,
-//                     FEFOQry.Unit_of_Measure_Code, FEFOQry.Qty_per_Unit_of_Measure, MoveBase,
-//                     ToZoneCode, ToBinCode, FEFOQry.Bin_Code, FEFOQry.Manufacturer_Code, FEFOQry.Package_No_);
+        NeedQtyBase :=
+            MaxQtyBase
+            - PickBulkAvailBase
+            - ToteMath.GetDestinationZoneAvailQty(ReceiveLocation, ToZoneCode, BinContent."Item No.")
+            - ToteMath.GetActivityQtyToDestination(ReceiveLocation, ToZoneCode, BinContent."Item No.")
+            - ToteMath.GetQtyAlreadyInWorksheet(WhseWkshTemplateName, WhseWkshName, ReceiveLocation, HighBayZone, ToZoneCode, BinContent."Item No.");
+        if NeedQtyBase <= 0 then
+            exit;
 
-//                 NeedBase -= MoveBase;
-//             end;
-//         end;
-//         FEFOQry.Close();
-//     end;
+        // FEFO from HIGHBAY, partial-lot allowed.
+        FEFOQuery.SetFilter(FEFOQuery.Location_Code, '%1', ReceiveLocation);
+        FEFOQuery.SetFilter(FEFOQuery.Zone_Code, '%1', HighBayZone);
+        FEFOQuery.SetFilter(FEFOQuery.Item_No_, '%1', BinContent."Item No.");
+        FEFOQuery.SetFilter(FEFOQuery.Quantity_Base, '>%1', 0);
+        FEFOQuery.Open();
+        while FEFOQuery.Read() and (NeedQtyBase > 0) do begin
+            LotAvailBase := FEFOQuery.Quantity_Base;
+            PendingLotBase := ToteMath.GetLotQtyAlreadyInWorksheet(WhseWkshTemplateName, WhseWkshName, ReceiveLocation, BinContent."Item No.", FEFOQuery.Lot_No_);
+            LotAvailBase -= PendingLotBase;
 
-//     local procedure ProcessNonBulkItem(var BinContent: Record "Bin Content"; ToZoneCode: Code[10]; ToBinCode: Code[20])
-//     var
-//         FEFOQry: Query "FEFO Whse Entry HIGHBAY";
-//         AvailBase: Decimal;
-//         MinBase: Decimal;
-//         QtyPerTote: Decimal;
-//         LotAvailBase: Decimal;
-//         PendingLotBase: Decimal;
-//         MoveBase: Decimal;
-//         TargetTotes: Integer;
-//         PickBulkTotes: Integer;
-//         PendingTotes: Integer;
-//         TotesNeeded: Integer;
-//         TotesAvail: Integer;
-//         TotesToMove: Integer;
-//     begin
-//         AvailBase := BinContent.CalcQtyAvailToTake(0);
-//         MinBase := BinContent."Min. Qty." * BinContent."Qty. per Unit of Measure";
-//         if AvailBase >= MinBase then
-//             exit;
+            if LotAvailBase > 0 then begin
+                if LotAvailBase >= NeedQtyBase then
+                    MoveQtyBase := NeedQtyBase
+                else
+                    MoveQtyBase := LotAvailBase;
 
-//         TargetTotes := BinContent."Number of Totes in a Bin";
-//         if TargetTotes <= 0 then
-//             exit;
+                InsertMovementWkshLine(
+                    BinContent,
+                    FEFOQuery.Lot_No_,
+                    FEFOQuery.Expiration_Date,
+                    FEFOQuery.Unit_of_Measure_Code,
+                    FEFOQuery.Qty_per_Unit_of_Measure,
+                    MoveQtyBase,
+                    ToZoneCode,
+                    ToBinCode,
+                    FEFOQuery.Bin_Code, FEFOQuery.Manufacturer_Code, FEFOQuery.Package_No_);
 
-//         PickBulkTotes := ToteMath.CountTotesInPickBulkBin(BinContent);
-//         PendingTotes := ToteMath.CountPendingTotesInWorksheet(WkshTemplateName, WkshName, BulkLocation, HighBayZone, ToZoneCode, BinContent."Item No.");
-//         TotesNeeded := TargetTotes - PickBulkTotes - PendingTotes;
-//         if TotesNeeded <= 0 then
-//             exit;
+                NeedQtyBase -= MoveQtyBase;
+            end;
+        end;
+        FEFOQuery.Close();
+    end;
 
-//         FEFOQry.SetFilter(FEFOQry.Location_Code, '=%1', BulkLocation);
-//         FEFOQry.SetFilter(FEFOQry.Zone_Code, '=%1', HighBayZone);
-//         FEFOQry.SetFilter(FEFOQry.Item_No_, '=%1', BinContent."Item No.");
-//         FEFOQry.SetFilter(FEFOQry.Quantity_Base, '>%1', 0);
-//         FEFOQry.Open();
-//         while FEFOQry.Read() and (TotesNeeded > 0) do begin
-//             QtyPerTote := ToteMath.GetQtyPerTote(BinContent."Item No.", FEFOQry.Manufacturer_Code);
-//             if QtyPerTote > 0 then begin
-//                 LotAvailBase := FEFOQry.Quantity_Base;
-//                 PendingLotBase := ToteMath.GetLotQtyAlreadyInWorksheet(WkshTemplateName, WkshName, BulkLocation, BinContent."Item No.", FEFOQry.Lot_No_);
-//                 LotAvailBase -= PendingLotBase;
+    local procedure ProcessNonBulkItem(var BinContent: Record "Bin Content"; ToZoneCode: Code[10]; ToBinCode: Code[20])
+    var
+        FEFOQuery: Query "FEFO Whse Entry HIGHBAY";
+        PickBulkAvailBase: Decimal;
+        MinQtyBase: Decimal;
+        QtyPerTote: Decimal;
+        LotAvailQtyBase: Decimal;
+        PendingLotQtyBase: Decimal;
+        MoveQtyBase: Decimal;
+        TargetTotes: Integer;
+        PickBulkTotes: Integer;
+        DestTotes: Integer;
+        ActivityTotes: Integer;
+        PendingTotes: Integer;
+        TotesNeeded: Integer;
+        TotesAvail: Integer;
+        TotesToMove: Integer;
+    begin
+        PickBulkAvailBase := BinContent.CalcQtyAvailToTake(0);
+        MinQtyBase := BinContent."Min. Qty." * BinContent."Qty. per Unit of Measure";
+        if PickBulkAvailBase >= MinQtyBase then
+            exit;
 
-//                 if LotAvailBase >= QtyPerTote then begin
-//                     TotesAvail := Round(LotAvailBase / QtyPerTote, 1, '<');
-//                     if TotesAvail > TotesNeeded then
-//                         TotesToMove := TotesNeeded
-//                     else
-//                         TotesToMove := TotesAvail;
+        TargetTotes := BinContent."Number of Totes in a Bin";
+        if TargetTotes <= 0 then
+            exit;
 
-//                     if TotesToMove > 0 then begin
-//                         MoveBase := TotesToMove * QtyPerTote;
-//                         InsertMovementWkshLine(BinContent, FEFOQry.Lot_No_, FEFOQry.Expiration_Date,
-//                             FEFOQry.Unit_of_Measure_Code, FEFOQry.Qty_per_Unit_of_Measure, MoveBase,
-//                             ToZoneCode, ToBinCode, FEFOQry.Bin_Code, FEFOQry.Manufacturer_Code, FEFOQry.Package_No_);
-//                         TotesNeeded -= TotesToMove;
-//                     end;
-//                 end;
-//             end;
-//         end;
-//         FEFOQry.Close();
-//     end;
+        PickBulkTotes := ToteMath.GetPickBulkTotes(BinContent);
+        DestTotes := ToteMath.GetDestinationTotes(ReceiveLocation, ToZoneCode, BinContent."Item No.");
+        ActivityTotes := ToteMath.GetActivityTotesToDestination(ReceiveLocation, ToZoneCode, BinContent."Item No.");
+        PendingTotes := ToteMath.CountPendingTotesInWorksheet(WhseWkshTemplateName, WhseWkshName, ReceiveLocation, HighBayZone, ToZoneCode, BinContent."Item No.");
+        TotesNeeded := TargetTotes - PickBulkTotes - DestTotes - ActivityTotes - PendingTotes;
+        if TotesNeeded <= 0 then
+            exit;
 
-//     local procedure SetNextLineNo()
-//     var
-//         WhseWkshLine: Record "Whse. Worksheet Line";
-//     begin
-//         WhseWkshLine.SetRange("Worksheet Template Name", WkshTemplateName);
-//         WhseWkshLine.SetRange(Name, WkshName);
-//         WhseWkshLine.SetRange("Location Code", BulkLocation);
-//         if WhseWkshLine.FindLast() then
-//             NextLineNo := WhseWkshLine."Line No." + 10000
-//         else
-//             NextLineNo := 10000;
-//     end;
+        // FEFO from HIGHBAY — whole totes only, per manufacturer's Qty per Tote.
+        FEFOQuery.SetFilter(FEFOQuery.Location_Code, '%1', ReceiveLocation);
+        FEFOQuery.SetFilter(FEFOQuery.Zone_Code, '%1', HighBayZone);
+        FEFOQuery.SetFilter(FEFOQuery.Item_No_, '%1', BinContent."Item No.");
+        FEFOQuery.SetFilter(FEFOQuery.Quantity_Base, '>%1', 0);
+        FEFOQuery.Open();
+        while FEFOQuery.Read() and (TotesNeeded > 0) do begin
+            QtyPerTote := ToteMath.GetQtyPerTote(BinContent."Item No.", FEFOQuery.Manufacturer_Code);
+            if QtyPerTote > 0 then begin
+                LotAvailQtyBase := FEFOQuery.Quantity_Base;
+                PendingLotQtyBase := ToteMath.GetLotQtyAlreadyInWorksheet(WhseWkshTemplateName, WhseWkshName, ReceiveLocation, BinContent."Item No.", FEFOQuery.Lot_No_);
+                LotAvailQtyBase -= PendingLotQtyBase;
 
-//     local procedure InsertMovementWkshLine(var BinContent: Record "Bin Content"; LotNo: Code[50]; ExpirationDate: Date; UoMCode: Code[10]; QtyPerUoM: Decimal; MoveQtyBase: Decimal; ToZoneCode: Code[10]; ToBinCode: Code[20]; FromBinCode: Code[20]; ManufacturerCode: Code[50]; PackageNo: Code[50])
-//     var
-//         WhseWkshLine: Record "Whse. Worksheet Line";
-//         Item: Record Item;
-//     begin
-//         WhseWkshLine.Init();
-//         WhseWkshLine."Worksheet Template Name" := WkshTemplateName;
-//         WhseWkshLine.Name := WkshName;
-//         WhseWkshLine."Location Code" := BulkLocation;
-//         WhseWkshLine."Line No." := NextLineNo;
-//         WhseWkshLine.Validate("Item No.", BinContent."Item No.");
+                if LotAvailQtyBase >= QtyPerTote then begin
+                    TotesAvail := Round(LotAvailQtyBase / QtyPerTote, 1, '>');
+                    if TotesAvail > TotesNeeded then
+                        TotesToMove := TotesNeeded
+                    else
+                        TotesToMove := TotesAvail;
 
-//         WhseWkshLine."Unit of Measure Code" := UoMCode;
-//         if QtyPerUoM = 0 then
-//             QtyPerUoM := BinContent."Qty. per Unit of Measure";
-//         WhseWkshLine."Qty. per Unit of Measure" := QtyPerUoM;
+                    if TotesToMove > 0 then begin
+                        MoveQtyBase := TotesToMove * QtyPerTote;
+                        InsertMovementWkshLine(
+                            BinContent,
+                            FEFOQuery.Lot_No_,
+                            FEFOQuery.Expiration_Date,
+                            FEFOQuery.Unit_of_Measure_Code,
+                            FEFOQuery.Qty_per_Unit_of_Measure,
+                            MoveQtyBase,
+                            ToZoneCode,
+                            ToBinCode,
+                            FEFOQuery.Bin_Code, FEFOQuery.Manufacturer_Code, FEFOQuery.Package_No_);
 
-//         WhseWkshLine."From Zone Code" := HighBayZone;
-//         WhseWkshLine."From Bin Code" := FromBinCode;
-//         WhseWkshLine."To Zone Code" := ToZoneCode;
-//         WhseWkshLine."To Bin Code" := ToBinCode;
+                        TotesNeeded -= TotesToMove;
+                    end;
+                end;
+            end;
+        end;
+        FEFOQuery.Close();
+    end;
 
-//         WhseWkshLine.Validate(Quantity, MoveQtyBase / QtyPerUoM);
-//         if not DoNotFillQtytoHandle then
-//             WhseWkshLine.Validate("Qty. to Handle", MoveQtyBase / QtyPerUoM);
+    local procedure InsertMovementWkshLine(var BinContent: Record "Bin Content"; LotNo: Code[50]; ExpirationDate: Date; UoMCode: Code[10]; QtyPerUoM: Decimal; MoveQtyBase: Decimal; ToZoneCode: Code[10]; ToBinCode: Code[20]; FromBinCode: Code[20]; ManufacturerCode: Code[10]; PackageNo: Code[50])
+    var
+        WhseWkshLine: Record "Whse. Worksheet Line";
+        Item: Record Item;
+    begin
+        WhseWkshLine.Init();
+        WhseWkshLine."Worksheet Template Name" := WhseWkshTemplateName;
+        WhseWkshLine.Name := WhseWkshName;
+        WhseWkshLine."Location Code" := ReceiveLocation;
+        WhseWkshLine."Line No." := NextLineNo;
 
-//         if Item.Get(BinContent."Item No.") then
-//             WhseWkshLine.Description := Item.Description;
+        WhseWkshLine.Validate("Item No.", BinContent."Item No.");
 
-//         WhseWkshLine.Insert(true);
+        WhseWkshLine."Unit of Measure Code" := UoMCode;
+        if QtyPerUoM = 0 then
+            QtyPerUoM := BinContent."Qty. per Unit of Measure";
+        WhseWkshLine."Qty. per Unit of Measure" := QtyPerUoM;
 
-//         InsertWhseItemTrackingLine(WhseWkshLine, LotNo, ExpirationDate, MoveQtyBase, ManufacturerCode, PackageNo);
+        WhseWkshLine."From Zone Code" := HighBayZone;
+        WhseWkshLine."From Bin Code" := FromBinCode;
+        WhseWkshLine."To Zone Code" := ToZoneCode;
+        WhseWkshLine."To Bin Code" := ToBinCode;
 
-//         NextLineNo += 10000;
-//         LinesInserted += 1;
+        WhseWkshLine.Validate(Quantity, MoveQtyBase / QtyPerUoM);
+        if not DoNotFillQtytoHandle then
+            WhseWkshLine.Validate("Qty. to Handle", MoveQtyBase / QtyPerUoM);
 
-//         OnAfterMovementLineCreated(WhseWkshLine);
-//     end;
+        if Item.Get(BinContent."Item No.") then
+            WhseWkshLine.Description := Item.Description;
 
-//     local procedure InsertWhseItemTrackingLine(var WhseWkshLine: Record "Whse. Worksheet Line"; LotNo: Code[50]; ExpirationDate: Date; QtyBase: Decimal; ManufacturerCode: Code[50]; PackageNo: Code[50])
-//     var
-//         WhseItemTrack: Record "Whse. Item Tracking Line";
-//     begin
-//         if LotNo = '' then
-//             exit;
+        WhseWkshLine.Insert(true);
 
-//         // Entry No. is AutoIncrement on the standard table — let BC assign it.
-//         WhseItemTrack.Init();
-//         WhseItemTrack."Source Type" := Database::"Whse. Worksheet Line";
-//         WhseItemTrack."Source Subtype" := 0;
-//         WhseItemTrack."Source ID" := WhseWkshLine.Name;
-//         WhseItemTrack."Source Batch Name" := WhseWkshLine."Worksheet Template Name";
-//         WhseItemTrack."Source Prod. Order Line" := 0;
-//         WhseItemTrack."Source Ref. No." := WhseWkshLine."Line No.";
+        InsertWhseItemTrackingLine(WhseWkshLine, LotNo, ExpirationDate, MoveQtyBase, ManufacturerCode, PackageNo);
 
-//         WhseItemTrack."Item No." := WhseWkshLine."Item No.";
-//         WhseItemTrack."Variant Code" := WhseWkshLine."Variant Code";
-//         WhseItemTrack."Location Code" := WhseWkshLine."Location Code";
+        NextLineNo += 10000;
+        LinesInserted += 1;
 
-//         WhseItemTrack."Lot No." := LotNo;
-//         WhseItemTrack."Expiration Date" := ExpirationDate;
-//         WhseItemTrack."Package No." := PackageNo;
-//         WhseItemTrack."Manufacturer Code" := ManufacturerCode;
+        OnAfterMovementLineCreated(WhseWkshLine);
+    end;
 
-//         WhseItemTrack."Qty. per Unit of Measure" := WhseWkshLine."Qty. per Unit of Measure";
-//         WhseItemTrack."Quantity (Base)" := QtyBase;
-//         WhseItemTrack."Qty. to Handle (Base)" := QtyBase;
+    local procedure InsertWhseItemTrackingLine(var WhseWkshLine: Record "Whse. Worksheet Line"; LotNo: Code[50]; ExpirationDate: Date; QtyBase: Decimal; ManufacturerCode: Code[10]; PackageNo: Code[50])
+    var
+        WhseItemTrackingLine: Record "Whse. Item Tracking Line";
+        NextEntryNo: Integer;
+    begin
+        if LotNo = '' then
+            exit;
 
-//         WhseItemTrack.Insert(true);
-//     end;
+        WhseItemTrackingLine.Reset();
+        if WhseItemTrackingLine.FindLast() then
+            NextEntryNo := WhseItemTrackingLine."Entry No." + 1
+        else
+            NextEntryNo := 1;
 
-//     [IntegrationEvent(false, false)]
-//     local procedure OnBeforeProcessBinContent(var BinContent: Record "Bin Content"; var IsHandled: Boolean)
-//     begin
-//     end;
+        WhseItemTrackingLine.Init();
+        WhseItemTrackingLine."Entry No." := NextEntryNo;
+        WhseItemTrackingLine."Source Type" := DATABASE::"Whse. Worksheet Line";
+        WhseItemTrackingLine."Source Subtype" := 0;
+        WhseItemTrackingLine."Source ID" := WhseWkshLine.Name;
+        WhseItemTrackingLine."Source Batch Name" := WhseWkshLine."Worksheet Template Name";
+        WhseItemTrackingLine."Source Prod. Order Line" := 0;
+        WhseItemTrackingLine."Source Ref. No." := WhseWkshLine."Line No.";
 
-//     [IntegrationEvent(false, false)]
-//     local procedure OnAfterProcessBinContent(var BinContent: Record "Bin Content")
-//     begin
-//     end;
+        WhseItemTrackingLine."Item No." := WhseWkshLine."Item No.";
+        WhseItemTrackingLine."Variant Code" := WhseWkshLine."Variant Code";
+        WhseItemTrackingLine."Location Code" := WhseWkshLine."Location Code";
 
-//     [IntegrationEvent(false, false)]
-//     local procedure OnAfterMovementLineCreated(var WhseWkshLine: Record "Whse. Worksheet Line")
-//     begin
-//     end;
-// }
+        WhseItemTrackingLine."Lot No." := LotNo;
+        WhseItemTrackingLine."Expiration Date" := ExpirationDate;
+        WhseItemTrackingLine."Package No." := PackageNo;
+        WhseItemTrackingLine."Manufacturer Code" := ManufacturerCode;
+
+        WhseItemTrackingLine."Qty. per Unit of Measure" := WhseWkshLine."Qty. per Unit of Measure";
+        WhseItemTrackingLine."Quantity (Base)" := QtyBase;
+        WhseItemTrackingLine."Qty. to Handle (Base)" := QtyBase;
+
+        WhseItemTrackingLine.Insert(true);
+    end;
+
+    local procedure SetNextLineNo()
+    var
+        WhseWkshLine: Record "Whse. Worksheet Line";
+    begin
+        WhseWkshLine.SetRange("Worksheet Template Name", WhseWkshTemplateName);
+        WhseWkshLine.SetRange(Name, WhseWkshName);
+        WhseWkshLine.SetRange("Location Code", ReceiveLocation);
+        if WhseWkshLine.FindLast() then
+            NextLineNo := WhseWkshLine."Line No." + 10000
+        else
+            NextLineNo := 10000;
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnBeforeProcessBinContent(var BinContent: Record "Bin Content"; var IsHandled: Boolean)
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnAfterProcessBinContent(var BinContent: Record "Bin Content")
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnAfterMovementLineCreated(var WhseWkshLine: Record "Whse. Worksheet Line")
+    begin
+    end;
+}
