@@ -1,65 +1,65 @@
 table 99991 "Decant Details"
 {
     Caption = 'Decant Details';
-    DataClassification = ToBeClassified;
+    DataClassification = CustomerContent;
 
     fields
     {
         field(1; "Journal Template Name"; Code[10])
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
             TableRelation = "Warehouse Journal Template";
 
         }
         field(2; "Journal Batch Name"; Code[10])
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
             TableRelation = "Warehouse Journal Batch".Name WHERE("Journal Template Name" = FIELD("Journal Template Name"));
         }
         field(3; "Line No."; Integer)
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
             //AutoIncrement = true;
         }
         field(4; "Location Code"; Code[10])
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
             TableRelation = Location;
         }
         field(5; "From Zone Code"; Code[10])
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
             TableRelation = Zone.Code WHERE("Location Code" = FIELD("Location Code"));
         }
         field(6; "From Bin Code"; Code[20])
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
             TableRelation = Bin.Code;
         }
         field(7; "Item No."; Code[20])
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
             TableRelation = Item."No.";
         }
         field(8; Description; Text[100])
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
             TableRelation = Item.Description where("No." = field("Item No."));
             Editable = false;
         }
         field(9; Quantity; Decimal)
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
             DecimalPlaces = 0 : 5;
         }
         field(10; "To Zone Code"; Code[10])
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
             TableRelation = Zone.Code WHERE("Location Code" = FIELD("Location Code"));
         }
         field(11; "To Bin Code"; Code[20])
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
             TableRelation = IF ("To Zone Code" = FILTER('')) Bin.Code WHERE("Location Code" = FIELD("Location Code"))
             ELSE
             IF ("To Zone Code" = FILTER(<> '')) Bin.Code WHERE("Location Code" = FIELD("Location Code"),
@@ -67,11 +67,11 @@ table 99991 "Decant Details"
         }
         field(12; "Package No."; Code[20])
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
         }
         field(13; "New Package No."; Code[20])
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
 
             trigger OnValidate()
             var
@@ -89,42 +89,42 @@ table 99991 "Decant Details"
         }
         field(14; "Lot No."; Code[50])
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
         }
         field(15; "To Qty."; Decimal)
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
             DecimalPlaces = 0 : 5;
         }
         field(16; "Variant Code"; Code[20])
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
         }
         field(17; "Expiry Date"; Date)
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
         }
         field(18; "Reason Code"; Code[10])
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
             TableRelation = "Reason Code";
         }
         field(19; "Available Qty. to Take"; Decimal)
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
             Caption = 'Available Qty. to Take';
             DecimalPlaces = 0 : 5;
             Editable = false;
         }
         field(20; "To Location Code"; Code[10])
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
             Caption = 'To Location Code';
             TableRelation = Location;
         }
-        field(21; "Manufacturer Code"; Code[10])
+        field(21; "Manufacturer Code"; Code[100])
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
             Caption = 'Manufacturer Code';
             TableRelation = "Item Manufacturer Table"."Manufacturer Code" WHERE("Item No" = FIELD("Item No."));
 
@@ -150,14 +150,14 @@ table 99991 "Decant Details"
         }
         field(22; "Qty Per Tote"; Decimal)
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
             Caption = 'Qty Per Tote';
             DecimalPlaces = 0 : 5;
             Editable = false;
         }
         field(23; "Number of Totes"; Integer)
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
             Caption = 'Number of Totes';
             Editable = false;
         }

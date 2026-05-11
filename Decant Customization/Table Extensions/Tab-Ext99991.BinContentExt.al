@@ -22,7 +22,7 @@ tableextension 99991 BinContentExt extends "Bin Content"
         // }
         field(99971; "Number of Totes in a Bin"; Integer)
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
         }
     }
 }

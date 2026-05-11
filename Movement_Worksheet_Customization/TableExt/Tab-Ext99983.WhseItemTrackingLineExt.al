@@ -6,7 +6,7 @@ tableextension 99983 Whse_Item_Tracking_Line_Ext extends "Whse. Item Tracking Li
 {
     fields
     {
-        field(99971; "Manufacturer Code"; Code[10])
+        field(99971; "Manufacturer Code"; Code[100])
         {
             Caption = 'Manufacturer Code';
             DataClassification = CustomerContent;
