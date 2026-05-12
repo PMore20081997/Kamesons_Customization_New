@@ -9,14 +9,9 @@ steps:
   persistCredentials: true
 
 - script: |
-    # 1. Fix the remote (Ensure no extra slashes)
     git remote remove github 2>/dev/null || true
     git remote add github https://x-access-token:$(GitHub_PAT)@://github.com
-    
-    # 2. Automatically find your current branch name and push it
-    export CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-    echo "Pushing branch: $CURRENT_BRANCH"
-    git push github $CURRENT_BRANCH --force
+    git push github HEAD:main --force
   displayName: 'Sync to GitHub'
 
 
