@@ -9,10 +9,12 @@ steps:
   persistCredentials: true
 
 - script: |
-    # 1. Remove existing remote if it exists, then add GitHub
+    # 1. Clean up and add the remote
     git remote remove github 2>/dev/null || true
-    git remote add github https://x-access-token:$(GitHub_PAT)@github.com/PMore20081997/Kamesons_Customization_New.git
+    git remote add github https://x-access-token:$(GitHub_PAT)@://github.com
     
-    # 2. Push the code
-    git push github --all --force
+    # 2. Specifically push the 'main' branch
+    # If your Azure branch is named something else, replace 'main' below
+    git push github main --force
   displayName: 'Sync to GitHub'
+
