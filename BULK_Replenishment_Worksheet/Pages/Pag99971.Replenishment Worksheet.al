@@ -175,20 +175,6 @@ page 99971 "Replenishment Worksheet"
                     Editable = false;
                     ToolTip = 'Specifies the description of the item.';
                 }
-                // field("Min. Qty."; Rec."Min. Qty.")
-                // {
-                //     ApplicationArea = All;
-                //     Editable = false;
-                //     DecimalPlaces = 0 : 5;
-                //     ToolTip = 'Minimum quantity of the item that comes from the Replenishment Master.';
-                // }
-                // field("Max. Qty."; Rec."Max. Qty.")
-                // {
-                //     ApplicationArea = All;
-                //     Editable = false;
-                //     DecimalPlaces = 0 : 5;
-                //     ToolTip = 'Maximum quantity of the item that comes from the Replenishment Master.';
-                // }
                 field("Location Code"; Rec."Location Code")
                 {
                     ApplicationArea = All;
@@ -198,17 +184,11 @@ page 99971 "Replenishment Worksheet"
                 {
                     ApplicationArea = All;
                     DecimalPlaces = 0 : 5;
-                    //Caption = 'Depot1 Quantity';
                     Caption = 'Available Quantity';
                     Editable = false;
                     ToolTip = 'Available to take from bincontent';
                 }
 
-                // field("Variant Code"; Rec."Variant Code")
-                // {
-                //     ApplicationArea = All;
-                //     Caption = 'From Variant';
-                // }
                 field("From Location Code"; Rec."From Location Code")
                 {
                     ApplicationArea = All;
@@ -238,30 +218,6 @@ page 99971 "Replenishment Worksheet"
                     ApplicationArea = All;
                     ToolTip = 'Specifies the value of the Manufacturer Code field.', Comment = '%';
                 }
-                // field("Pick Qty"; Rec."Pick Qty")
-                // {
-                //     ToolTip = 'Pick Qty for selected Item No., From Variant, and From Location Code';
-                //     ApplicationArea = All;
-                //     Editable = false;
-                // }
-                // field("Own Log Qty."; Rec."Own Log Qty.")
-                // {
-                //     ApplicationArea = All;
-                //     Editable = false;
-                // }
-                // field("From Variant Priority"; Rec."From Variant Priority")
-                // {
-                //     ApplicationArea = All;
-                //     Editable = false;
-                // }
-                // field("Demand Quantity"; Rec."Demand Quantity")
-                // {
-                //     ApplicationArea = All;
-                //     DecimalPlaces = 0 : 5;
-                //     Editable = false;
-                //     Caption = 'Replenishment Qty.';
-                //     ToolTip = 'Qty required Calculation: Max Qty - Depot1 Qty - Transfer Line Qty Last 2 days';
-                // }
                 field("Qty to Move"; Rec."Qty to Move")
                 {
                     ApplicationArea = All;
@@ -337,7 +293,6 @@ page 99971 "Replenishment Worksheet"
                     L_BatchName := Rec."Batch Name";
 
                     L_ReplenishmentWorksheet.Reset();
-                    // CurrPage.SetSelectionFilter(L_ReplenishmentWorksheet);
                     L_ReplenishmentWorksheet.SetRange(Action, L_ReplenishmentWorksheet.Action::Accept);
                     L_ReplenishmentWorksheet.SetRange("Batch Name", L_BatchName);
                     L_ReplenishmentWorksheet.SetFilter("Qty to Move", '>%1', 0);
@@ -379,116 +334,17 @@ page 99971 "Replenishment Worksheet"
         ItemFilter: Code[50];
         ItemDescription: Text[250];
         G_ItemBarcode: Code[250];
-        ItemJnlMgt: Codeunit ItemJnlManagement;
         Text000: Label '%1 journal';
         Text001: Label 'RECURRING';
         Text002: Label 'Recurring Item Journal';
-        OldItemNo: Code[20];
-        OldCapNo: Code[20];
-        OldCapType: Enum "Capacity Type";
-        OldProdOrderNo: Code[20];
-        OldOperationNo: Code[20];
         Text005: Label 'REC-';
         Text006: Label 'Recurring ';
         OpenFromBatch: Boolean;
-        //New++
-        // G_ReplenishmentWorksheet: Record "Replenishment Worksheet";
-        TransHeader: Record "Transfer Header";
-        TempTransHeader: Record "Transfer Header" temporary;
-        G_ReqLine: Record "Requisition Line";
-        //L_TempReqLine: Record "Requisition Line" temporary;
-        //G_TempReqLine: Record "Requisition Line";
         G_Replenishment_Worksheet: Codeunit "Replenishment Worksheet";
-
-    //new++
-
-    // local procedure CarryOutActionMsg()
-    // var
-    //     CarryOutActionMsgReq: Report "Carry Out Action Msg. - Req.";
-    //     IsHandled: Boolean;
-    // begin
-    //     IsHandled := false;
-    //     if IsHandled then
-    //         exit;
-
-    //     CarryOutActionMsgReq.SetReqWkshLine(Rec);
-    //     CarryOutActionMsgReq.RunModal();
-    //     CarryOutActionMsgReq.GetReqWkshLine(Rec);
-    // end;
-
-    // procedure CarryOutActionMsg(var Rec: Record "Requisition Line")
-    // var
-    //     CarryOutActionMsgReq: Report "Carry Out Action Msg. - Req.";
-    //     IsHandled: Boolean;
-    // begin
-    //     IsHandled := false;
-    //     if IsHandled then
-    //         exit;
-
-    //     CarryOutActionMsgReq.SetReqWkshLine(Rec);
-    //     CarryOutActionMsgReq.RunModal();
-    //     CarryOutActionMsgReq.GetReqWkshLine(Rec);
-    // end;
-
-    // local procedure ProcessReqLineActions(var ReqLine: Record "Requisition Line")
-    // var
-    //     CarryOutActionMsgReq: Report "Carry Out Action Msg. - Req.";
-    // begin
-    //     //Old Working COde++
-    //     // if ReqLine.Find('-') then
-    //     //     repeat
-    //     //         CarryOutReqLineAction(ReqLine)
-    //     //     until ReqLine.Next() = 0;
-    //     //Old Working code--
-
-    //     CarryOutActionMsgReq.SetReqWkshLine(ReqLine);
-    //     CarryOutActionMsgReq.UseRequestPage(false);
-    //     CarryOutActionMsgReq.RunModal();
-    //     //CarryOutActionMsgReq.GetReqWkshLine(ReqLine);
-    // end;
-
-    // local procedure CarryOutReqLineAction(var ReqLine: Record "Requisition Line")
-    // var
-    //     CarryOutAction: Codeunit "Carry Out Action";
-    //     Failed: Boolean;
-    //     IsHandled: Boolean;
-    // begin
-    //     case ReqLine."Replenishment System" of
-    //         ReqLine."Replenishment System"::Transfer:
-    //             case ReqLine."Action Message" of
-
-    //                 ReqLine."Action Message"::New, ReqLine."Action Message"::" ":
-    //                     begin
-    //                         //GetTransferHeader(TransHeader, ReqLine);
-    //                         Clear(G_ReqLine);
-    //                         G_ReqLine.Copy(L_TempReqLine);
-    //                         CarryOutAction.InsertTransLine(ReqLine, TransHeader);
-    //                         //SetTransferHeader(TransHeader);
-    //                     end;
-    //             end;
-    //     end;
-    // end;
-
-    // local procedure GetTransferHeader(var TransferHeader: Record "Transfer Header"; RequisitionLine: Record "Requisition Line")
-    // begin
-    //     TempTransHeader.SetRange("Transfer-from Code", RequisitionLine."Transfer-from Code");
-    //     TempTransHeader.SetRange("Transfer-to Code", RequisitionLine."Location Code");
-    //     if TempTransHeader.FindFirst() then
-    //         TransferHeader.Get(TempTransHeader."No.");
-    // end;
-
-    // local procedure SetTransferHeader(TransferHeader: Record "Transfer Header")
-    // begin
-    //     TempTransHeader := TransferHeader;
-    //     if TempTransHeader.Insert() then;
-    // end;
-    // //new--
 
 
     trigger OnOpenPage()
     var
-        ClientTypeManagement: Codeunit "Client Type Management";
-        ServerSetting: Codeunit "Server Setting";
         L_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
         JnlSelected: Boolean;
     begin

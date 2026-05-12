@@ -12,8 +12,6 @@ Report 99971 "Cal _Bin Replenishment New"
 
             trigger OnAfterGetRecord()
             begin
-                //Calculate Available To Take Quantity++
-                //Availabletotake := CodeUnit_ReplenishmentWorksheet.FindEmptyTotesAndCreateRepWorksheet("No.", LocationCode);
                 FindEmptyTotesAndCreateRepWorksheet("No.", LocationCode);
             end;
 
@@ -79,21 +77,10 @@ Report 99971 "Cal _Bin Replenishment New"
     }
 
     var
-        WhseWorksheetName: Record "Whse. Worksheet Name";
-        Text000: Label 'There is nothing to replenish.';
         WhseWkshTemplateName: Code[10];
         WhseWkshName: Code[10];
-        HideDialog: Boolean;
         LocationCode: Code[10];
-        Bin: Record Bin;
-        MustNotBeErr: Label 'must not be %1.', Comment = '%1 - field value';
-        //TempReplenishmentWorksheet: Record "Replenishment Worksheet" temporary; //Dont remove Temp property++
-        BinType: Record "Bin Type";
-        RemainQtyToReplenishBase: Decimal;
         NextLineNo: Integer;
-        CodeUnit_ReplenishmentWorksheet: Codeunit "Replenishment Worksheet";
-        TransferLineQty: Decimal;
-        Availabletotake: Decimal;
         G_ReplenishmentWorksheet: Record "Replenishment Worksheet";
 
     procedure InitializeRequest(WhseWkshTemplateName2: Code[10]; WhseWkshName2: Code[10]; LocationCode2: Code[10]; HideDialog2: Boolean)
@@ -101,7 +88,6 @@ Report 99971 "Cal _Bin Replenishment New"
         WhseWkshTemplateName := WhseWkshTemplateName2;
         WhseWkshName := WhseWkshName2;
         LocationCode := LocationCode2;
-        HideDialog := HideDialog2;
     end;
 
 
@@ -113,11 +99,9 @@ Report 99971 "Cal _Bin Replenishment New"
         L_BinContent: Record "Bin Content";
         L_PendingRepl: Record "Replenishment Worksheet";
         L_DupCheck: Record "Replenishment Worksheet";
-        //L_Events: Codeunit Events;
         L_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
         L_ReceiveLocation: Code[20];
         L_ReceiveDecantZone: Code[20];
-        //L_HighBayZone: Code[20];
         L_PickBulkZone: Code[20];
         L_CurrentQtyBase: Decimal;
         L_MinQtyBase: Decimal;
@@ -250,17 +234,6 @@ Report 99971 "Cal _Bin Replenishment New"
             until L_BinContent.Next() = 0;
     end;
 
-    // local procedure GetPickBulkZone(P_LocationCode: Code[10]): Code[10]
-    // var
-    //     L_Zone: Record Zone;
-    // begin
-    //     L_Zone.Reset();
-    //     L_Zone.SetRange("Location Code", P_LocationCode);
-    //     L_Zone.SetFilter(L_Zone.BULK, '%1', true);
-    //     if L_Zone.FindFirst() then
-    //         exit(L_Zone.Code);
-    // end;
-
     procedure SetWhseWorksheet(WhseWkshTemplateName2: Code[10]; WhseWkshName2: Code[10]; LocationCode2: Code[10])
     var
         ReplenishmentWorksheet: Record "Replenishment Worksheet";
@@ -277,37 +250,6 @@ Report 99971 "Cal _Bin Replenishment New"
         WhseWkshName := WhseWkshName2;
         LocationCode := LocationCode2;
     end;
-
-    // procedure CreateReplenishmentWorksheet()
-    // var
-    //     L_Item: Record Item;
-    // begin
-    //     G_ReplenishmentWorksheet.Init();
-    //     G_ReplenishmentWorksheet."Posting Date" := WorkDate();
-    //     G_ReplenishmentWorksheet."Template Name" := WhseWkshTemplateName;
-    //     G_ReplenishmentWorksheet."Batch Name" := WhseWkshName;
-    //     G_ReplenishmentWorksheet."Location Code" := ;
-    //     G_ReplenishmentWorksheet."From Location Code" := FromBinContent."Location Code";
-    //     G_ReplenishmentWorksheet."From Bin Code" := FromBinContent."Bin Code";
-    //     G_ReplenishmentWorksheet."Line No." := NextLineNo;
-    //     G_ReplenishmentWorksheet."Item No." := _ToReplenishment."Item No.";
-    //     L_Item.Reset();
-    //     L_Item.SetRange("No.", _ToReplenishment."Item No.");
-    //     if L_Item.FindFirst() then begin
-    //         G_ReplenishmentWorksheet.Description := L_Item.Description;
-    //         G_ReplenishmentWorksheet."Top Category" := L_Item."Top Category";
-    //     end;
-    //     G_ReplenishmentWorksheet."Variant Code" := FromBinContent."Variant Code"; //From Variant+++
-    //     G_ReplenishmentWorksheet."Min. Qty." := _ToReplenishment."Min Depot1 Qty";
-    //     G_ReplenishmentWorksheet."Max. Qty." := _ToReplenishment."Max Depot1 Qty";
-    //     G_ReplenishmentWorksheet."System Quantity" := Availabletotake;
-    //     G_ReplenishmentWorksheet."Demand Quantity" := _ToReplenishment."Max Depot1 Qty" - Availabletotake - TransferLineQty;
-    //     G_ReplenishmentWorksheet."Qty to Move" := MovementQtyBase;
-    //     G_ReplenishmentWorksheet.Action := G_ReplenishmentWorksheet.Action::Accept;
-    //     G_ReplenishmentWorksheet.Insert();
-
-    //     NextLineNo := NextLineNo + 10000;
-    // end;
 
 }
 
