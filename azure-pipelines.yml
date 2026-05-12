@@ -1,0 +1,18 @@
+trigger:
+- main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+- checkout: self
+  persistCredentials: true
+
+- script: |
+    # 1. Remove existing remote if it exists, then add GitHub
+    git remote remove github 2>/dev/null || true
+    git remote add github https://x-access-token:$(GitHub_PAT)@github.com/PMore20081997/Kamesons_Customization_New.git
+    
+    # 2. Push the code
+    git push github --all --force
+  displayName: 'Sync to GitHub'
