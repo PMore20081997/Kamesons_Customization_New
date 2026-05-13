@@ -113,12 +113,27 @@ Report 99971 "Cal _Bin Replenishment New"
         L_SourceQtyPerUoM: Decimal;
         L_BinQtyPerUoM: Decimal;
         L_TransferLine: Record "Transfer Line";
-        L_TransferOutstandingBase: Decimal;
+        L_TransferRemainingBase: Decimal;
+        L_TOAppliedThisBinBase: Decimal;
+        L_BinGapBase: Decimal;
     begin
         L_ReceiveLocation := L_KamWhseSetupLookup.GetReceiveLocation();
         L_ReceiveDecantZone := L_KamWhseSetupLookup.GetBulkZone(L_ReceiveLocation);
-        //L_HighBayZone := L_KamWhseSetupLookup.GetHighBayZone(L_ReceiveLocation);
         L_PickBulkZone := L_KamWhseSetupLookup.GetBulkZone(_LocationCode);
+
+        // Total Outstanding qty on existing Transfer Orders (Receive -> destination) for this item.
+        // This is a per-item pool consumed across bins (TOs have no destination bin), so each bin
+        // applies up to its Max gap and the remainder carries to subsequent bins.
+        Clear(L_TransferRemainingBase);
+        L_TransferLine.Reset();
+        L_TransferLine.SetRange("Item No.", _ItemNo);
+        L_TransferLine.SetRange("Transfer-from Code", L_ReceiveLocation);
+        L_TransferLine.SetRange("Transfer-to Code", _LocationCode);
+        L_TransferLine.SetFilter("Outstanding Qty. (Base)", '>%1', 0);
+        if not L_TransferLine.IsEmpty() then begin
+            L_TransferLine.CalcSums("Outstanding Qty. (Base)");
+            L_TransferRemainingBase := L_TransferLine."Outstanding Qty. (Base)";
+        end;
 
         // Iterate every PICK BULK Bin Content configured for this item (catches brand-new bins with no entries yet)
         L_BinContent.Reset();
@@ -136,23 +151,22 @@ Report 99971 "Cal _Bin Replenishment New"
                 L_MinQtyBase := L_BinContent."Min. Qty." * L_BinQtyPerUoM;
                 L_MaxQtyBase := L_BinContent."Max. Qty." * L_BinQtyPerUoM;
 
-                // Include Outstanding qty on existing Transfer Orders (Receive -> destination) as Main WH available
-                Clear(L_TransferOutstandingBase);
-                L_TransferLine.Reset();
-                L_TransferLine.SetRange("Item No.", _ItemNo);
-                L_TransferLine.SetRange("Transfer-from Code", L_ReceiveLocation);
-                L_TransferLine.SetRange("Transfer-to Code", _LocationCode);
-                L_TransferLine.SetFilter("Outstanding Qty. (Base)", '>%1', 0);
-                if not L_TransferLine.IsEmpty() then begin
-                    L_TransferLine.CalcSums("Outstanding Qty. (Base)");
-                    L_TransferOutstandingBase := L_TransferLine."Outstanding Qty. (Base)";
+                // Apply TO pool to this bin up to its gap-to-Max; remainder carries to next bin.
+                Clear(L_TOAppliedThisBinBase);
+                L_BinGapBase := L_MaxQtyBase - L_CurrentQtyBase;
+                if (L_TransferRemainingBase > 0) and (L_BinGapBase > 0) then begin
+                    if L_TransferRemainingBase >= L_BinGapBase then
+                        L_TOAppliedThisBinBase := L_BinGapBase
+                    else
+                        L_TOAppliedThisBinBase := L_TransferRemainingBase;
+                    L_TransferRemainingBase := L_TransferRemainingBase - L_TOAppliedThisBinBase;
                 end;
 
                 // Trigger replenishment only when below Min Qty AND there is room up to Max Qty (base)
-                if ((L_CurrentQtyBase + L_TransferOutstandingBase) <= L_MinQtyBase) and
-                   (L_MaxQtyBase > (L_CurrentQtyBase + L_TransferOutstandingBase))
+                if ((L_CurrentQtyBase + L_TOAppliedThisBinBase) <= L_MinQtyBase) and
+                   (L_MaxQtyBase > (L_CurrentQtyBase + L_TOAppliedThisBinBase))
                 then begin
-                    L_RemQtyToReplenishBase := L_MaxQtyBase - L_CurrentQtyBase - L_TransferOutstandingBase;
+                    L_RemQtyToReplenishBase := L_MaxQtyBase - L_CurrentQtyBase - L_TOAppliedThisBinBase;
 
                     // Source: BULK location, BULK DECANT or HIGHBAY zones, FEFO (query is ordered by Expiration_Date asc)
                     L_SourceQ.SetFilter(L_SourceQ.Item_No_, '%1', _ItemNo);
