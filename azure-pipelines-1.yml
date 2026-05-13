@@ -1,0 +1,26 @@
+trigger:
+  branches:
+    include:
+      - '*'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+- checkout: self
+  persistCredentials: true
+  fetchDepth: 0
+
+- script: |
+    git config user.email "prathamesh.m@robosol.com"
+    git config user.name "PMore20081997"
+    
+    # Fetch all refs from Azure DevOps origin
+    git fetch origin '+refs/heads/*:refs/heads/*'
+    
+    git remote remove github 2>/dev/null || true
+    git remote add github https://x-access-token:$(GitHub_PAT)@github.com/PMore20081997/Kamesons_Customization_New.git
+    
+    # Mirror push — pushes all branches and tags
+    git push github --mirror
+  displayName: 'Mirror to GitHub'
