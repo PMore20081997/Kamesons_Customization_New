@@ -25,14 +25,17 @@ using Microsoft.Inventory.Item;
 /// HIGH-LEVEL RULES
 ///   1. Only triggers at the configured Receive Location.
 ///   2. Only acts on Put-Away Place lines from a Purchase Order source.
-///   3. BULK Min-Qty top-up bypass: for BULK items, if on-hand qty across the
+///   3. Master-data gate: if NO Bin Content row exists in the Main WH target
+///      bin for this item, the entire line is routed to HighBay. Items
+///      without configured master data must not land on an unmanaged decant.
+///   4. BULK Min-Qty top-up bypass: for BULK items, if on-hand qty across the
 ///      Main-WH and Receive BULK DECANT bins is below the Main-WH bin's Min
 ///      Qty, the line is routed to BULK DECANT regardless of expiry. The
 ///      Max-Qty cap in HandleBinCapacity still splits overflow to HighBay.
-///   4. Expiry check (when not bypassed): if incoming line's expiry is NEWER
+///   5. Expiry check (when not bypassed): if incoming line's expiry is NEWER
 ///      than the latest existing expiry already in the target bin, the entire
 ///      line is sent to HighBay (the decant face must keep the freshest stock).
-///   5. If routing the line to the target bin would exceed the equivalent
+///   6. If routing the line to the target bin would exceed the equivalent
 ///      Main-Warehouse bin's Max Qty, the line is split: the spillover goes
 ///      to HighBay.
 /// </summary>
@@ -79,7 +82,17 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         // 1. Decide initial target bin from item flags.
         TargetType := DetermineTargetType(Item);
 
-        // 2. Min-Qty top-up bypass (BULK only):
+        // 2. Master-data gate: if there's no Bin Content row in Main WH for this
+        //    item at the target bin, treat it as unconfigured master data and
+        //    route everything to HighBay. Prevents stock landing on a decant
+        //    face that has no Min / Max / Number of Totes set up.
+        if not HasMainWHBinContent(WhseActivityLine."Item No.", TargetType) then begin
+            AssignTargetBin(WhseActivityLine, TargetType::HighBay);
+            OnAfterRoutePutAwayLine(WhseActivityLine);
+            exit;
+        end;
+
+        // 3. Min-Qty top-up bypass (BULK only):
         //    If on-hand qty in BULK DECANT (Main + Receive) is below Min Qty,
         //    skip the expiry check and route everything to BULK DECANT — the
         //    Max-Qty cap in HandleBinCapacity will still split overflow to
@@ -91,7 +104,7 @@ codeunit 99983 "Put-Away Mgt. NDPP"
             exit;
         end;
 
-        // 3. Otherwise compare expiry against the latest expiry already in the target bin.
+        // 4. Otherwise compare expiry against the latest expiry already in the target bin.
         LastDecantExpiry := GetLatestDecantExpiry(WhseActivityLine."Item No.", TargetType);
 
         if (LastDecantExpiry = 0D) or (WhseActivityLine."Expiration Date" <= LastDecantExpiry) then
@@ -112,7 +125,7 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     var
         MainBinContent: Record "Bin Content";
         ReceiveBinContent: Record "Bin Content";
-        ReceiveZone: Code[10];
+        ReceiveBin: Code[20];
         AvailableBaseQty: Decimal;
         MinBaseQty: Decimal;
     begin
@@ -126,10 +139,10 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         MainBinContent.CalcFields("Quantity (Base)");
         AvailableBaseQty := MainBinContent."Quantity (Base)";
 
-        ReceiveZone := GetTargetZoneCode(G_KamWhseSetupLookup.GetReceiveLocation(), "Put-Away Target Zone NDPP"::BulkDecant);
-        if ReceiveZone <> '' then begin
+        ReceiveBin := GetTargetBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), "Put-Away Target Zone NDPP"::BulkDecant);
+        if ReceiveBin <> '' then begin
             ReceiveBinContent.SetRange("Location Code", G_KamWhseSetupLookup.GetReceiveLocation());
-            ReceiveBinContent.SetRange("Zone Code", ReceiveZone);
+            ReceiveBinContent.SetRange("Bin Code", ReceiveBin);
             ReceiveBinContent.SetRange("Item No.", ItemNo);
             if ReceiveBinContent.FindSet() then
                 repeat
@@ -377,16 +390,16 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     local procedure GetLatestDecantExpiry(ItemNo: Code[20]; TargetType: Enum "Put-Away Target Zone NDPP"): Date
     var
         WhseEntryQry: Query "Whse Entry Lot Details NDPP";
-        ZoneCode: Code[10];
+        BinCode: Code[20];
         LastExpiry: Date;
     begin
-        ZoneCode := GetTargetZoneCode(G_KamWhseSetupLookup.GetReceiveLocation(), TargetType);
-        if ZoneCode = '' then
+        BinCode := GetTargetBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), TargetType);
+        if BinCode = '' then
             exit(0D);
 
         WhseEntryQry.SetFilter(WhseEntryQry.Item_No_, '%1', ItemNo);
         WhseEntryQry.SetFilter(WhseEntryQry.Location_Code, '%1', G_KamWhseSetupLookup.GetReceiveLocation());
-        WhseEntryQry.SetFilter(WhseEntryQry.Zone_Code, '%1', ZoneCode);
+        WhseEntryQry.SetFilter(WhseEntryQry.Bin_Code, '%1', BinCode);
         WhseEntryQry.SetFilter(WhseEntryQry.Qty_Base, '>%1', 0);
         WhseEntryQry.TopNumberOfRows(1);
         WhseEntryQry.Open();
@@ -397,9 +410,10 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     end;
 
     /// <summary>
-    /// Resolves the Zone Code that hosts the target-type bin in a given location.
+    /// Resolves the Bin Code of the target-type-flagged bin in a given location.
+    /// Returns '' when no bin carries the requested flag in that location.
     /// </summary>
-    local procedure GetTargetZoneCode(LocationCode: Code[10]; TargetType: Enum "Put-Away Target Zone NDPP"): Code[10]
+    local procedure GetTargetBinCode(LocationCode: Code[10]; TargetType: Enum "Put-Away Target Zone NDPP"): Code[20]
     var
         Bin: Record Bin;
     begin
@@ -415,7 +429,7 @@ codeunit 99983 "Put-Away Mgt. NDPP"
                 Bin.SetRange(HighBay, true);
         end;
         if Bin.FindFirst() then
-            exit(Bin."Zone Code");
+            exit(Bin.Code);
 
         exit('');
     end;
@@ -424,17 +438,30 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     /// Returns the Main-Warehouse Bin Content row that mirrors the put-away
     /// target type — used for the Max Qty cap. Returns FALSE if no match.
     /// </summary>
+    /// <summary>
+    /// TRUE when a Bin Content row exists in the Main WH target bin for this
+    /// item — i.e. master data has been configured for the decant face. Used
+    /// as a routing gate: items without setup go to HighBay instead of an
+    /// unmanaged decant bin.
+    /// </summary>
+    local procedure HasMainWHBinContent(ItemNo: Code[20]; TargetType: Enum "Put-Away Target Zone NDPP"): Boolean
+    var
+        Dummy: Record "Bin Content";
+    begin
+        exit(TryGetMainBinContent(ItemNo, TargetType, Dummy));
+    end;
+
     local procedure TryGetMainBinContent(ItemNo: Code[20]; TargetType: Enum "Put-Away Target Zone NDPP"; var MainBinContent: Record "Bin Content"): Boolean
     var
-        ZoneCode: Code[10];
+        BinCode: Code[20];
     begin
-        ZoneCode := GetTargetZoneCode(G_KamWhseSetupLookup.GetMainLocation(), TargetType);
-        if ZoneCode = '' then
+        BinCode := GetTargetBinCode(G_KamWhseSetupLookup.GetMainLocation(), TargetType);
+        if BinCode = '' then
             exit(false);
 
         MainBinContent.Reset();
         MainBinContent.SetRange("Location Code", G_KamWhseSetupLookup.GetMainLocation());
-        MainBinContent.SetRange("Zone Code", ZoneCode);
+        MainBinContent.SetRange("Bin Code", BinCode);
         MainBinContent.SetRange("Item No.", ItemNo);
         exit(MainBinContent.FindFirst());
     end;
@@ -449,7 +476,7 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     var
         MainBinContent: Record "Bin Content";
         ReceiveBinContent: Record "Bin Content";
-        ReceiveZoneCode: Code[10];
+        ReceiveBinCode: Code[20];
         ReceivedQty: Decimal;
         MainQty: Decimal;
     begin
@@ -458,10 +485,10 @@ codeunit 99983 "Put-Away Mgt. NDPP"
             MainQty := MainBinContent."Quantity (Base)" + MainBinContent."Positive Adjmt. Qty. (Base)";
         end;
 
-        ReceiveZoneCode := GetTargetZoneCode(G_KamWhseSetupLookup.GetReceiveLocation(), TargetType);
-        if ReceiveZoneCode <> '' then begin
+        ReceiveBinCode := GetTargetBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), TargetType);
+        if ReceiveBinCode <> '' then begin
             ReceiveBinContent.SetRange("Location Code", G_KamWhseSetupLookup.GetReceiveLocation());
-            ReceiveBinContent.SetRange("Zone Code", ReceiveZoneCode);
+            ReceiveBinContent.SetRange("Bin Code", ReceiveBinCode);
             ReceiveBinContent.SetRange("Item No.", ItemNo);
             if ReceiveBinContent.FindSet() then
                 repeat
@@ -488,12 +515,12 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     /// </summary>
     local procedure GetCurrentLineSelfContribution(var WhseActivityLine: Record "Warehouse Activity Line"; TargetType: Enum "Put-Away Target Zone NDPP"): Decimal
     var
-        TargetZone: Code[10];
+        TargetBin: Code[20];
     begin
-        TargetZone := GetTargetZoneCode(WhseActivityLine."Location Code", TargetType);
-        if TargetZone = '' then
+        TargetBin := GetTargetBinCode(WhseActivityLine."Location Code", TargetType);
+        if TargetBin = '' then
             exit(0);
-        if WhseActivityLine."Zone Code" <> TargetZone then
+        if WhseActivityLine."Bin Code" <> TargetBin then
             exit(0);
         exit(WhseActivityLine."Qty. Outstanding (Base)");
     end;
@@ -521,12 +548,12 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     local procedure CountPendingFlowrackTotes(var CurrentLine: Record "Warehouse Activity Line"): Integer
     var
         OtherLine: Record "Warehouse Activity Line";
-        GenDecantZone: Code[10];
+        GenDecantBin: Code[20];
         QtyPerTote: Decimal;
         Totes: Integer;
     begin
-        GenDecantZone := GetTargetZoneCode(G_KamWhseSetupLookup.GetReceiveLocation(), "Put-Away Target Zone NDPP"::GenDecant);
-        if GenDecantZone = '' then
+        GenDecantBin := GetTargetBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), "Put-Away Target Zone NDPP"::GenDecant);
+        if GenDecantBin = '' then
             exit(0);
 
         OtherLine.SetCurrentKey("Item No.", "Location Code");
@@ -534,7 +561,7 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         OtherLine.SetRange("Location Code", G_KamWhseSetupLookup.GetReceiveLocation());
         OtherLine.SetRange("Activity Type", OtherLine."Activity Type"::"Put-away");
         OtherLine.SetRange("Action Type", OtherLine."Action Type"::Place);
-        OtherLine.SetRange("Zone Code", GenDecantZone);
+        OtherLine.SetRange("Bin Code", GenDecantBin);
         OtherLine.SetFilter("Qty. Outstanding (Base)", '>%1', 0);
         if OtherLine.FindSet() then
             repeat

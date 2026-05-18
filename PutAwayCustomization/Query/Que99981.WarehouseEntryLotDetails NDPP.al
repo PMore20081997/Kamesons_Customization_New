@@ -28,6 +28,9 @@ query 99981 "Whse Entry Lot Details NDPP"
             column(Zone_Code; "Zone Code")
             {
             }
+            column(Bin_Code; "Bin Code")
+            {
+            }
             column(Lot_No_; "Lot No.")
             {
             }

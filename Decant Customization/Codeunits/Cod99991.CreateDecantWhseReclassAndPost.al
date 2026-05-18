@@ -54,7 +54,7 @@ codeunit 99991 "Decant Reclass Mgt."
 
         ValidateCalculateInputs(SourceLocationCode, DestLocationCode);
 
-        SourceZone := WhseSetupLookup.GetDecantZone(SourceLocationCode);
+        SourceZone := WhseSetupLookup.GetFlowrackZone(SourceLocationCode);
         DestZone := WhseSetupLookup.GetDecantZonefromBinContent(DestLocationCode, ItemFilter);
 
         if SourceZone = '' then

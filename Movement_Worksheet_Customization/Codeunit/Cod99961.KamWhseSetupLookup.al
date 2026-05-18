@@ -121,7 +121,7 @@ codeunit 99961 "Kam Whse Setup Lookup"
     /// <summary>
     /// Returns the Zone Code of the Flowrack-flagged bin (was "General Decant" zone).
     /// </summary>
-    procedure GetDecantZone(LocationCode: Code[10]): Code[10]
+    procedure GetFlowrackZone(LocationCode: Code[10]): Code[10]
     var
         Bin: Record Bin;
         BinNotFoundErr: Label 'No bin with the Flowrack flag was found in location %1.', Comment = '%1 = Location Code';
@@ -137,28 +137,28 @@ codeunit 99961 "Kam Whse Setup Lookup"
     /// Soft variant — returns false when no Flowrack bin exists.
     /// Use only at decision points where "no zone" is a legitimate "skip" signal.
     /// </summary>
-    procedure TryGetGenDecantZone(LocationCode: Code[10]; var ZoneCode: Code[10]): Boolean
-    var
-        Bin: Record Bin;
-    begin
-        Clear(ZoneCode);
-        Bin.SetRange("Location Code", LocationCode);
-        Bin.SetRange(Flowrack, true);
-        if Bin.FindFirst() then begin
-            ZoneCode := Bin."Zone Code";
-            exit(true);
-        end;
-        exit(false);
-    end;
+    // procedure TryGetGenDecantZone(LocationCode: Code[10]; var ZoneCode: Code[10]): Boolean
+    // var
+    //     Bin: Record Bin;
+    // begin
+    //     Clear(ZoneCode);
+    //     Bin.SetRange("Location Code", LocationCode);
+    //     Bin.SetRange(Flowrack, true);
+    //     if Bin.FindFirst() then begin
+    //         ZoneCode := Bin."Zone Code";
+    //         exit(true);
+    //     end;
+    //     exit(false);
+    // end;
 
     procedure GetDecantZonefromBinContent(P_LocationCode: Code[10]; _ItemNo: Code[20]): Code[10]
     var
-        L_BinContent: Record "Bin Content";
+        L_Bin: Record Bin;
     begin
-        L_BinContent.SetRange("Location Code", P_LocationCode);
-        L_BinContent.SetRange("Item No.", _ItemNo);
-        if L_BinContent.FindFirst() then
-            exit(L_BinContent."Zone Code");
+        L_Bin.SetRange("Location Code", P_LocationCode);
+        L_Bin.SetRange(Flowrack, true);
+        if L_Bin.FindFirst() then
+            exit(L_Bin."Zone Code");
 
         exit('');
     end;
