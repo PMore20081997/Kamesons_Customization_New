@@ -1,17 +1,17 @@
 namespace Kamesons_Customization.Kamesons_Customization;
 
-using Microsoft.Sales.Customer;
+using Microsoft.Sales.History;
 
-tableextension 99973 CustomerExt extends Customer
+tableextension 99958 SalesShptHdrExt extends "Sales Shipment Header"
 {
     fields
     {
-        field(99971; "Dispensary"; Boolean)
+        field(99950; "Dispensary"; Boolean)
         {
             Caption = 'Dispensary';
             DataClassification = ToBeClassified;
         }
-        field(99972; "Retail "; Boolean)
+        field(99951; "Retail "; Boolean)
         {
             Caption = 'Retail';
             DataClassification = ToBeClassified;

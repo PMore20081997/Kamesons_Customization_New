@@ -8,6 +8,8 @@ using Microsoft.Inventory.Tracking;
 using Microsoft.Warehouse.History;
 using Microsoft.Warehouse.Tracking;
 using Microsoft.Inventory.Item.Catalog;
+using Microsoft.Sales.Document;
+using Microsoft.Sales.Customer;
 
 codeunit 99976 Customize_Events
 {
@@ -84,6 +86,25 @@ codeunit 99976 Customize_Events
             exit;
         if L_PurchLine.Get(L_PurchLine."Document Type"::Order, L_WhseRcptLine."Source No.", L_WhseRcptLine."Source Line No.") then
             Rec."Manufacturer Code" := L_PurchLine."Manufacturer Code";
+    end;
+
+    // Flow Dispensary / Retail flags from the selected Ship-to Address to the Sales Header.
+    [EventSubscriber(ObjectType::Table, Database::"Sales Header", OnAfterValidateEvent, 'Ship-to Code', false, false)]
+    local procedure SalesHeader_OnAfterValidateShipToCode_FlowFlags(var Rec: Record "Sales Header")
+    var
+        L_ShipToAddress: Record "Ship-to Address";
+    begin
+        if Rec."Sell-to Customer No." = '' then
+            exit;
+        if Rec."Ship-to Code" = '' then begin
+            Rec.Dispensary := false;
+            Rec."Retail " := false;
+            exit;
+        end;
+        if L_ShipToAddress.Get(Rec."Sell-to Customer No.", Rec."Ship-to Code") then begin
+            Rec.Dispensary := L_ShipToAddress.Dispensary;
+            Rec."Retail " := L_ShipToAddress."Retail ";
+        end;
     end;
 
     // Restrict Main Warehouse to a single Item / Location / Zone / Bin combination.

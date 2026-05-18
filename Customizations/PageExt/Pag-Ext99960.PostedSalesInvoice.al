@@ -1,14 +1,14 @@
 namespace Kamesons_Customization.Kamesons_Customization;
 
-using Microsoft.Sales.Customer;
+using Microsoft.Sales.History;
 
-pageextension 99978 Customer_Card_Ext extends "Customer Card"
+pageextension 99960 PostedSalesInvoice extends "Posted Sales Invoice"
 {
     layout
     {
-        addlast(Shipping)
-        {       
-            
+        addlast("Shipping Details")
+        {
+
             field(Dispensary; Rec.Dispensary)
             {
                 ApplicationArea = All;

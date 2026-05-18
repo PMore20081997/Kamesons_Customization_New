@@ -30,7 +30,7 @@ tableextension 99956 Bin_Ext extends Bin
         }
         field(99983; "Flowrack"; Boolean)
         {
-            Caption = 'Flowrack';
+            Caption = 'Flow Rack';
             DataClassification = ToBeClassified;
 
             trigger OnValidate()

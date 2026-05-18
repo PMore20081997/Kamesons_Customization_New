@@ -6,6 +6,20 @@ pageextension 99957 Sales_Order_Ext extends "Sales Order"
 {
     layout
     {
+        addlast("Shipping and Billing")
+        {
+
+            field(Dispensary; Rec.Dispensary)
+            {
+                ApplicationArea = All;
+                ToolTip = 'Specifies the value of the Dispensary field.', Comment = '%';
+            }
+            field("Retail "; Rec."Retail ")
+            {
+                ApplicationArea = All;
+                ToolTip = 'Specifies the value of the Retail field.', Comment = '%';
+            }
+        }
         addlast(factboxes)
         {
             part(ReceiveBinContentDetails; "Receive Bin Content Details")

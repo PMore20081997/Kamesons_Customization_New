@@ -2,17 +2,17 @@ namespace Kamesons_Customization.Kamesons_Customization;
 
 using Microsoft.Purchases.Document;
 using Microsoft.Warehouse.Request;
+using System.Threading;
 using Microsoft.Inventory.Location;
 
 codeunit 99951 "Create Whse. Receipts"
 {
-    TableNo = "Purchase Header";
+    TableNo = "Job Queue Entry";
 
     trigger OnRun()
     var
         L_PurchaseHeader: Record "Purchase Header";
     begin
-        L_PurchaseHeader.CopyFilters(Rec);
         L_PurchaseHeader.SetRange("Document Type", L_PurchaseHeader."Document Type"::Order);
         L_PurchaseHeader.SetRange(Status, L_PurchaseHeader.Status::Released);
         if L_PurchaseHeader.FindSet(true) then
