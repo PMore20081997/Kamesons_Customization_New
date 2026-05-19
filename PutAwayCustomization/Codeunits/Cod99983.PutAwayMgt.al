@@ -82,11 +82,12 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         // 1. Decide initial target bin from item flags.
         TargetType := DetermineTargetType(Item);
 
-        // 2. Master-data gate: if there's no Bin Content row in Main WH for this
-        //    item at the target bin, treat it as unconfigured master data and
-        //    route everything to HighBay. Prevents stock landing on a decant
-        //    face that has no Min / Max / Number of Totes set up.
-        if not HasMainWHBinContent(WhseActivityLine."Item No.", TargetType) then begin
+        // 2. Master-data gate: if no Bin Content row exists in Main WH for this
+        //    item at any bin matching the routing type, treat as unconfigured
+        //    and route everything to HighBay. Prevents stock landing on a
+        //    decant face that has no Min / Max / Number of Totes set up.
+        //    For Flowrack / Static, "any" means across all flagged bins.
+        if not HasMainWHBinContent(WhseActivityLine."Item No.", Item."Routing Type") then begin
             AssignTargetBin(WhseActivityLine, TargetType::HighBay);
             OnAfterRoutePutAwayLine(WhseActivityLine);
             exit;
@@ -139,7 +140,7 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         MainBinContent.CalcFields("Quantity (Base)");
         AvailableBaseQty := MainBinContent."Quantity (Base)";
 
-        ReceiveBin := GetTargetBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), "Put-Away Target Zone NDPP"::BulkDecant);
+        ReceiveBin := GetItemBulkBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), ItemNo);
         if ReceiveBin <> '' then begin
             ReceiveBinContent.SetRange("Location Code", G_KamWhseSetupLookup.GetReceiveLocation());
             ReceiveBinContent.SetRange("Bin Code", ReceiveBin);
@@ -162,10 +163,8 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     procedure HandleBinCapacity(var WhseActivityLine: Record "Warehouse Activity Line")
     var
         Item: Record Item;
-        MainBinContent: Record "Bin Content";
         SplitLine: Record "Warehouse Activity Line";
         IsHandled: Boolean;
-        TargetType: Enum "Put-Away Target Zone NDPP";
         SpaceLeftInDecant: Decimal;
     begin
         OnBeforeHandleBinCapacity(WhseActivityLine, IsHandled);
@@ -187,12 +186,7 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         if not IsLineInDecantBin(WhseActivityLine) then
             exit;
 
-        TargetType := DetermineTargetType(Item);
-
-        if not TryGetMainBinContent(WhseActivityLine."Item No.", TargetType, MainBinContent) then
-            exit;
-
-        SpaceLeftInDecant := ResolveSpaceLeft(WhseActivityLine, Item, MainBinContent);
+        SpaceLeftInDecant := ResolveSpaceLeft(WhseActivityLine, Item);
 
         // Decant bin already at/over capacity — push everything to High-Bay.
         if SpaceLeftInDecant <= 0 then begin
@@ -270,63 +264,107 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     /// <summary>
     /// Returns the base-qty SPACE LEFT in the put-away target bin.
     ///
-    ///   Flowrack -> EmptyTotes x QtyPerTote(line.Manufacturer)
-    ///               EmptyTotes already nets out filled + pending put-away
-    ///               totes (CountPendingFlowrackTotes), so the result is the
-    ///               actual space available.
+    ///   Flowrack / Static -> SumMainWHEmptyTotes(item, RoutingType) x QtyPerTote
+    ///                        Empty totes summed across ALL Main WH bins flagged
+    ///                        Flowrack (Flowrack items) or Static (Static items).
+    ///                        Receive Location still places into the single
+    ///                        Receive Flowrack bin — per-bin distribution at
+    ///                        Main WH happens in the decant phase.
+    ///                        CountPendingFlowrackTotes nets out earlier lines
+    ///                        in the same batch that already claimed totes.
     ///
-    ///   BULK / Static -> (Max Qty x Qty per UoM)
-    ///                    - CalcReservedQty(...)               // live qty in zone
-    ///                    + (current line's qty if it targets this zone)
-    ///                    Bin Content updates as soon as a Place line is inserted,
-    ///                    so by the time HandleBinCapacity runs, the current
-    ///                    line's own qty is already counted inside CalcReservedQty.
-    ///                    Adding it back gives "space available BEFORE this line"
-    ///                    — the correct basis for deciding how much of the line
-    ///                    fits in the decant bin and how much spills to HighBay.
+    ///   BULK              -> (Max Qty x Qty per UoM)
+    ///                        - CalcReservedQty(...)
+    ///                        + (current line's qty if it targets this zone)
+    ///                        Single Main WH BULK bin. Adding current-line back
+    ///                        gives "space BEFORE this line" since Bin Content
+    ///                        already counts it post-insert.
     ///
-    /// Returns 0 (or less) when there's no room. If a Flowrack line lacks tote
-    /// setup, falls back to the Max Qty path so incomplete master data doesn't
-    /// dump everything to HighBay.
+    /// Returns 0 when there's no room. For Flowrack/Static, a missing tote
+    /// setup (no QtyPerTote / no Number-of-Totes in Main WH bins) yields 0 →
+    /// entire line to HighBay.
     /// </summary>
-    local procedure ResolveSpaceLeft(var WhseActivityLine: Record "Warehouse Activity Line"; Item: Record Item; var MainBinContent: Record "Bin Content"): Decimal
+    local procedure ResolveSpaceLeft(var WhseActivityLine: Record "Warehouse Activity Line"; Item: Record Item): Decimal
     var
+        MainBinContent: Record "Bin Content";
         TargetType: Enum "Put-Away Target Zone NDPP";
         QtyPerTote: Decimal;
         BinMaxBaseQty: Decimal;
-        TargetTotes: Integer;
-        FilledTotes: Integer;
         EmptyTotes: Integer;
     begin
-        if Item."Routing Type" = Item."Routing Type"::Flowrack then begin
+        if Item."Routing Type" in [Item."Routing Type"::Flowrack, Item."Routing Type"::"Static"] then begin
             QtyPerTote := KamToteMath.GetQtyPerTote(WhseActivityLine."Item No.", WhseActivityLine."Manufacturer Code");
-            TargetTotes := MainBinContent."Number of Totes in a Bin";
-            if (QtyPerTote > 0) and (TargetTotes > 0) then begin
-                // FilledTotes counts posted Warehouse Entries.
-                // CountPendingFlowrackTotes counts outstanding put-away lines
-                // pointing at the Receive GEN DECANT zone (earlier lines in the
-                // same batch + any prior un-posted put-aways), excluding the
-                // current line — without it, line #2 of a batch would re-claim
-                // the same totes line #1 just consumed.
-                FilledTotes := KamToteMath.CountTotesInFLOWRACKBin(MainBinContent);
-                EmptyTotes := TargetTotes - FilledTotes - CountPendingFlowrackTotes(WhseActivityLine);
-                if EmptyTotes < 0 then
-                    EmptyTotes := 0;
-                exit(EmptyTotes * QtyPerTote);
-            end;
+            if QtyPerTote <= 0 then
+                exit(0);
+
+            EmptyTotes := SumMainWHEmptyTotes(WhseActivityLine."Item No.", Item."Routing Type")
+                          - CountPendingFlowrackTotes(WhseActivityLine);
+            if EmptyTotes < 0 then
+                EmptyTotes := 0;
+            exit(EmptyTotes * QtyPerTote);
         end;
 
-        // BULK / Static / Flowrack-fallback — Max Qty rule, net of qty already
-        // in the zone, with the current line's own qty added back so we're
-        // computing "space BEFORE this line", not "space AFTER".
+        // BULK — Max Qty rule against the single Main WH BULK bin.
+        TargetType := DetermineTargetType(Item);
+        if not TryGetMainBinContent(WhseActivityLine."Item No.", TargetType, MainBinContent) then
+            exit(0);
+
         BinMaxBaseQty := MainBinContent."Max. Qty." * MainBinContent."Qty. per Unit of Measure";
         if BinMaxBaseQty <= 0 then
             exit(0);
 
-        TargetType := DetermineTargetType(Item);
         exit(BinMaxBaseQty
              - CalcReservedQty(WhseActivityLine."Item No.", TargetType)
              + GetCurrentLineSelfContribution(WhseActivityLine, TargetType));
+    end;
+
+    /// <summary>
+    /// Sums empty totes across every Main-WH bin flagged for the item's routing
+    /// type (Flowrack or Static). For each matching bin: empty = "Number of
+    /// Totes in a Bin" - totes currently filled (per posted Warehouse Entries).
+    /// Bins without a Bin Content row for this item contribute 0.
+    /// Returns 0 for any other routing type (BULK uses Max Qty, not totes).
+    /// </summary>
+    local procedure SumMainWHEmptyTotes(ItemNo: Code[20]; RoutingType: Enum "Item Routing Type NDPP"): Integer
+    var
+        Bin: Record Bin;
+        BinContent: Record "Bin Content";
+        TotalEmpty: Integer;
+        BinEmpty: Integer;
+        FilledTotes: Integer;
+        TargetTotes: Integer;
+        MainLocation: Code[20];
+    begin
+        MainLocation := G_KamWhseSetupLookup.GetMainLocation();
+        Bin.SetRange("Location Code", MainLocation);
+        case RoutingType of
+            RoutingType::Flowrack:
+                Bin.SetRange(Flowrack, true);
+            RoutingType::"Static":
+                Bin.SetRange("Static", true);
+            else
+                exit(0);
+        end;
+        if not Bin.FindSet() then
+            exit(0);
+
+        repeat
+            BinContent.Reset();
+            BinContent.SetRange("Location Code", MainLocation);
+            BinContent.SetRange("Bin Code", Bin.Code);
+            BinContent.SetRange("Item No.", ItemNo);
+            if BinContent.FindFirst() then begin
+                TargetTotes := BinContent."Number of Totes in a Bin";
+                if TargetTotes > 0 then begin
+                    FilledTotes := KamToteMath.CountTotesInFLOWRACKBin(BinContent);
+                    BinEmpty := TargetTotes - FilledTotes;
+                    if BinEmpty > 0 then
+                        TotalEmpty += BinEmpty;
+                end;
+            end;
+        until Bin.Next() = 0;
+
+        exit(TotalEmpty);
     end;
 
     /// <summary>
@@ -364,11 +402,24 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     local procedure AssignTargetBin(var WhseActivityLine: Record "Warehouse Activity Line"; TargetType: Enum "Put-Away Target Zone NDPP")
     var
         Bin: Record Bin;
+        BulkBinCode: Code[20];
     begin
+        // BULK is item-specific (multiple BULK bins per location possible, but
+        // one bin per item). The master-data gate has already confirmed the
+        // item has Bin Content somewhere — point the line at THAT bin.
+        if TargetType = TargetType::BulkDecant then begin
+            BulkBinCode := GetItemBulkBinCode(WhseActivityLine."Location Code", WhseActivityLine."Item No.");
+            if BulkBinCode = '' then
+                exit;
+            if not Bin.Get(WhseActivityLine."Location Code", BulkBinCode) then
+                exit;
+            WhseActivityLine.Validate("Zone Code", Bin."Zone Code");
+            WhseActivityLine.Validate("Bin Code", Bin.Code);
+            exit;
+        end;
+
         Bin.SetRange("Location Code", WhseActivityLine."Location Code");
         case TargetType of
-            TargetType::BulkDecant:
-                Bin.SetRange(Bulk, true);
             TargetType::"Static":
                 Bin.SetRange("Static", true);
             TargetType::GenDecant:
@@ -393,7 +444,11 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         BinCode: Code[20];
         LastExpiry: Date;
     begin
-        BinCode := GetTargetBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), TargetType);
+        // BULK: item-specific bin (multiple BULK bins per location possible).
+        if TargetType = TargetType::BulkDecant then
+            BinCode := GetItemBulkBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), ItemNo)
+        else
+            BinCode := GetTargetBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), TargetType);
         if BinCode = '' then
             exit(0D);
 
@@ -413,6 +468,36 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     /// Resolves the Bin Code of the target-type-flagged bin in a given location.
     /// Returns '' when no bin carries the requested flag in that location.
     /// </summary>
+    /// <summary>
+    /// Resolves the BULK-flagged bin where this ITEM has a Bin Content row.
+    /// Convention: one BULK bin per item per location. Among multiple
+    /// BULK-flagged bins, only one will hold any given item, so we use
+    /// Bin Content as the disambiguator rather than picking the first
+    /// BULK bin alphabetically.
+    /// Returns '' when the item has no Bin Content in any BULK bin.
+    /// </summary>
+    local procedure GetItemBulkBinCode(LocationCode: Code[10]; ItemNo: Code[20]): Code[20]
+    var
+        Bin: Record Bin;
+        BinContent: Record "Bin Content";
+    begin
+        Bin.SetRange("Location Code", LocationCode);
+        Bin.SetRange(Bulk, true);
+        if not Bin.FindSet() then
+            exit('');
+
+        repeat
+            BinContent.Reset();
+            BinContent.SetRange("Location Code", LocationCode);
+            BinContent.SetRange("Bin Code", Bin.Code);
+            BinContent.SetRange("Item No.", ItemNo);
+            if not BinContent.IsEmpty() then
+                exit(Bin.Code);
+        until Bin.Next() = 0;
+
+        exit('');
+    end;
+
     local procedure GetTargetBinCode(LocationCode: Code[10]; TargetType: Enum "Put-Away Target Zone NDPP"): Code[20]
     var
         Bin: Record Bin;
@@ -439,23 +524,58 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     /// target type — used for the Max Qty cap. Returns FALSE if no match.
     /// </summary>
     /// <summary>
-    /// TRUE when a Bin Content row exists in the Main WH target bin for this
-    /// item — i.e. master data has been configured for the decant face. Used
-    /// as a routing gate: items without setup go to HighBay instead of an
-    /// unmanaged decant bin.
+    /// TRUE when master data exists for this item in Main WH at any bin
+    /// matching the item's routing type.
+    ///   BULK              -> single Bulk-flagged bin must have a Bin Content row.
+    ///   Flowrack / Static -> ANY Flowrack/Static-flagged bin must have one.
+    /// Items without setup go to HighBay instead of an unmanaged decant bin.
     /// </summary>
-    local procedure HasMainWHBinContent(ItemNo: Code[20]; TargetType: Enum "Put-Away Target Zone NDPP"): Boolean
+    local procedure HasMainWHBinContent(ItemNo: Code[20]; RoutingType: Enum "Item Routing Type NDPP"): Boolean
     var
+        Bin: Record Bin;
+        BinContent: Record "Bin Content";
+        MainLocation: Code[20];
         Dummy: Record "Bin Content";
     begin
-        exit(TryGetMainBinContent(ItemNo, TargetType, Dummy));
+        if RoutingType = RoutingType::BULK then
+            exit(TryGetMainBinContent(ItemNo, "Put-Away Target Zone NDPP"::BulkDecant, Dummy));
+
+        MainLocation := G_KamWhseSetupLookup.GetMainLocation();
+        Bin.SetRange("Location Code", MainLocation);
+        case RoutingType of
+            RoutingType::Flowrack:
+                Bin.SetRange(Flowrack, true);
+            RoutingType::"Static":
+                Bin.SetRange("Static", true);
+            else
+                exit(false);
+        end;
+        if not Bin.FindSet() then
+            exit(false);
+
+        repeat
+            BinContent.Reset();
+            BinContent.SetRange("Location Code", MainLocation);
+            BinContent.SetRange("Bin Code", Bin.Code);
+            BinContent.SetRange("Item No.", ItemNo);
+            if not BinContent.IsEmpty() then
+                exit(true);
+        until Bin.Next() = 0;
+
+        exit(false);
     end;
 
     local procedure TryGetMainBinContent(ItemNo: Code[20]; TargetType: Enum "Put-Away Target Zone NDPP"; var MainBinContent: Record "Bin Content"): Boolean
     var
         BinCode: Code[20];
     begin
-        BinCode := GetTargetBinCode(G_KamWhseSetupLookup.GetMainLocation(), TargetType);
+        // BULK: pick the BULK-flagged bin where THIS item actually lives, in
+        // case multiple BULK bins exist and the item isn't in the first one
+        // returned by GetTargetBinCode.
+        if TargetType = TargetType::BulkDecant then
+            BinCode := GetItemBulkBinCode(G_KamWhseSetupLookup.GetMainLocation(), ItemNo)
+        else
+            BinCode := GetTargetBinCode(G_KamWhseSetupLookup.GetMainLocation(), TargetType);
         if BinCode = '' then
             exit(false);
 
@@ -485,7 +605,11 @@ codeunit 99983 "Put-Away Mgt. NDPP"
             MainQty := MainBinContent."Quantity (Base)" + MainBinContent."Positive Adjmt. Qty. (Base)";
         end;
 
-        ReceiveBinCode := GetTargetBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), TargetType);
+        // BULK: pick the BULK-flagged bin where THIS item lives at Receive.
+        if TargetType = TargetType::BulkDecant then
+            ReceiveBinCode := GetItemBulkBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), ItemNo)
+        else
+            ReceiveBinCode := GetTargetBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), TargetType);
         if ReceiveBinCode <> '' then begin
             ReceiveBinContent.SetRange("Location Code", G_KamWhseSetupLookup.GetReceiveLocation());
             ReceiveBinContent.SetRange("Bin Code", ReceiveBinCode);
@@ -517,7 +641,11 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     var
         TargetBin: Code[20];
     begin
-        TargetBin := GetTargetBinCode(WhseActivityLine."Location Code", TargetType);
+        // BULK is item-specific; other targets are single-bin-per-location.
+        if TargetType = TargetType::BulkDecant then
+            TargetBin := GetItemBulkBinCode(WhseActivityLine."Location Code", WhseActivityLine."Item No.")
+        else
+            TargetBin := GetTargetBinCode(WhseActivityLine."Location Code", TargetType);
         if TargetBin = '' then
             exit(0);
         if WhseActivityLine."Bin Code" <> TargetBin then
