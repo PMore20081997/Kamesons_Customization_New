@@ -1,12 +1,12 @@
 table 99971 "Replenishment Worksheet"
 {
-    DataClassification = ToBeClassified;
+    DataClassification = CustomerContent;
 
     fields
     {
         field(1; "Line No."; Integer)
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
 
         }
         field(2; "Item No."; Code[20])
@@ -105,27 +105,27 @@ table 99971 "Replenishment Worksheet"
         }
         field(25; "Maufacturer Tote Max Qty."; Decimal)
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
         }
         field(26; "Totes in Bin"; Integer)
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
         }
         field(27; "Lot No."; Code[40])
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
         }
         field(28; "Package No."; Code[30])
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
         }
         field(29; "Expiration Date"; Date)
         {
-            DataClassification = ToBeClassified; //New
+            DataClassification = CustomerContent; //New
         }
         field(30; "Manufacturer Code"; Code[100])
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
         }
     }
 

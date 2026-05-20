@@ -9,12 +9,12 @@ tableextension 99973 Ship_to_Address_Ext extends "Ship-to Address"
         field(99971; "Dispensary"; Boolean)
         {
             Caption = 'Dispensary';
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
         }
         field(99972; "Retail "; Boolean)
         {
             Caption = 'Retail';
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
         }
     }
 }

@@ -9,7 +9,7 @@ tableextension 99952 Whse_Item_Entry_Relation_Ext extends "Whse. Item Entry Rela
         field(99950; "Manufacturer Code"; Code[100])
         {
             Caption = 'Manufacturer Code';
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
         }
     }
 }

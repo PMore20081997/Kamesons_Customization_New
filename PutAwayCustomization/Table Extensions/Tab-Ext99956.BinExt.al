@@ -9,7 +9,7 @@ tableextension 99956 Bin_Ext extends Bin
         field(99981; "Bulk"; Boolean)
         {
             Caption = 'Bulk';
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
 
             trigger OnValidate()
             begin
@@ -20,7 +20,7 @@ tableextension 99956 Bin_Ext extends Bin
         field(99982; "Static"; Boolean)
         {
             Caption = 'Static';
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
 
             trigger OnValidate()
             begin
@@ -31,7 +31,7 @@ tableextension 99956 Bin_Ext extends Bin
         field(99983; "Flowrack"; Boolean)
         {
             Caption = 'Flow Rack';
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
 
             trigger OnValidate()
             begin
@@ -42,7 +42,7 @@ tableextension 99956 Bin_Ext extends Bin
         field(99984; "HighBay"; Boolean)
         {
             Caption = 'High Bay';
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
 
             trigger OnValidate()
             begin

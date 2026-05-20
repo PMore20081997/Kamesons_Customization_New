@@ -5,17 +5,17 @@
 //         field(99981; "BULK"; Boolean)
 //         {
 //             Caption = 'Bulk';
-//             DataClassification = ToBeClassified;
+//             DataClassification = CustomerContent;
 //         }
 //         field(99982; "General"; Boolean)
 //         {
-//             DataClassification = ToBeClassified;
+//             DataClassification = CustomerContent;
 //             Caption = 'General Decant';
 //         }
 //         field(99983; HighBay; Boolean)
 //         {
 //             Caption = 'High Bay';
-//             DataClassification = ToBeClassified;
+//             DataClassification = CustomerContent;
 //         }
 //     }
 // }

@@ -45,7 +45,7 @@ tableextension 99975 Purchase_Header_Ext extends "Purchase Header"
         }
         field(99974; "Whse. Receipt Error"; Text[1024])
         {
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
         }
     }
 

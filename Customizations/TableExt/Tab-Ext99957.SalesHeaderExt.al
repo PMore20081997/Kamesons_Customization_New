@@ -9,12 +9,12 @@ tableextension 99957 SalesHeaderExt extends "Sales Header"
         field(99950; "Dispensary"; Boolean)
         {
             Caption = 'Dispensary';
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
         }
         field(99951; "Retail "; Boolean)
         {
             Caption = 'Retail';
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
         }
     }
 }

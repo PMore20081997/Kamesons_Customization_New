@@ -9,7 +9,7 @@ tableextension 99955 UserSetupExt extends "User Setup"
         field(99950; "Allow Second Check"; Boolean)
         {
             Caption = 'Second Check Approver';
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
         }
     }
 }

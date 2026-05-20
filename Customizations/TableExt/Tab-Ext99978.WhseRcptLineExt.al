@@ -9,7 +9,7 @@ tableextension 99978 WhseRcptLineExt extends "Warehouse Receipt Line"
         field(99971; "Manufacturer Code"; Code[100])
         {
             Caption = 'Manufacturer Code';
-            DataClassification = ToBeClassified;
+            DataClassification = CustomerContent;
         }
     }
 }

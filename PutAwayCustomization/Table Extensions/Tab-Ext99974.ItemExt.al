@@ -8,13 +8,13 @@ tableextension 99974 Item_Ext extends Item
     fields
     {
         /// <summary>
-        /// US 40488 — Drives Put-Away routing.
+        /// US 40488 â€” Drives Put-Away routing.
         ///   Flowrack -> Flowrack bin   (was "neither" / GEN DECANT)
         ///   BULK     -> Bulk bin
         ///   Static   -> Static bin
         ///
         /// Switching from one type to another is blocked while stock for this
-        /// item still sits in the OLD type's bin in the Main Warehouse —
+        /// item still sits in the OLD type's bin in the Main Warehouse â€”
         /// otherwise the routing engine and the decant face would diverge.
         /// </summary>
         field(99970; "Routing Type"; Enum "Item Routing Type NDPP")
@@ -34,17 +34,17 @@ tableextension 99974 Item_Ext extends Item
         // field(99971; "BULK"; Boolean)
         // {
         //     Caption = 'BULK';
-        //     DataClassification = ToBeClassified;
+        //     DataClassification = CustomerContent;
         //     ObsoleteState = Pending;
-        //     ObsoleteReason = 'Replaced by "Routing Type". Auto-synced for backward compatibility — read "Routing Type" instead.';
+        //     ObsoleteReason = 'Replaced by "Routing Type". Auto-synced for backward compatibility â€” read "Routing Type" instead.';
         //     ObsoleteTag = 'US40488';
         // }
         // field(99978; "Static"; Boolean)
         // {
         //     Caption = 'Static';
-        //     DataClassification = ToBeClassified;
+        //     DataClassification = CustomerContent;
         //     ObsoleteState = Pending;
-        //     ObsoleteReason = 'Replaced by "Routing Type". Auto-synced for backward compatibility — read "Routing Type" instead.';
+        //     ObsoleteReason = 'Replaced by "Routing Type". Auto-synced for backward compatibility â€” read "Routing Type" instead.';
         //     ObsoleteTag = 'US40488';
         // }
         field(99972; "DTCategory"; Text[10])
@@ -97,7 +97,7 @@ tableextension 99974 Item_Ext extends Item
                 Bin.SetRange(Flowrack, true);
         end;
         if not Bin.FindFirst() then
-            exit; // Old type has no matching bin in Main WH — nothing to check.
+            exit; // Old type has no matching bin in Main WH â€” nothing to check.
 
         BinContent.SetRange("Location Code", MainLocation);
         BinContent.SetRange("Bin Code", Bin.Code);
