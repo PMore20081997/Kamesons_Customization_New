@@ -118,22 +118,26 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     end;
 
     /// <summary>
-    /// TRUE when on-hand qty for the item across the Main-WH target bin and the
-    /// matching Receive-Location bin is below the Main-WH bin's Min Qty (in
-    /// base units). Drives the "top up regardless of expiry" rule for any
-    /// target zone (BulkDecant, Flowrack, Static). HighBay is not a decant
+    /// TRUE when the item's target decant face is below Min Qty in Main WH.
+    /// Drives the "top up regardless of expiry" rule. HighBay is not a decant
     /// face and is excluded.
     ///
-    /// Receive-side bin lookup differs by zone:
-    ///   - BulkDecant: each BULK item has its own dedicated bin at Receive
-    ///     (GetItemBulkBinCode).
-    ///   - Flowrack / Static: a single bin per zone flag is shared across items
-    ///     (GetTargetBinCode).
+    /// Per zone:
+    ///   - BulkDecant: one dedicated bin per BULK item. Check that bin's
+    ///     OnHand + Receive-side in-flight qty against its Min Qty.
+    ///   - Flowrack / Static: an item can have Bin Content rows on MULTIPLE
+    ///     flagged bins in Main. The bypass fires if ANY of those bins is
+    ///     individually below its own Min Qty (so a depleted Flowrack face
+    ///     can be topped up even if the first bin alphabetically is full).
+    ///     Receive-side in-flight qty is NOT added per Main bin — it's a
+    ///     shared funnel, not yet allocated to a specific Main pick face.
     /// </summary>
     local procedure IsTargetBinBelowMinQty(ItemNo: Code[20]; TargetType: Enum "Put-Away Target Zone NDPP"): Boolean
     var
         MainBinContent: Record "Bin Content";
         ReceiveBinContent: Record "Bin Content";
+        Bin: Record Bin;
+        MainLocation: Code[20];
         ReceiveBin: Code[20];
         AvailableBaseQty: Decimal;
         MinBaseQty: Decimal;
@@ -142,6 +146,39 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         if TargetType = TargetType::HighBay then
             exit(false);
 
+        MainLocation := G_KamWhseSetupLookup.GetMainLocation();
+
+        // Flowrack / Static: walk every flagged Main bin that holds this item.
+        // Return TRUE on the first bin found below its own Min Qty.
+        if TargetType in [TargetType::Flowrack, TargetType::"Static"] then begin
+            Bin.SetRange("Location Code", MainLocation);
+            case TargetType of
+                TargetType::Flowrack:
+                    Bin.SetRange(Flowrack, true);
+                TargetType::"Static":
+                    Bin.SetRange("Static", true);
+            end;
+            if not Bin.FindSet() then
+                exit(false);
+            repeat
+                MainBinContent.Reset();
+                MainBinContent.SetRange("Location Code", MainLocation);
+                MainBinContent.SetRange("Bin Code", Bin.Code);
+                MainBinContent.SetRange("Item No.", ItemNo);
+                if MainBinContent.FindFirst() then begin
+                    MinBaseQty := MainBinContent."Min. Qty." * MainBinContent."Qty. per Unit of Measure";
+                    if MinBaseQty > 0 then begin
+                        MainBinContent.CalcFields("Quantity (Base)");
+                        if MainBinContent."Quantity (Base)" < MinBaseQty then
+                            exit(true);
+                    end;
+                end;
+            until Bin.Next() = 0;
+            exit(false);
+        end;
+
+        // BulkDecant: existing single-bin-per-item path, including Receive-side
+        // in-flight qty (Receive's per-item BULK bin).
         if not TryGetMainBinContent(ItemNo, TargetType, MainBinContent) then
             exit(false); // No Main WH bin / no setup — can't evaluate, skip the bypass.
 
@@ -152,14 +189,7 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         MainBinContent.CalcFields("Quantity (Base)");
         AvailableBaseQty := MainBinContent."Quantity (Base)";
 
-        // BulkDecant has per-item bins at Receive; Flowrack/Static share one
-        // bin per zone flag across items.
-        case TargetType of
-            TargetType::BulkDecant:
-                ReceiveBin := GetItemBulkBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), ItemNo);
-            else
-                ReceiveBin := GetTargetBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), TargetType);
-        end;
+        ReceiveBin := GetItemBulkBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), ItemNo);
 
         if ReceiveBin <> '' then begin
             ReceiveBinContent.SetRange("Location Code", G_KamWhseSetupLookup.GetReceiveLocation());
