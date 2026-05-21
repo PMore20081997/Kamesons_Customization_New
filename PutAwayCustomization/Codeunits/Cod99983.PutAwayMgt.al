@@ -1,6 +1,7 @@
 namespace Kamesons_Customization.Kamesons_Customization;
 
 using Microsoft.Warehouse.Activity;
+using Microsoft.Warehouse.Ledger;
 using Microsoft.Warehouse.Structure;
 using Microsoft.Inventory.Item;
 
@@ -348,7 +349,8 @@ codeunit 99983 "Put-Away Mgt. NDPP"
                 exit(0);
 
             EmptyTotes := SumMainWHEmptyTotes(WhseActivityLine."Item No.", Item."Routing Type")
-                          - CountPendingFlowrackTotes(WhseActivityLine);
+                          - CountPendingFlowrackTotes(WhseActivityLine)
+                          - CountReceiveFlowrackTotes(WhseActivityLine."Item No.");
             if EmptyTotes < 0 then
                 EmptyTotes := 0;
             exit(EmptyTotes * QtyPerTote);
@@ -652,7 +654,8 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     begin
         if TryGetMainBinContent(ItemNo, TargetType, MainBinContent) then begin
             MainBinContent.CalcFields("Quantity (Base)", "Put-away Quantity (Base)", "Positive Adjmt. Qty. (Base)");
-            MainQty := MainBinContent."Quantity (Base)" + MainBinContent."Positive Adjmt. Qty. (Base)";
+            //MainQty := MainBinContent."Quantity (Base)" + MainBinContent."Positive Adjmt. Qty. (Base)";
+            MainQty := MainBinContent."Quantity (Base)";
         end;
 
         // BULK: pick the BULK-flagged bin where THIS item lives at Receive.
@@ -755,6 +758,58 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     local procedure IsSameLine(A: Record "Warehouse Activity Line"; B: Record "Warehouse Activity Line"): Boolean
     begin
         exit((A."Activity Type" = B."Activity Type") and (A."No." = B."No.") and (A."Line No." = B."Line No."));
+    end;
+
+    /// <summary>
+    /// Counts whole totes of the item already staged at the Receive Flowrack bin,
+    /// summed per manufacturer from posted Warehouse Entries. Subtracted from
+    /// EmptyTotes in ResolveSpaceLeft so the capacity math mirrors how BULK's
+    /// CalcReservedQty accounts for Receive on-hand: stock sitting at Receive is
+    /// already occupying downstream Main-WH capacity even though it hasn't been
+    /// decanted yet.
+    ///
+    /// Whole-tote rounding (Round up, matches CountPendingFlowrackTotes) is
+    /// intentional — a partial tote at Receive still occupies a full tote slot's
+    /// worth of downstream capacity; you can't share a slot across manufacturers.
+    ///
+    /// Returns 0 when no Receive Flowrack bin is configured or no matching
+    /// warehouse entries exist.
+    /// </summary>
+    local procedure CountReceiveFlowrackTotes(ItemNo: Code[20]): Integer
+    var
+        ItemMfr: Record "Item Manufacturer Table";
+        WhseEntry: Record "Warehouse Entry";
+        ReceiveLoc: Code[20];
+        ReceiveBin: Code[20];
+        MfgQtyBase: Decimal;
+        Totes: Integer;
+    begin
+        ReceiveLoc := G_KamWhseSetupLookup.GetReceiveLocation();
+        ReceiveBin := GetTargetBinCode(ReceiveLoc, "Put-Away Target Zone NDPP"::Flowrack);
+        if ReceiveBin = '' then
+            exit(0);
+
+        ItemMfr.SetRange("Item No", ItemNo);
+        ItemMfr.SetFilter("Qty per Tote", '>%1', 0);
+        if not ItemMfr.FindSet() then
+            exit(0);
+
+        // Warehouse Entry's standard keys lead with ("Item No.", "Bin Code", "Location Code", ...),
+        // so the per-manufacturer CalcSums is selective even though "Manufacturer Code"
+        // is a custom field outside the key.
+        repeat
+            WhseEntry.Reset();
+            WhseEntry.SetRange("Item No.", ItemNo);
+            WhseEntry.SetRange("Location Code", ReceiveLoc);
+            WhseEntry.SetRange("Bin Code", ReceiveBin);
+            WhseEntry.SetRange("Manufacturer Code", ItemMfr."Manufacturer Code");
+            WhseEntry.CalcSums("Qty. (Base)");
+            MfgQtyBase := WhseEntry."Qty. (Base)";
+            if MfgQtyBase > 0 then
+                Totes += Round(MfgQtyBase / ItemMfr."Qty per Tote", 1, '>');
+        until ItemMfr.Next() = 0;
+
+        exit(Totes);
     end;
 
     // ---------- Integration events (extension points) ----------
