@@ -8,7 +8,7 @@ query 99972 WarehouseEntryReceive
     {
         dataitem(WarehouseEntry; "Warehouse Entry")
         {
-            DataItemTableFilter = "Manufacturer Code" = filter(<> ''), "Zone Code" = filter(<> 'RECEIVE'); //TEMP
+            DataItemTableFilter = "Manufacturer Code" = filter(<> '');
             //DataItemTableFilter = "Zone Code" = filter(<> 'RECEIVE'); //OG+++
             // column(Entry_No_; "Entry No.")
             // {
