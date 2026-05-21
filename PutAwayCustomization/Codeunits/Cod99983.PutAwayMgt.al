@@ -68,7 +68,7 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         if not IsEligibleForRouting(WhseActivityLine) then
             exit;
 
-        if not Item.Get(WhseActivityLine."Item No.") then
+        if not GetCachedItem(WhseActivityLine."Item No.", Item) then
             exit;
 
         // Already in the High-Bay bin — leave alone.
@@ -224,7 +224,7 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         if not IsEligibleForRouting(WhseActivityLine) then
             exit;
 
-        if not Item.Get(WhseActivityLine."Item No.") then
+        if not GetCachedItem(WhseActivityLine."Item No.", Item) then
             exit;
 
         // Defensive: don't trust prior state for the SplitLine signal.
@@ -757,6 +757,22 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         exit((A."Activity Type" = B."Activity Type") and (A."No." = B."No.") and (A."Line No." = B."Line No."));
     end;
 
+    // Returns the Item record for ItemNo, reusing the cached copy when the same
+    // item appears on consecutive lines (e.g. multiple lot numbers, one line each).
+    // SingleInstance keeps G_CachedItem alive for the lifetime of the batch.
+    local procedure GetCachedItem(ItemNo: Code[20]; var Item: Record Item): Boolean
+    begin
+        if G_CachedItemNo = ItemNo then begin
+            Item := G_CachedItem;
+            exit(true);
+        end;
+        if not Item.Get(ItemNo) then
+            exit(false);
+        G_CachedItem := Item;
+        G_CachedItemNo := ItemNo;
+        exit(true);
+    end;
+
     // ---------- Integration events (extension points) ----------
 
     [IntegrationEvent(false, false)]
@@ -783,4 +799,6 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         G_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
         KamToteMath: Codeunit "Kam Tote Math";
         G_LineSpacing: Boolean;
+        G_CachedItemNo: Code[20];
+        G_CachedItem: Record Item;
 }
