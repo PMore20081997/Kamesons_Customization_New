@@ -31,6 +31,7 @@ codeunit 99963 "Kam Replenishment Mgt."
         DoNotFillQtytoHandle: Boolean;
         NextLineNo: Integer;
         LinesInserted: Integer;
+        ProcessedFlowrackItems: List of [Code[20]];
         PickBulkLocNotSetErr: Label 'The PICK BULK Location is not set. Configure it in Warehouse Setup (MAIN Warehouse) or enter it on the request page.';
         ReceiveLocNotSetErr: Label 'The BULK Location is not set. Configure the RECEIVE Warehouse in Warehouse Setup.';
         BulkDecantZoneNotFoundErr: Label 'No zone with the Bulk flag was found in the BULK Location.';
@@ -74,6 +75,7 @@ codeunit 99963 "Kam Replenishment Mgt."
 
         SetNextLineNo();
         LinesInserted := 0;
+        Clear(ProcessedFlowrackItems);
     end;
 
     /// <summary>
@@ -122,7 +124,14 @@ codeunit 99963 "Kam Replenishment Mgt."
             Item."Routing Type"::"Static":
                 ProcessBulkItem(BinContent, ToZoneCode);
             Item."Routing Type"::Flowrack:
-                ProcessNonBulkItem(BinContent, ToZoneCode);
+                begin
+                    // Flowrack items can occupy multiple PICK BULK bins. Aggregate the need
+                    // across all those bins and process the item once per run.
+                    if ProcessedFlowrackItems.Contains(BinContent."Item No.") then
+                        exit;
+                    ProcessedFlowrackItems.Add(BinContent."Item No.");
+                    ProcessFlowrackItem(BinContent, ToZoneCode);
+                end;
         end;
 
         OnAfterProcessBinContent(BinContent);
@@ -201,19 +210,20 @@ codeunit 99963 "Kam Replenishment Mgt."
         FEFOQuery.Close();
     end;
 
-    local procedure ProcessNonBulkItem(var BinContent: Record "Bin Content"; ToZoneCode: Code[10])
+    local procedure ProcessFlowrackItem(var BinContent: Record "Bin Content"; ToZoneCode: Code[10])
     var
+        BinContentIter: Record "Bin Content";
         FEFOQuery: Query "FEFO Whse Entry HIGHBAY";
         BinCapacities: Dictionary of [Code[20], Decimal];
-        PickBulkAvailBase: Decimal;
-        MinQtyBase: Decimal;
+        BinAvailBase: Decimal;
+        BinMinQtyBase: Decimal;
         QtyPerTote: Decimal;
         LotAvailQtyBase: Decimal;
         PendingLotQtyBase: Decimal;
         MoveQtyBase: Decimal;
         PlacedBase: Decimal;
-        TargetTotes: Integer;
-        PickBulkTotes: Integer;
+        TotalTargetTotes: Integer;
+        TotalCurrentTotes: Integer;
         DestTotes: Integer;
         ActivityTotes: Integer;
         PendingTotes: Integer;
@@ -221,21 +231,35 @@ codeunit 99963 "Kam Replenishment Mgt."
         TotesAvail: Integer;
         TotesToMove: Integer;
         TotesPlaced: Integer;
+        AnyBinBelowMin: Boolean;
     begin
-        PickBulkAvailBase := BinContent.CalcQtyAvailToTake(0);
-        MinQtyBase := BinContent."Min. Qty." * BinContent."Qty. per Unit of Measure";
-        if PickBulkAvailBase >= MinQtyBase then
+        // Aggregate target totes, current totes, and the trigger across every Flowrack
+        // PICK BULK bin holding this item. Trigger fires if any single bin is below its
+        // own Min. Qty. — sized at the item level so multi-bin needs aren't under-staged.
+        BinContentIter.SetRange("Location Code", PickBulkLocation);
+        BinContentIter.SetRange("Item No.", BinContent."Item No.");
+        if BinContentIter.FindSet() then
+            repeat
+                BinContentIter.CalcFields(Flowrack);
+                if BinContentIter.Flowrack then begin
+                    BinAvailBase := BinContentIter.CalcQtyAvailToTake(0);
+                    BinMinQtyBase := BinContentIter."Min. Qty." * BinContentIter."Qty. per Unit of Measure";
+                    if BinAvailBase < BinMinQtyBase then
+                        AnyBinBelowMin := true;
+                    TotalTargetTotes += BinContentIter."Number of Totes in a Bin";
+                    TotalCurrentTotes += ToteMath.GetPickBulkTotes(BinContentIter);
+                end;
+            until BinContentIter.Next() = 0;
+
+        if not AnyBinBelowMin then
+            exit;
+        if TotalTargetTotes <= 0 then
             exit;
 
-        TargetTotes := BinContent."Number of Totes in a Bin";
-        if TargetTotes <= 0 then
-            exit;
-
-        PickBulkTotes := ToteMath.GetPickBulkTotes(BinContent);
         DestTotes := ToteMath.GetDestinationTotes(ReceiveLocation, ToZoneCode, BinContent."Item No.");
         ActivityTotes := ToteMath.GetActivityTotesToDestination(ReceiveLocation, ToZoneCode, BinContent."Item No.");
         PendingTotes := ToteMath.CountPendingTotesInWorksheet(WhseWkshTemplateName, WhseWkshName, ReceiveLocation, HighBayZone, ToZoneCode, BinContent."Item No.");
-        TotesNeeded := TargetTotes - PickBulkTotes - DestTotes - ActivityTotes - PendingTotes;
+        TotesNeeded := TotalTargetTotes - TotalCurrentTotes - DestTotes - ActivityTotes - PendingTotes;
         if TotesNeeded <= 0 then
             exit;
 
