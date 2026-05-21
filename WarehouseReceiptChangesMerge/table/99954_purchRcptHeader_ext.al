@@ -50,11 +50,10 @@ tableextension 99954 "PurchRcptHeaderExt" extends "Purch. Rcpt. Header"
         }
         field(99960; "No. of Items"; Integer) { }
         field(99961; Comments; Text[100]) { }
-        field(99962; "Receiving Status"; Option)
+        field(99962; "Receiving Status"; Enum "Receiving Status")
         {
             Caption = 'Transportation Receiving Status';
-            OptionMembers = "Provisional","Transportation Booked","Goods Arrived","No Show","Fixed slot","Surprise PO","Suspend";
-            OptionCaption = 'Provisional,Transportation Booked,Goods Arrived,No Show,Fixed slot,Surprise PO,Suspend';
+            DataClassification = CustomerContent;
         }
         field(99963; "Received Date"; Date) { DataClassification = CustomerContent; }
         field(99964; "Received Time"; Time) { DataClassification = CustomerContent; }

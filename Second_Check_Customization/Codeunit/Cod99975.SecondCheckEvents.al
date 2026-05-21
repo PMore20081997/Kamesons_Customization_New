@@ -43,4 +43,24 @@ codeunit 99975 SecondCheck_Events
         PurchaseHeader."Second Check User" := '';
         PurchaseHeader."Second Check Date & Time" := 0DT;
     end;
+
+    procedure ValidateSecondCheck(var PurchaseHeader: Record "Purchase Header")
+    var
+        L_UserSetup: Record "User Setup";
+        L_SameUserSecondCheck: Label 'You cannot select Second Check as you are the one who created the purchase order. Please select another user or leave it blank.';
+    begin
+        if PurchaseHeader."Second Check" <> PurchaseHeader."Second Check"::" " then begin
+            PurchaseHeader."Second Check User" := UserId;
+            PurchaseHeader."Second Check Date & Time" := CurrentDateTime();
+        end else begin
+            PurchaseHeader."Second Check User" := '';
+            PurchaseHeader."Second Check Date & Time" := 0DT;
+        end;
+
+        if L_UserSetup.Get(UserId) and L_UserSetup."Allow Second Check" then
+            exit;
+
+        if PurchaseHeader.SystemCreatedBy = UserSecurityId() then
+            Error(L_SameUserSecondCheck);
+    end;
 }

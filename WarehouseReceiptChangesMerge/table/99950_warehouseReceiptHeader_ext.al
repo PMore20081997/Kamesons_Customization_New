@@ -65,11 +65,10 @@ tableextension 99950 "Warehousereceiptheaderext" extends "Warehouse Receipt Head
         field(99961; Comments; Text[100])
         {
         }
-        field(99962; "Receiving Status"; Option)
+        field(99962; "Receiving Status"; Enum "Receiving Status")
         {
             Caption = 'Transportation Receiving Status';
-            OptionMembers = "Provisional","Transportation Booked","Goods Arrived","No Show","Fixed slot","Surprise PO","Suspend";
-            OptionCaption = 'Provisional,Transportation Booked,Goods Arrived,No Show,Fixed slot,Surprise PO,Suspend';
+            DataClassification = CustomerContent;
         }
         field(99963; "Received Date"; Date)
         {
