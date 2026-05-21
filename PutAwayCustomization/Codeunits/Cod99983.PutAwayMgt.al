@@ -315,25 +315,29 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     /// <summary>
     /// Returns the base-qty SPACE LEFT in the put-away target bin.
     ///
-    ///   Flowrack / Static -> SumMainWHEmptyTotes(item, RoutingType) x QtyPerTote
-    ///                        Empty totes summed across ALL Main WH bins flagged
-    ///                        Flowrack (Flowrack items) or Static (Static items).
-    ///                        Receive Location still places into the single
-    ///                        Receive Flowrack bin — per-bin distribution at
-    ///                        Main WH happens in the decant phase.
-    ///                        CountPendingFlowrackTotes nets out earlier lines
-    ///                        in the same batch that already claimed totes.
+    ///   Static    -> Step 1: try Max Qty rule
+    ///                        Sum (MaxQty × QtyPerUoM − on-hand) across all
+    ///                        Main WH Static bins that hold the item. Net out
+    ///                        sibling pending qty at the Receive Flowrack bin,
+    ///                        add back current line's own contribution.
+    ///                  Step 2: if Max Qty sums to 0 (none configured),
+    ///                        fall through to the Flowrack empty-totes rule.
     ///
-    ///   BULK              -> (Max Qty x Qty per UoM)
-    ///                        - CalcReservedQty(...)
-    ///                        + (current line's qty if it targets this zone)
-    ///                        Single Main WH BULK bin. Adding current-line back
-    ///                        gives "space BEFORE this line" since Bin Content
-    ///                        already counts it post-insert.
+    ///   Flowrack  -> SumMainWHEmptyTotes(item, Flowrack) × QtyPerTote
+    ///                Empty totes summed across Main WH Flowrack bins.
+    ///                CountPendingFlowrackTotes nets earlier batch lines that
+    ///                already claimed totes.
     ///
-    /// Returns 0 when there's no room. For Flowrack/Static, a missing tote
-    /// setup (no QtyPerTote / no Number-of-Totes in Main WH bins) yields 0 →
-    /// entire line to HighBay.
+    ///   BULK      -> (Max Qty × Qty per UoM)
+    ///                − CalcReservedQty(...)
+    ///                + (current line's qty if it targets this zone)
+    ///                Single Main WH BULK bin per item. Adding current-line
+    ///                back gives "space BEFORE this line" since Bin Content
+    ///                already counts it post-insert.
+    ///
+    /// Returns 0 when there's no room. For Flowrack/Static fall-through, a
+    /// missing tote setup (no QtyPerTote / no Number-of-Totes in Main WH bins)
+    /// yields 0 → entire line to HighBay.
     /// </summary>
     local procedure ResolveSpaceLeft(var WhseActivityLine: Record "Warehouse Activity Line"; Item: Record Item): Decimal
     var
@@ -341,8 +345,23 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         TargetType: Enum "Put-Away Target Zone NDPP";
         QtyPerTote: Decimal;
         BinMaxBaseQty: Decimal;
+        MaxQtySpace: Decimal;
         EmptyTotes: Integer;
     begin
+        // Static: try Max Qty rule first (summed across all Main WH Static bins).
+        // If no Max Qty is configured anywhere, fall through to empty-totes.
+        if Item."Routing Type" = Item."Routing Type"::"Static" then begin
+            MaxQtySpace := SumMainWHMaxQtySpaceLeft(WhseActivityLine."Item No.", Item."Routing Type");
+            if MaxQtySpace > 0 then begin
+                MaxQtySpace := MaxQtySpace
+                               - GetReceiveDecantPendingForItem(WhseActivityLine."Item No.")
+                               + GetCurrentLineSelfContribution(WhseActivityLine, "Put-Away Target Zone NDPP"::Flowrack);
+                if MaxQtySpace < 0 then
+                    MaxQtySpace := 0;
+                exit(MaxQtySpace);
+            end;
+        end;
+
         if Item."Routing Type" in [Item."Routing Type"::Flowrack, Item."Routing Type"::"Static"] then begin
             QtyPerTote := KamToteMath.GetQtyPerTote(WhseActivityLine."Item No.", WhseActivityLine."Manufacturer Code");
             if QtyPerTote <= 0 then
@@ -377,6 +396,91 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     /// Bins without a Bin Content row for this item contribute 0.
     /// Returns 0 for any other routing type (BULK uses Max Qty, not totes).
     /// </summary>
+    /// <summary>
+    /// Sums (Max Qty x Qty per UoM) − (on-hand qty) across every Main-WH bin
+    /// flagged for the item's routing type that has a Bin Content row for the
+    /// item. Bins without Max Qty configured (or already at/over capacity)
+    /// contribute 0. Used by the Static Max-Qty rule.
+    /// </summary>
+    local procedure SumMainWHMaxQtySpaceLeft(ItemNo: Code[20]; RoutingType: Enum "Item Routing Type NDPP"): Decimal
+    var
+        Bin: Record Bin;
+        BinContent: Record "Bin Content";
+        MainLocation: Code[20];
+        MaxQtyBase: Decimal;
+        OnHand: Decimal;
+        BinSpace: Decimal;
+        Total: Decimal;
+    begin
+        MainLocation := G_KamWhseSetupLookup.GetMainLocation();
+        Bin.SetRange("Location Code", MainLocation);
+        case RoutingType of
+            RoutingType::BULK:
+                Bin.SetRange(Bulk, true);
+            RoutingType::Flowrack:
+                Bin.SetRange(Flowrack, true);
+            RoutingType::"Static":
+                Bin.SetRange("Static", true);
+            else
+                exit(0);
+        end;
+        if not Bin.FindSet() then
+            exit(0);
+
+        repeat
+            BinContent.Reset();
+            BinContent.SetRange("Location Code", MainLocation);
+            BinContent.SetRange("Bin Code", Bin.Code);
+            BinContent.SetRange("Item No.", ItemNo);
+            if BinContent.FindFirst() then begin
+                MaxQtyBase := BinContent."Max. Qty." * BinContent."Qty. per Unit of Measure";
+                if MaxQtyBase > 0 then begin
+                    BinContent.CalcFields("Quantity (Base)", "Put-away Quantity (Base)", "Positive Adjmt. Qty. (Base)");
+                    OnHand := BinContent."Quantity (Base)"
+                              + BinContent."Put-away Quantity (Base)"
+                              + BinContent."Positive Adjmt. Qty. (Base)";
+                    BinSpace := MaxQtyBase - OnHand;
+                    if BinSpace > 0 then
+                        Total += BinSpace;
+                end;
+            end;
+        until Bin.Next() = 0;
+
+        exit(Total);
+    end;
+
+    /// <summary>
+    /// Sums (Quantity + Put-away + Positive Adjmt) at the Receive Flowrack bin
+    /// across all Bin Content rows for the item. Catches sibling lines from
+    /// the same put-away batch that are pending at the decant face but not
+    /// yet decanted to Main WH.
+    /// </summary>
+    local procedure GetReceiveDecantPendingForItem(ItemNo: Code[20]): Decimal
+    var
+        Bin: Record Bin;
+        BinContent: Record "Bin Content";
+        ReceiveLocation: Code[20];
+        Total: Decimal;
+    begin
+        ReceiveLocation := G_KamWhseSetupLookup.GetReceiveLocation();
+        Bin.SetRange("Location Code", ReceiveLocation);
+        Bin.SetRange(Flowrack, true);
+        if not Bin.FindFirst() then
+            exit(0);
+
+        BinContent.SetRange("Location Code", ReceiveLocation);
+        BinContent.SetRange("Bin Code", Bin.Code);
+        BinContent.SetRange("Item No.", ItemNo);
+        if BinContent.FindSet() then
+            repeat
+                BinContent.CalcFields("Quantity (Base)", "Put-away Quantity (Base)", "Positive Adjmt. Qty. (Base)");
+                Total += BinContent."Quantity (Base)"
+                         + BinContent."Put-away Quantity (Base)"
+                         + BinContent."Positive Adjmt. Qty. (Base)";
+            until BinContent.Next() = 0;
+        exit(Total);
+    end;
+
     local procedure SumMainWHEmptyTotes(ItemNo: Code[20]; RoutingType: Enum "Item Routing Type NDPP"): Integer
     var
         Bin: Record Bin;
