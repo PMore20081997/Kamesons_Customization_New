@@ -255,23 +255,27 @@ codeunit 99991 "Decant Reclass Mgt."
         QtyPerToteOverride: Decimal;
         var NextLineNo: Integer)
     var
-        RemainingCapacity: Decimal;
+        RemainingSlots: Integer;
         SourceQtyPerUoM: Decimal;
         RemainingFromLot: Decimal;
         QtyPerTote: Decimal;
         ToteQty: Decimal;
         TotesCreatedForBin: Integer;
     begin
-        // Bin capacity is driven by Number of Totes in a Bin (custom config)
-        // times the run's Qty per Tote. Max. Qty. is not used for decant.
-        RemainingCapacity := BinContent."Number of Totes in a Bin" * QtyPerToteOverride;
+        // Capacity is counted in PHYSICAL TOTE SLOTS, not base qty. One Decant
+        // Detail line = one tote = one slot consumed, regardless of fill level.
+        // Source lots are NOT merged into a single tote — when a lot runs out
+        // mid-slot, the slot closes and the next slot starts fresh with the
+        // next lot. Trade-off: bins may hold less than slots × Qty per Tote in
+        // base qty, but the warehouse never has to deal with multi-lot totes.
+        RemainingSlots := BinContent."Number of Totes in a Bin";
 
         TempSource.Reset();
         TempSource.SetRange("Item No.", BinContent."Item No.");
         TempSource.SetFilter("Available Qty. to Take", '>%1', 0);
         if TempSource.FindSet() then
             repeat
-                if RemainingCapacity > 0 then begin
+                if RemainingSlots > 0 then begin
                     // Quantity slot on the temp record carries Qty. per UoM.
                     SourceQtyPerUoM := TempSource.Quantity;
                     if SourceQtyPerUoM = 0 then
@@ -284,8 +288,14 @@ codeunit 99991 "Decant Reclass Mgt."
                     if QtyPerTote > 0 then begin
                         RemainingFromLot := TempSource."Available Qty. to Take";
 
-                        while (RemainingFromLot > 0) and (RemainingCapacity > 0) do begin
-                            ToteQty := MinOf3(QtyPerTote, RemainingFromLot, RemainingCapacity);
+                        while (RemainingFromLot > 0) and (RemainingSlots > 0) do begin
+                            // Chunk size is capped by Qty per Tote and what's
+                            // left in the lot. Slot count caps the OUTER loop,
+                            // not the chunk size.
+                            if RemainingFromLot >= QtyPerTote then
+                                ToteQty := QtyPerTote
+                            else
+                                ToteQty := RemainingFromLot;
 
                             InsertDecantDetail(
                                 DecantDetails,
@@ -297,7 +307,7 @@ codeunit 99991 "Decant Reclass Mgt."
                             NextLineNo += 10000;
                             TotesCreatedForBin += 1;
                             RemainingFromLot -= ToteQty;
-                            RemainingCapacity -= ToteQty;
+                            RemainingSlots -= 1;            // one slot consumed regardless of fill
                         end;
 
                         // Persist the consumption back onto the temp buffer
