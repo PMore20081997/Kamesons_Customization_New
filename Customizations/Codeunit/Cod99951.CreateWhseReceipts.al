@@ -15,7 +15,7 @@ codeunit 99951 "Create Whse. Receipts"
     begin
         L_PurchaseHeader.SetRange("Document Type", L_PurchaseHeader."Document Type"::Order);
         L_PurchaseHeader.SetRange(Status, L_PurchaseHeader.Status::Released);
-        L_PurchaseHeader.SetRange("No.", '106079');
+        //L_PurchaseHeader.SetRange("No.", '106079');
         if L_PurchaseHeader.FindSet(true) then
             repeat
                 if NeedsWhseReceipt(L_PurchaseHeader) then begin
