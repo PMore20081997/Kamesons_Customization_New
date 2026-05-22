@@ -192,16 +192,16 @@ codeunit 99983 "Put-Away Mgt. NDPP"
 
         ReceiveBin := GetItemBulkBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), ItemNo);
 
-        if ReceiveBin <> '' then begin
-            ReceiveBinContent.SetRange("Location Code", G_KamWhseSetupLookup.GetReceiveLocation());
-            ReceiveBinContent.SetRange("Bin Code", ReceiveBin);
-            ReceiveBinContent.SetRange("Item No.", ItemNo);
-            if ReceiveBinContent.FindSet() then
-                repeat
-                    ReceiveBinContent.CalcFields("Quantity (Base)");
-                    AvailableBaseQty += ReceiveBinContent."Quantity (Base)";
-                until ReceiveBinContent.Next() = 0;
-        end;
+        /* if ReceiveBin <> '' then begin
+             ReceiveBinContent.SetRange("Location Code", G_KamWhseSetupLookup.GetReceiveLocation());
+             ReceiveBinContent.SetRange("Bin Code", ReceiveBin);
+             ReceiveBinContent.SetRange("Item No.", ItemNo);
+             if ReceiveBinContent.FindSet() then
+                 repeat
+                     ReceiveBinContent.CalcFields("Quantity (Base)");
+                     AvailableBaseQty += ReceiveBinContent."Quantity (Base)";
+                 until ReceiveBinContent.Next() = 0;
+         end;*/
 
         exit(AvailableBaseQty < MinBaseQty);
     end;
