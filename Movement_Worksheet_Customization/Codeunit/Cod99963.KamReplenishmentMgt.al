@@ -28,6 +28,8 @@ codeunit 99963 "Kam Replenishment Mgt."
         GenDecantZone: Code[10];
         HighBayZone: Code[10];
         PickBulkZone: Code[10];
+        BulkDecantBin: Code[20];
+        GenDecantBin: Code[20];
         DoNotFillQtytoHandle: Boolean;
         NextLineNo: Integer;
         LinesInserted: Integer;
@@ -72,6 +74,11 @@ codeunit 99963 "Kam Replenishment Mgt."
             Error(PickBulkZoneNotFoundErr);
         if GenDecantZone = '' then
             Error(GenDecantZoneNotFoundErr);
+
+        // RECEIVE holds exactly one bin per routing type. Resolve them once;
+        // GetBulkBin / GetFlowrackBin throw if their flagged bin is missing.
+        BulkDecantBin := SetupLookup.GetBulkBin(ReceiveLocation);
+        GenDecantBin := SetupLookup.GetFlowrackBin(ReceiveLocation);
 
         SetNextLineNo();
         LinesInserted := 0;
@@ -145,7 +152,6 @@ codeunit 99963 "Kam Replenishment Mgt."
     local procedure ProcessBulkItem(var BinContent: Record "Bin Content"; ToZoneCode: Code[10])
     var
         FEFOQuery: Query "FEFO Whse Entry HIGHBAY";
-        BinCapacities: Dictionary of [Code[20], Decimal];
         PickBulkAvailBase: Decimal;
         MinQtyBase: Decimal;
         MaxQtyBase: Decimal;
@@ -153,7 +159,7 @@ codeunit 99963 "Kam Replenishment Mgt."
         LotAvailBase: Decimal;
         PendingLotBase: Decimal;
         MoveQtyBase: Decimal;
-        PlacedBase: Decimal;
+        DestBin: Code[20];
     begin
         // Trigger: PICK BULK bin available qty < PICK BULK Min. Qty.
         PickBulkAvailBase := BinContent.CalcQtyAvailToTake(0);
@@ -174,11 +180,13 @@ codeunit 99963 "Kam Replenishment Mgt."
         if NeedQtyBase <= 0 then
             exit;
 
-        BuildDestBinCapacities(BinContent."Item No.", ToZoneCode, BinCapacities);
-        if BinCapacities.Count() = 0 then
-            exit;
+        // RECEIVE holds one bin per routing type — resolved once in Initialize.
+        if ToZoneCode = BulkDecantZone then
+            DestBin := BulkDecantBin
+        else
+            DestBin := GenDecantBin;
 
-        // FEFO from HIGHBAY, partial-lot allowed; placement distributed across destination bins.
+        // FEFO from HIGHBAY, partial-lot allowed; placement is into the single Receive bin.
         FEFOQuery.SetFilter(FEFOQuery.Location_Code, '%1', ReceiveLocation);
         FEFOQuery.SetFilter(FEFOQuery.Zone_Code, '%1', HighBayZone);
         FEFOQuery.SetFilter(FEFOQuery.Item_No_, '%1', BinContent."Item No.");
@@ -195,16 +203,13 @@ codeunit 99963 "Kam Replenishment Mgt."
                 else
                     MoveQtyBase := LotAvailBase;
 
-                PlacedBase := PlaceAcrossDestBins(
-                    BinCapacities, MoveQtyBase, BinContent,
-                    FEFOQuery.Lot_No_, FEFOQuery.Expiration_Date,
+                InsertMovementWkshLine(
+                    BinContent, FEFOQuery.Lot_No_, FEFOQuery.Expiration_Date,
                     FEFOQuery.Unit_of_Measure_Code, FEFOQuery.Qty_per_Unit_of_Measure,
-                    ToZoneCode, FEFOQuery.Bin_Code,
+                    MoveQtyBase, ToZoneCode, DestBin, FEFOQuery.Bin_Code,
                     FEFOQuery.Manufacturer_Code, FEFOQuery.Package_No_);
 
-                NeedQtyBase -= PlacedBase;
-                if PlacedBase = 0 then
-                    break; // destination zone is full
+                NeedQtyBase -= MoveQtyBase;
             end;
         end;
         FEFOQuery.Close();
@@ -214,28 +219,23 @@ codeunit 99963 "Kam Replenishment Mgt."
     var
         BinContentIter: Record "Bin Content";
         FEFOQuery: Query "FEFO Whse Entry HIGHBAY";
-        BinCapacities: Dictionary of [Code[20], Decimal];
         BinAvailBase: Decimal;
         BinMinQtyBase: Decimal;
+        BinGapTotes: Integer;
         QtyPerTote: Decimal;
         LotAvailQtyBase: Decimal;
         PendingLotQtyBase: Decimal;
         MoveQtyBase: Decimal;
-        PlacedBase: Decimal;
-        TotalTargetTotes: Integer;
-        TotalCurrentTotes: Integer;
         DestTotes: Integer;
         ActivityTotes: Integer;
         PendingTotes: Integer;
-        TotesNeeded: Integer;
+        TotesNeededForItem: Integer;
         TotesAvail: Integer;
         TotesToMove: Integer;
-        TotesPlaced: Integer;
-        AnyBinBelowMin: Boolean;
     begin
-        // Aggregate target totes, current totes, and the trigger across every Flowrack
-        // PICK BULK bin holding this item. Trigger fires if any single bin is below its
-        // own Min. Qty. — sized at the item level so multi-bin needs aren't under-staged.
+        // Per-bin gap: each Flowrack bin contributes to the need ONLY if its current
+        // avail is below its own Min. Qty. — full bins are excluded. Sum the gaps
+        // (in tote count) to size what we stage from HIGHBAY.
         BinContentIter.SetRange("Location Code", PickBulkLocation);
         BinContentIter.SetRange("Item No.", BinContent."Item No.");
         if BinContentIter.FindSet() then
@@ -244,27 +244,25 @@ codeunit 99963 "Kam Replenishment Mgt."
                 if BinContentIter.Flowrack then begin
                     BinAvailBase := BinContentIter.CalcQtyAvailToTake(0);
                     BinMinQtyBase := BinContentIter."Min. Qty." * BinContentIter."Qty. per Unit of Measure";
-                    if BinAvailBase < BinMinQtyBase then
-                        AnyBinBelowMin := true;
-                    TotalTargetTotes += BinContentIter."Number of Totes in a Bin";
-                    TotalCurrentTotes += ToteMath.GetPickBulkTotes(BinContentIter);
+                    if BinAvailBase < BinMinQtyBase then begin
+                        BinGapTotes := BinContentIter."Number of Totes in a Bin"
+                                     - ToteMath.GetFlowrackTotes(BinContentIter);
+                        if BinGapTotes > 0 then
+                            TotesNeededForItem += BinGapTotes;
+                    end;
                 end;
             until BinContentIter.Next() = 0;
 
-        if not AnyBinBelowMin then
-            exit;
-        if TotalTargetTotes <= 0 then
+        if TotesNeededForItem = 0 then
             exit;
 
         DestTotes := ToteMath.GetDestinationTotes(ReceiveLocation, ToZoneCode, BinContent."Item No.");
         ActivityTotes := ToteMath.GetActivityTotesToDestination(ReceiveLocation, ToZoneCode, BinContent."Item No.");
         PendingTotes := ToteMath.CountPendingTotesInWorksheet(WhseWkshTemplateName, WhseWkshName, ReceiveLocation, HighBayZone, ToZoneCode, BinContent."Item No.");
-        TotesNeeded := TotalTargetTotes - TotalCurrentTotes - DestTotes - ActivityTotes - PendingTotes;
-        if TotesNeeded <= 0 then
-            exit;
-
-        BuildDestBinCapacities(BinContent."Item No.", ToZoneCode, BinCapacities);
-        if BinCapacities.Count() = 0 then
+        TotesNeededForItem -= DestTotes;
+        TotesNeededForItem -= ActivityTotes;
+        TotesNeededForItem -= PendingTotes;
+        if TotesNeededForItem <= 0 then
             exit;
 
         // FEFO from HIGHBAY — whole totes only, per manufacturer's Qty per Tote.
@@ -273,7 +271,7 @@ codeunit 99963 "Kam Replenishment Mgt."
         FEFOQuery.SetFilter(FEFOQuery.Item_No_, '%1', BinContent."Item No.");
         FEFOQuery.SetFilter(FEFOQuery.Quantity_Base, '>%1', 0);
         FEFOQuery.Open();
-        while FEFOQuery.Read() and (TotesNeeded > 0) do begin
+        while FEFOQuery.Read() and (TotesNeededForItem > 0) do begin
             QtyPerTote := ToteMath.GetQtyPerTote(BinContent."Item No.", FEFOQuery.Manufacturer_Code);
             if QtyPerTote > 0 then begin
                 LotAvailQtyBase := FEFOQuery.Quantity_Base;
@@ -282,116 +280,25 @@ codeunit 99963 "Kam Replenishment Mgt."
 
                 if LotAvailQtyBase >= QtyPerTote then begin
                     TotesAvail := Round(LotAvailQtyBase / QtyPerTote, 1, '>');
-                    if TotesAvail > TotesNeeded then
-                        TotesToMove := TotesNeeded
+                    if TotesAvail > TotesNeededForItem then
+                        TotesToMove := TotesNeededForItem
                     else
                         TotesToMove := TotesAvail;
 
                     if TotesToMove > 0 then begin
                         MoveQtyBase := TotesToMove * QtyPerTote;
-                        PlacedBase := PlaceAcrossDestBins(
-                            BinCapacities, MoveQtyBase, BinContent,
-                            FEFOQuery.Lot_No_, FEFOQuery.Expiration_Date,
+                        InsertMovementWkshLine(
+                            BinContent, FEFOQuery.Lot_No_, FEFOQuery.Expiration_Date,
                             FEFOQuery.Unit_of_Measure_Code, FEFOQuery.Qty_per_Unit_of_Measure,
-                            ToZoneCode, FEFOQuery.Bin_Code,
+                            MoveQtyBase, ToZoneCode, GenDecantBin, FEFOQuery.Bin_Code,
                             FEFOQuery.Manufacturer_Code, FEFOQuery.Package_No_);
 
-                        // Convert placed base qty back to whole totes for the counter.
-                        TotesPlaced := Round(PlacedBase / QtyPerTote, 1, '<');
-                        TotesNeeded -= TotesPlaced;
-                        if PlacedBase = 0 then
-                            break; // destination zone is full
+                        TotesNeededForItem -= TotesToMove;
                     end;
                 end;
             end;
         end;
         FEFOQuery.Close();
-    end;
-
-    /// <summary>
-    /// Computes remaining capacity (base qty) for every destination bin in the zone
-    /// holding the item. Capacity = Max.Qty. − current avail − in-flight Place activity
-    /// − pending worksheet lines, all targeting that specific bin.
-    /// </summary>
-    local procedure BuildDestBinCapacities(ItemNo: Code[20]; ToZoneCode: Code[10]; var BinCapacities: Dictionary of [Code[20], Decimal])
-    var
-        BinContent: Record "Bin Content";
-        WhseActLine: Record "Warehouse Activity Line";
-        WhseWkshLine: Record "Whse. Worksheet Line";
-        MaxQtyBase: Decimal;
-        Capacity: Decimal;
-    begin
-        Clear(BinCapacities);
-        BinContent.SetRange("Location Code", ReceiveLocation);
-        BinContent.SetRange("Zone Code", ToZoneCode);
-        BinContent.SetRange("Item No.", ItemNo);
-        if BinContent.FindSet() then
-            repeat
-                MaxQtyBase := BinContent."Max. Qty." * BinContent."Qty. per Unit of Measure";
-                if MaxQtyBase > 0 then begin
-                    WhseActLine.Reset();
-                    WhseActLine.SetRange("Activity Type", WhseActLine."Activity Type"::Movement);
-                    WhseActLine.SetRange("Action Type", WhseActLine."Action Type"::Place);
-                    WhseActLine.SetRange("Location Code", ReceiveLocation);
-                    WhseActLine.SetRange("Zone Code", ToZoneCode);
-                    WhseActLine.SetRange("Bin Code", BinContent."Bin Code");
-                    WhseActLine.SetRange("Item No.", ItemNo);
-                    WhseActLine.CalcSums("Qty. Outstanding (Base)");
-
-                    WhseWkshLine.Reset();
-                    WhseWkshLine.SetRange("Worksheet Template Name", WhseWkshTemplateName);
-                    WhseWkshLine.SetRange(Name, WhseWkshName);
-                    WhseWkshLine.SetRange("Location Code", ReceiveLocation);
-                    WhseWkshLine.SetRange("From Zone Code", HighBayZone);
-                    WhseWkshLine.SetRange("To Zone Code", ToZoneCode);
-                    WhseWkshLine.SetRange("To Bin Code", BinContent."Bin Code");
-                    WhseWkshLine.SetRange("Item No.", ItemNo);
-                    WhseWkshLine.CalcSums("Qty. (Base)");
-
-                    Capacity := MaxQtyBase
-                              - BinContent.CalcQtyAvailToTake(0)
-                              - WhseActLine."Qty. Outstanding (Base)"
-                              - WhseWkshLine."Qty. (Base)";
-                    if Capacity > 0 then
-                        BinCapacities.Add(BinContent."Bin Code", Capacity);
-                end;
-            until BinContent.Next() = 0;
-    end;
-
-    /// <summary>
-    /// Distributes a quantity across destination bins, oldest map order first, capped
-    /// per bin by remaining capacity. Inserts one worksheet line per bin that receives
-    /// stock; decrements the capacity map in place. Returns total base qty actually placed.
-    /// </summary>
-    local procedure PlaceAcrossDestBins(var BinCapacities: Dictionary of [Code[20], Decimal]; QtyToPlaceBase: Decimal; var BinContent: Record "Bin Content"; LotNo: Code[50]; ExpirationDate: Date; UoMCode: Code[10]; QtyPerUoM: Decimal; ToZoneCode: Code[10]; FromBinCode: Code[20]; ManufacturerCode: Code[10]; PackageNo: Code[50]): Decimal
-    var
-        BinCodes: List of [Code[20]];
-        BinCode: Code[20];
-        Cap: Decimal;
-        Portion: Decimal;
-        Placed: Decimal;
-    begin
-        BinCodes := BinCapacities.Keys();
-        foreach BinCode in BinCodes do begin
-            if QtyToPlaceBase <= 0 then
-                break;
-            Cap := BinCapacities.Get(BinCode);
-            if Cap <= 0 then
-                continue;
-            if Cap >= QtyToPlaceBase then
-                Portion := QtyToPlaceBase
-            else
-                Portion := Cap;
-
-            InsertMovementWkshLine(
-                BinContent, LotNo, ExpirationDate, UoMCode, QtyPerUoM,
-                Portion, ToZoneCode, BinCode, FromBinCode, ManufacturerCode, PackageNo);
-
-            BinCapacities.Set(BinCode, Cap - Portion);
-            QtyToPlaceBase -= Portion;
-            Placed += Portion;
-        end;
-        exit(Placed);
     end;
 
     local procedure InsertMovementWkshLine(var BinContent: Record "Bin Content"; LotNo: Code[50]; ExpirationDate: Date; UoMCode: Code[10]; QtyPerUoM: Decimal; MoveQtyBase: Decimal; ToZoneCode: Code[10]; ToBinCode: Code[20]; FromBinCode: Code[20]; ManufacturerCode: Code[10]; PackageNo: Code[50])

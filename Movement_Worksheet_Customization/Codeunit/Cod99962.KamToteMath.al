@@ -225,9 +225,9 @@ codeunit 99962 "Kam Tote Math"
     end;
 
     /// <summary>
-    /// Whole totes currently inside a PICK BULK bin, summed per manufacturer.
+    /// Whole totes currently inside a FLOWRACK bin, summed per manufacturer.
     /// </summary>
-    procedure GetPickBulkTotes(BinContent: Record "Bin Content"): Integer
+    procedure GetFlowrackTotes(BinContent: Record "Bin Content"): Integer
     var
         WhseEntryQry: Query Warehouse_Entry_Main;
         QtyPerTote: Decimal;
