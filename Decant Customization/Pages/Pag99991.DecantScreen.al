@@ -97,7 +97,7 @@ page 99991 "Decant Screen"
 
                     ItemFilter := L_ItemRef."Item No.";
 
-                    L_SourceZone := L_KamWhseSetupLookup.GetFlowrackZone(CurrentLocationCode);
+                    L_SourceZone := L_KamWhseSetupLookup.GetReceiveFlowrackZone(CurrentLocationCode);
 
                     L_SourceQuery.SetFilter(Item_No_, ItemFilter);
                     if CurrentLocationCode <> '' then
@@ -144,7 +144,7 @@ page 99991 "Decant Screen"
                     L_ItemFilter: Text;
                     L_SourceZone: Code[10];
                 begin
-                    L_SourceZone := L_KamWhseSetupLookup.GetFlowrackZone(CurrentLocationCode);
+                    L_SourceZone := L_KamWhseSetupLookup.GetReceiveFlowrackZone(CurrentLocationCode);
 
                     if CurrentLocationCode <> '' then
                         L_SourceQuery.SetFilter(Location_Code, CurrentLocationCode);
@@ -234,7 +234,7 @@ page 99991 "Decant Screen"
                     if ItemFilter = '' then
                         Error('Please specify the Item No. before selecting a Manufacturer.');
 
-                    L_SourceZone := L_KamWhseSetupLookup.GetFlowrackZone(CurrentLocationCode);
+                    L_SourceZone := L_KamWhseSetupLookup.GetReceiveFlowrackZone(CurrentLocationCode);
 
                     L_SourceQuery.SetFilter(Item_No_, ItemFilter);
                     if CurrentLocationCode <> '' then

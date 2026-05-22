@@ -121,7 +121,7 @@ codeunit 99961 "Kam Whse Setup Lookup"
     /// <summary>
     /// Returns the Zone Code of the Flowrack-flagged bin (was "General Decant" zone).
     /// </summary>
-    procedure GetFlowrackZone(LocationCode: Code[10]): Code[10]
+    procedure GetReceiveFlowrackZone(LocationCode: Code[10]): Code[10]
     var
         Bin: Record Bin;
         BinNotFoundErr: Label 'No bin with the Flowrack flag was found in location %1.', Comment = '%1 = Location Code';
@@ -151,7 +151,7 @@ codeunit 99961 "Kam Whse Setup Lookup"
     //     exit(false);
     // end;
 
-    procedure GetDecantZonefromBinContent(P_LocationCode: Code[10]; _ItemNo: Code[20]): Code[10]
+    procedure GetMainFlowrackZone(P_LocationCode: Code[10]; _ItemNo: Code[20]): Code[10]
     var
         L_Bin: Record Bin;
     begin

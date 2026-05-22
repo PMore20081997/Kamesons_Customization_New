@@ -41,7 +41,7 @@ codeunit 99991 "Decant Reclass Mgt."
         SourceZone: Code[10];
         DestZone: Code[10];
         NextLineNo: Integer;
-        BinsSkippedNoMaxQty: Integer;
+        BinsSkippedNoToteConfig: Integer;
         IsHandled: Boolean;
         StartTime: DateTime;
     begin
@@ -54,8 +54,8 @@ codeunit 99991 "Decant Reclass Mgt."
 
         ValidateCalculateInputs(SourceLocationCode, DestLocationCode);
 
-        SourceZone := WhseSetupLookup.GetFlowrackZone(SourceLocationCode);
-        DestZone := WhseSetupLookup.GetDecantZonefromBinContent(DestLocationCode, ItemFilter);
+        SourceZone := WhseSetupLookup.GetReceiveFlowrackZone(SourceLocationCode);
+        DestZone := WhseSetupLookup.GetMainFlowrackZone(DestLocationCode, ItemFilter);
 
         if SourceZone = '' then
             Error(GenDecantZoneMissingErr, SourceLocationCode);
@@ -76,8 +76,8 @@ codeunit 99991 "Decant Reclass Mgt."
 
         if BinContent.FindSet() then
             repeat
-                if BinContent."Max. Qty." <= 0 then
-                    BinsSkippedNoMaxQty += 1
+                if BinContent."Number of Totes in a Bin" <= 0 then
+                    BinsSkippedNoToteConfig += 1
                 else
                     AllocateToBin(
                         DecantDetails, TempSource, BinContent,
@@ -87,8 +87,8 @@ codeunit 99991 "Decant Reclass Mgt."
                         NextLineNo);
             until BinContent.Next() = 0;
 
-        if BinsSkippedNoMaxQty > 0 then
-            Message(BinsSkippedMsg, BinsSkippedNoMaxQty);
+        if BinsSkippedNoToteConfig > 0 then
+            Message(BinsSkippedMsg, BinsSkippedNoToteConfig);
 
         OnAfterCalculateDecant(TemplateName, BatchName, NextLineNo);
         LogTelemetry('CalculateDecant', SourceLocationCode, DestLocationCode, NextLineNo, StartTime);
@@ -262,7 +262,9 @@ codeunit 99991 "Decant Reclass Mgt."
         ToteQty: Decimal;
         TotesCreatedForBin: Integer;
     begin
-        RemainingCapacity := BinContent."Max. Qty.";
+        // Bin capacity is driven by Number of Totes in a Bin (custom config)
+        // times the run's Qty per Tote. Max. Qty. is not used for decant.
+        RemainingCapacity := BinContent."Number of Totes in a Bin" * QtyPerToteOverride;
 
         TempSource.Reset();
         TempSource.SetRange("Item No.", BinContent."Item No.");
@@ -569,7 +571,7 @@ codeunit 99991 "Decant Reclass Mgt."
         ItemTemplateMissingErr: Label 'No Item Journal Template of type Transfer (Reclassification) was found. Configure one before running Register.';
         NoLinesToRegisterErr: Label 'There are no Decant Detail lines to register for the selected batch.';
         MissingNewPackageErr: Label 'New Package No. is required on Decant Detail line %1 before registration.', Comment = '%1 = Line No.';
-        BinsSkippedMsg: Label '%1 destination bin(s) were skipped because Max. Qty. is zero. Configure bin capacity to include them.', Comment = '%1 = number of bins';
+        BinsSkippedMsg: Label '%1 destination bin(s) were skipped because Number of Totes in a Bin is zero. Configure the field on Bin Content to include them.', Comment = '%1 = number of bins';
         RegisterCompletedMsg: Label 'Decant reclassification registered successfully.\Template: %1\nBatch: %2', Comment = '%1 = template, %2 = batch';
         DefaultBatchNameTok: Label 'GENDECANT', Locked = true;
         DefaultBatchDescTok: Label 'GEN DECANT Reclassification', Locked = true;

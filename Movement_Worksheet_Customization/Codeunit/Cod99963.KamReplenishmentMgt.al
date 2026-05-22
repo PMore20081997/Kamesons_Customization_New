@@ -56,7 +56,7 @@ codeunit 99963 "Kam Replenishment Mgt."
         ReceiveLocation := SetupLookup.GetReceiveLocation();
 
         BulkDecantZone := SetupLookup.GetBulkZone(ReceiveLocation);
-        GenDecantZone := SetupLookup.GetFlowrackZone(ReceiveLocation);
+        GenDecantZone := SetupLookup.GetReceiveFlowrackZone(ReceiveLocation);
         HighBayZone := SetupLookup.GetHighBayZone(ReceiveLocation);
         PickBulkZone := SetupLookup.GetBulkZone(PickBulkLocation);
 
@@ -110,7 +110,7 @@ codeunit 99963 "Kam Replenishment Mgt."
             Item."Routing Type"::Flowrack,
             Item."Routing Type"::"Static":
                 begin
-                    MainGenDecantZone := SetupLookup.GetFlowrackZone(PickBulkLocation);
+                    MainGenDecantZone := SetupLookup.GetReceiveFlowrackZone(PickBulkLocation);
                     if BinContent."Zone Code" <> MainGenDecantZone then
                         exit;
                     ToZoneCode := GenDecantZone;
