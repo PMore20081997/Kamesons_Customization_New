@@ -601,10 +601,13 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         LastExpiry: Date;
     begin
         // BULK: item-specific bin (multiple BULK bins per location possible).
-        if TargetType = TargetType::BulkDecant then
-            BinCode := GetItemBulkBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), ItemNo)
-        else
-            BinCode := GetTargetBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), TargetType);
+        // if TargetType = TargetType::BulkDecant then
+        //     BinCode := GetItemBulkBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), ItemNo)
+        // else
+        //     BinCode := GetTargetBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), TargetType);
+
+        BinCode := GetItemHighbayBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), ItemNo);
+
         if BinCode = '' then
             exit(0D);
 
@@ -618,6 +621,28 @@ codeunit 99983 "Put-Away Mgt. NDPP"
             LastExpiry := WhseEntryQry.Expiration_Date;
         WhseEntryQry.Close();
         exit(LastExpiry);
+    end;
+
+    local procedure GetItemHighbayBinCode(LocationCode: Code[10]; ItemNo: Code[20]): Code[20]
+    var
+        Bin: Record Bin;
+        BinContent: Record "Bin Content";
+    begin
+        Bin.SetRange("Location Code", LocationCode);
+        Bin.SetRange(Highbay, true);
+        if not Bin.FindSet() then
+            exit('');
+
+        repeat
+            BinContent.Reset();
+            BinContent.SetRange("Location Code", LocationCode);
+            BinContent.SetRange("Bin Code", Bin.Code);
+            BinContent.SetRange("Item No.", ItemNo);
+            if not BinContent.IsEmpty() then
+                exit(Bin.Code);
+        until Bin.Next() = 0;
+
+        exit('');
     end;
 
     /// <summary>
