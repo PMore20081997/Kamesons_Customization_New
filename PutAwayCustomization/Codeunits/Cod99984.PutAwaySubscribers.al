@@ -2,6 +2,7 @@ namespace Kamesons_Customization.Kamesons_Customization;
 
 using Microsoft.Warehouse.Activity;
 using Microsoft.Warehouse.Document;
+using Microsoft.Warehouse.History;
 
 /// <summary>
 /// US 40488 — Event subscribers for the Put-Away routing engine.
@@ -57,6 +58,14 @@ codeunit 99984 "Put-Away Subscribers NDPP"
             LineSpacing := Spacing;
     end;
 
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Create Put-away", OnBeforeCreateNewWhseActivity, '', false, false)]
+    local procedure OnBeforeCreateNewWhseActivity(PostedWhseRcptLine: Record "Posted Whse. Receipt Line")
+    begin
+        PostedWhseRcptLine.SetCurrentKey("Expiration Date");
+        PostedWhseRcptLine.SetAscending("Expiration Date", true);
+    end;
+
     /// <summary>
     /// Cheap shared check — TRUE only for Put-Away Place lines from a Purchase
     /// Order. Used by every system-wide subscriber to bail before calling into
@@ -73,6 +82,7 @@ codeunit 99984 "Put-Away Subscribers NDPP"
             exit(false);
         exit(true);
     end;
+
 
     var
         PutAwayMgt: Codeunit "Put-Away Mgt. NDPP";

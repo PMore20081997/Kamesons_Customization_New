@@ -47,7 +47,7 @@ codeunit 99975 SecondCheck_Events
     procedure ValidateSecondCheck(var PurchaseHeader: Record "Purchase Header")
     var
         L_UserSetup: Record "User Setup";
-        L_SameUserSecondCheck: Label 'You cannot select Second Check as you are the one who created the purchase order. Please select another user or leave it blank.';
+        L_SameUserSecondCheck: Label 'You cannot select Second Check as you are the one who created the purchase order.';
     begin
         if PurchaseHeader."Second Check" <> PurchaseHeader."Second Check"::" " then begin
             PurchaseHeader."Second Check User" := UserId;
