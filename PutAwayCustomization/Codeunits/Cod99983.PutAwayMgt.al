@@ -489,6 +489,7 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         BinEmpty: Integer;
         FilledTotes: Integer;
         TargetTotes: Integer;
+        MinBaseQty: Decimal;
         MainLocation: Code[20];
     begin
         MainLocation := G_KamWhseSetupLookup.GetMainLocation();
@@ -510,12 +511,23 @@ codeunit 99983 "Put-Away Mgt. NDPP"
             BinContent.SetRange("Bin Code", Bin.Code);
             BinContent.SetRange("Item No.", ItemNo);
             if BinContent.FindFirst() then begin
-                TargetTotes := BinContent."Number of Totes in a Bin";
-                if TargetTotes > 0 then begin
-                    FilledTotes := KamToteMath.CountTotesInFLOWRACKBin(BinContent);
-                    BinEmpty := TargetTotes - FilledTotes;
-                    if BinEmpty > 0 then
-                        TotalEmpty += BinEmpty;
+                // Only top up bins that actually need it — i.e. on-hand has dropped
+                // below the bin's own Min Qty. Bins above Min Qty don't accept more
+                // stock at put-away even if they have empty tote slots; that capacity
+                // is reserved for future depletion cycles. Bins with no Min Qty
+                // configured (0) are skipped — no threshold = no replenishment target.
+                MinBaseQty := BinContent."Min. Qty." * BinContent."Qty. per Unit of Measure";
+                if MinBaseQty > 0 then begin
+                    BinContent.CalcFields("Quantity (Base)");
+                    if BinContent."Quantity (Base)" < MinBaseQty then begin
+                        TargetTotes := BinContent."Number of Totes in a Bin";
+                        if TargetTotes > 0 then begin
+                            FilledTotes := KamToteMath.CountTotesInFLOWRACKBin(BinContent);
+                            BinEmpty := TargetTotes - FilledTotes;
+                            if BinEmpty > 0 then
+                                TotalEmpty += BinEmpty;
+                        end;
+                    end;
                 end;
             end;
         until Bin.Next() = 0;
