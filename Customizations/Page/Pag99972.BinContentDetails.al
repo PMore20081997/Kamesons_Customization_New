@@ -118,7 +118,7 @@ page 99972 "Receive Bin Content Details"
             exit;
 
         L_WarehouseEntryReceive.SetRange(Item_No_, ItemNoToShow);
-        L_WarehouseEntryReceive.SetRange(Location_Code, L_KamWhseSetupLookup.GetReceiveLocation());
+        //L_WarehouseEntryReceive.SetRange(Location_Code, L_KamWhseSetupLookup.GetReceiveLocation());
         L_WarehouseEntryReceive.SetFilter(Expiration_Date, '>=%1', WorkDate());
         L_WarehouseEntryReceive.SetFilter(Qty_Base, '>%1', 0);
         L_WarehouseEntryReceive.Open();
