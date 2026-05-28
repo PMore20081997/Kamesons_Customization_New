@@ -22,11 +22,11 @@ pageextension 99957 Sales_Order_Ext extends "Sales Order"
         }
         addlast(factboxes)
         {
-            part(ReceiveBinContentDetails; "Receive Bin Content Details")
+            part(ReceiveBinContentDetails; "Bin Content Details")
             {
                 SubPageLink = "Item No." = field("No.");
                 ApplicationArea = all;
-                Caption = 'Receive Bin Content Details';
+                Caption = 'Bin Content Details';
                 Provider = SalesLines;
             }
             part(ItemManufacturerFactbox; "Item Manufacturer Factbox")

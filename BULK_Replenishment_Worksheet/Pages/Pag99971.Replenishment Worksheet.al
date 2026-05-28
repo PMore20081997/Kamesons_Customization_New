@@ -228,7 +228,7 @@ page 99971 "Replenishment Worksheet"
         }
         area(Factboxes)
         {
-            part(ReceiveBinContentDetails; "Receive Bin Content Details")
+            part(ReceiveBinContentDetails; "Bin Content Details")
             {
                 SubPageLink = "Item No." = field("Item No."), "Location Code" = field("From Location Code");
 

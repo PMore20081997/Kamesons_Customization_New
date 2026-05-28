@@ -2,7 +2,7 @@ namespace Kamesons_Customization.Kamesons_Customization;
 
 using Microsoft.Warehouse.Structure;
 
-page 99972 "Receive Bin Content Details"
+page 99972 "Bin Content Details"
 {
     Caption = 'Bin Content Details';
     PageType = ListPart;
