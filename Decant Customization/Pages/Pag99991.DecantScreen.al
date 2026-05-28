@@ -75,6 +75,7 @@ page 99991 "Decant Screen"
                     L_ItemRef.SetRange("Reference No.", G_ItemBarcode);
                     if not L_ItemRef.FindFirst() then begin
                         ItemFilter := '';
+                        ItemDescription := '';
                         ManufacturerFilter := '';
                         QtyPerToteFilter := 0;
                         CurrPage.Update();
@@ -88,6 +89,7 @@ page 99991 "Decant Screen"
                             [L_Item."Routing Type"::Flowrack, L_Item."Routing Type"::"Static"])
                     then begin
                         ItemFilter := '';
+                        ItemDescription := '';
                         ManufacturerFilter := '';
                         QtyPerToteFilter := 0;
                         CurrPage.Update();
@@ -96,6 +98,7 @@ page 99991 "Decant Screen"
                     end;
 
                     ItemFilter := L_ItemRef."Item No.";
+                    ItemDescription := L_Item.Description;
 
                     L_SourceZone := L_KamWhseSetupLookup.GetReceiveFlowrackZone(CurrentLocationCode);
 
