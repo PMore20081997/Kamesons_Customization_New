@@ -61,6 +61,7 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         IsHandled: Boolean;
         LastDecantExpiry: Date;
         TargetType: Enum "Put-Away Target Zone NDPP";
+        ScopeKey: Text;
     begin
         OnBeforeRoutePutAwayLine(WhseActivityLine, IsHandled);
         if IsHandled then
@@ -68,6 +69,24 @@ codeunit 99983 "Put-Away Mgt. NDPP"
 
         if not IsEligibleForRouting(WhseActivityLine) then
             exit;
+
+        // Reset claims when the (Put-Away Doc No., Item No.) scope changes.
+        //
+        // Why not OnBeforeCode of cod 7313: standard BC calls cod 7313 .Run()
+        // once per Posted Whse. Receipt Line, so an OnBeforeCode reset would
+        // wipe claims between receipt lines of the same put-away document.
+        //
+        // Why include Item No. in the scope: claims should accumulate while
+        // we're routing lots of THE SAME item (so each lot picks a different
+        // Main bin), and start fresh as soon as a different item arrives. The
+        // doc-no. half of the key also stops claims leaking between two
+        // put-aways processed back-to-back in the same session.
+        ScopeKey := WhseActivityLine."No." + '|' + WhseActivityLine."Item No.";
+        if ScopeKey <> G_ClaimScopeKey then begin
+            Clear(G_TargetedBins);
+            //G_CurrentLineMainBin := '';
+            G_ClaimScopeKey := ScopeKey;
+        end;
 
         if not GetCachedItem(WhseActivityLine."Item No.", Item) then
             exit;
@@ -150,7 +169,12 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         MainLocation := G_KamWhseSetupLookup.GetMainLocation();
 
         // Flowrack / Static: walk every flagged Main bin that holds this item.
-        // Return TRUE on the first bin found below its own Min Qty.
+        // Skip Main bins this batch has already CLAIMED for the same item (so
+        // successive lines don't keep targeting the same Main bin's capacity).
+        // On the first unclaimed Main bin found below its own Min Qty: claim
+        // that Main bin and return TRUE. Returns FALSE when no remaining Main
+        // bin qualifies — bypass is exhausted and the line falls through to
+        // the expiry check.
         if TargetType in [TargetType::Flowrack, TargetType::"Static"] then begin
             Bin.SetRange("Location Code", MainLocation);
             case TargetType of
@@ -162,16 +186,21 @@ codeunit 99983 "Put-Away Mgt. NDPP"
             if not Bin.FindSet() then
                 exit(false);
             repeat
-                MainBinContent.Reset();
-                MainBinContent.SetRange("Location Code", MainLocation);
-                MainBinContent.SetRange("Bin Code", Bin.Code);
-                MainBinContent.SetRange("Item No.", ItemNo);
-                if MainBinContent.FindFirst() then begin
-                    MinBaseQty := MainBinContent."Min. Qty." * MainBinContent."Qty. per Unit of Measure";
-                    if MinBaseQty > 0 then begin
-                        MainBinContent.CalcFields("Quantity (Base)");
-                        if MainBinContent."Quantity (Base)" < MinBaseQty then
-                            exit(true);
+                if not IsBinClaimedThisBatch(ItemNo, Bin.Code) then begin
+                    MainBinContent.Reset();
+                    MainBinContent.SetRange("Location Code", MainLocation);
+                    MainBinContent.SetRange("Bin Code", Bin.Code);
+                    MainBinContent.SetRange("Item No.", ItemNo);
+                    if MainBinContent.FindFirst() then begin
+                        MinBaseQty := MainBinContent."Min. Qty." * MainBinContent."Qty. per Unit of Measure";
+                        if MinBaseQty > 0 then begin
+                            MainBinContent.CalcFields("Quantity (Base)");
+                            if MainBinContent."Quantity (Base)" < MinBaseQty then begin
+                                MarkBinClaimedThisBatch(ItemNo, Bin.Code);
+                                //G_CurrentLineMainBin := Bin.Code;
+                                exit(true);
+                            end;
+                        end;
                     end;
                 end;
             until Bin.Next() = 0;
@@ -506,6 +535,12 @@ codeunit 99983 "Put-Away Mgt. NDPP"
             exit(0);
 
         repeat
+            // Sum empty totes across every below-Min bin. The bin-claim mechanism
+            // (G_TargetedBins) is intentionally NOT consulted here — cross-line
+            // capacity dedup is done by CountPendingFlowrackTotes in
+            // ResolveSpaceLeft, which subtracts the totes already consumed by
+            // earlier lines in this batch. Skipping claimed bins here would
+            // double-count that subtraction.
             BinContent.Reset();
             BinContent.SetRange("Location Code", MainLocation);
             BinContent.SetRange("Bin Code", Bin.Code);
@@ -600,6 +635,35 @@ codeunit 99983 "Put-Away Mgt. NDPP"
 
         WhseActivityLine.Validate("Zone Code", Bin."Zone Code");
         WhseActivityLine.Validate("Bin Code", Bin.Code);
+    end;
+
+    /// <summary>
+    /// Resets per-batch routing state. Called from the OnBeforeCode subscriber
+    /// on cod 7313 at the start of every Create Put-away run so claims from a
+    /// previous run don't leak into a new one.
+    /// </summary>
+    procedure ResetBatch()
+    begin
+        Clear(G_TargetedBins);
+    end;
+
+    local procedure IsBinClaimedThisBatch(ItemNo: Code[20]; BinCode: Code[20]): Boolean
+    begin
+        exit(G_TargetedBins.ContainsKey(BinClaimKey(ItemNo, BinCode)));
+    end;
+
+    local procedure MarkBinClaimedThisBatch(ItemNo: Code[20]; BinCode: Code[20])
+    var
+        L_Key: Text;
+    begin
+        L_Key := BinClaimKey(ItemNo, BinCode);
+        if not G_TargetedBins.ContainsKey(L_Key) then
+            G_TargetedBins.Add(L_Key, true);
+    end;
+
+    local procedure BinClaimKey(ItemNo: Code[20]; BinCode: Code[20]): Text
+    begin
+        exit(ItemNo + '|' + BinCode);
     end;
 
     /// <summary>
@@ -997,4 +1061,7 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         G_LineSpacing: Boolean;
         G_CachedItemNo: Code[20];
         G_CachedItem: Record Item;
+        G_TargetedBins: Dictionary of [Text, Boolean];
+        G_ClaimScopeKey: Text;
+        //G_CurrentLineMainBin: Code[20];
 }

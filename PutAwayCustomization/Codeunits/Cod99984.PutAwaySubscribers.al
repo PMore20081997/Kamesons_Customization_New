@@ -19,7 +19,12 @@ codeunit 99984 "Put-Away Subscribers NDPP"
 
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Create Put-away", OnBeforeWhseActivLineInsert, '', false, false)]
     local procedure OnBeforeWhseActivLineInsert(var WarehouseActivityLine: Record "Warehouse Activity Line")
+    var
+        i: Integer;
     begin
+        if WarehouseActivityLine."Item No." = 'W00017' then
+            clear(i);
+            
         PutAwayMgt.RoutePutAwayLine(WarehouseActivityLine);
     end;
 
@@ -65,6 +70,12 @@ codeunit 99984 "Put-Away Subscribers NDPP"
         PostedWhseRcptLine.SetCurrentKey("Expiration Date");
         PostedWhseRcptLine.SetAscending("Expiration Date", true);
     end;
+
+    // Note: previous OnBeforeCode_ResetBatch subscriber removed. Cod 7313 is
+    // .Run() per Posted Whse. Receipt Line in standard BC, so resetting here
+    // wiped MAIN-bin claims between receipt lines of the same put-away doc.
+    // Reset is now triggered by (Doc No. + Item No.) change inside
+    // RoutePutAwayLine — see Cod99983 PutAwayMgt.
 
     /// <summary>
     /// Cheap shared check — TRUE only for Put-Away Place lines from a Purchase
