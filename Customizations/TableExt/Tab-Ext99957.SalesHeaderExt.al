@@ -16,5 +16,10 @@ tableextension 99957 SalesHeaderExt extends "Sales Header"
             Caption = 'Retail';
             DataClassification = CustomerContent;
         }
+        field(99972; "Special Order"; Boolean)
+        {
+            Caption = 'Special Order';
+            DataClassification = CustomerContent;
+        }
     }
 }

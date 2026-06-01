@@ -8,25 +8,25 @@ tableextension 99954 "PurchRcptHeaderExt" extends "Purch. Rcpt. Header"
     {
         field(99950; "Transportation Arranged By"; Code[20]) { }
         field(99951; "Preferred Delivery Date"; Date) { DataClassification = CustomerContent; }
-        field(99952; "Confirmed Delivery Date"; Date) { DataClassification = CustomerContent; }
-        field(99953; "Confirmed Delivery Time"; Time) { DataClassification = CustomerContent; }
-        field(99954; "Confirmed Pallets"; Decimal)
+        field(99952; "Expected Delivery Date"; Date) { DataClassification = CustomerContent; }
+        field(99953; "Expected Delivery Time"; Time) { DataClassification = CustomerContent; }
+        field(99954; "Expected Pallets"; Decimal)
         {
             DataClassification = CustomerContent;
             BlankZero = true;
             DecimalPlaces = 0 : 5;
         }
-        field(99955; "Confirmed Lifts"; Decimal)
+        field(99955; "Expected Lifts"; Decimal)
         {
             DataClassification = CustomerContent;
-            Caption = 'Confirmed Lifts';
+            Caption = 'Expected Lifts';
             BlankZero = true;
             DecimalPlaces = 0 : 5;
         }
-        field(99956; "Confirmed Loose Boxes"; Decimal)
+        field(99956; "Expected Loose Boxes"; Decimal)
         {
             DataClassification = CustomerContent;
-            Caption = 'Confirmed Loose Boxes';
+            Caption = 'Expected Loose Boxes';
             BlankZero = true;
             DecimalPlaces = 0 : 5;
         }

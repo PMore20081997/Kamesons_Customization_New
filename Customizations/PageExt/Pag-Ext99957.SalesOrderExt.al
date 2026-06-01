@@ -6,6 +6,14 @@ pageextension 99957 Sales_Order_Ext extends "Sales Order"
 {
     layout
     {
+        addlast(General)
+        {
+            field("Special Order"; Rec."Special Order")
+            {
+                ApplicationArea = All;
+                ToolTip = 'Specifies the value of the Special Order field.', Comment = '%';
+            }
+        }
         addlast("Shipping and Billing")
         {
 

@@ -29,16 +29,22 @@ page 99955 "Item Manufacturer Factbox"
                     ApplicationArea = All;
                     ToolTip = 'Specifies the manufacturer name (from C&D).';
                 }
-                field("Qty per Tote"; Rec."Qty per Tote")
+                // field("Qty per Tote"; Rec."Qty per Tote")
+                // {
+                //     ApplicationArea = All;
+                //     ToolTip = 'Specifies the maximum quantity per tote.';
+                // }
+                field("MainWH Available Qty"; Rec."MainWH Available Qty")
                 {
                     ApplicationArea = All;
-                    ToolTip = 'Specifies the maximum quantity per tote.';
+                    Caption = 'MainWH Available Qty';
+                    ToolTip = 'Net on-hand stock at the Main Warehouse location for this Item / Manufacturer Code (positives minus shipments).';
                 }
-                field("Total Qty. (Base)"; Rec."Total Qty. (Base)")
+                field("GoodsIn Available Qty"; Rec."GoodsIn Available Qty")
                 {
                     ApplicationArea = All;
-                    Caption = 'Available Quantity';
-                    ToolTip = 'On-hand stock in Warehouse Entries for this Item / Manufacturer Code (net of receives and shipments).';
+                    Caption = 'GoodsIn Available Qty';
+                    ToolTip = 'Net on-hand stock at the Goods-In (Receive) location for this Item / Manufacturer Code (positives minus shipments).';
                 }
             }
         }
@@ -82,16 +88,18 @@ page 99955 "Item Manufacturer Factbox"
     end;
 
     /// <summary>
-    /// Aggregates Warehouse Entry rows by Manufacturer Code for the given Item.
-    /// Re-uses the WarehouseEntryReceive query (same source as the Bin Content
-    /// Details factbox). Manufacturer Name and Qty per Tote come from the
-    /// persisted Item Manufacturer Table; Total Qty. (Base) is summed across
-    /// all matching warehouse entries (positives + negatives = net on-hand).
+    /// Aggregates Warehouse Entry rows by Manufacturer Code for the given Item,
+    /// bucketed by location: Main Warehouse vs. Goods-In (Receive) — every
+    /// other location is ignored. Re-uses the WarehouseEntryReceive query
+    /// (same source as the Bin Content Details factbox). Net qty per location
+    /// is the sum of positive receives and negative shipments.
     /// </summary>
     local procedure FillTempTable(ItemNoToShow: Code[20])
     var
         L_WarehouseEntryReceive: Query WarehouseEntryReceive;
         L_PersistedItemMfr: Record "Item Manufacturer Table";
+        L_MainLocation: Code[20];
+        L_ReceiveLocation: Code[20];
     begin
         Rec.Reset();
         Rec.DeleteAll();
@@ -99,15 +107,21 @@ page 99955 "Item Manufacturer Factbox"
         if ItemNoToShow = '' then
             exit;
 
+        L_MainLocation := G_KamWhseSetupLookup.GetMainLocation();
+        L_ReceiveLocation := G_KamWhseSetupLookup.GetReceiveLocation();
+
         L_WarehouseEntryReceive.SetRange(Item_No_, ItemNoToShow);
         L_WarehouseEntryReceive.SetFilter(Manufacturer_Code, '<>%1', '');
         L_WarehouseEntryReceive.Open();
 
         while L_WarehouseEntryReceive.Read() do begin
-            if Rec.Get(L_WarehouseEntryReceive.Item_No_, L_WarehouseEntryReceive.Manufacturer_Code) then begin
-                Rec."Total Qty. (Base)" += L_WarehouseEntryReceive.Qty_Base;
-                Rec.Modify();
-            end else begin
+            // Skip locations that are neither Main nor Goods-In.
+            if (L_WarehouseEntryReceive.Location_Code <> L_MainLocation) and
+               (L_WarehouseEntryReceive.Location_Code <> L_ReceiveLocation)
+            then
+                continue;
+
+            if not Rec.Get(L_WarehouseEntryReceive.Item_No_, L_WarehouseEntryReceive.Manufacturer_Code) then begin
                 Rec.Init();
                 Rec."Item No" := L_WarehouseEntryReceive.Item_No_;
                 Rec."Manufacturer code" := L_WarehouseEntryReceive.Manufacturer_Code;
@@ -115,14 +129,20 @@ page 99955 "Item Manufacturer Factbox"
                     Rec."Manufacturer Name" := L_PersistedItemMfr."Manufacturer Name";
                     Rec."Qty per Tote" := L_PersistedItemMfr."Qty per Tote";
                 end;
-                Rec."Total Qty. (Base)" := L_WarehouseEntryReceive.Qty_Base;
                 Rec.Insert();
             end;
+
+            if L_WarehouseEntryReceive.Location_Code = L_MainLocation then
+                Rec."MainWH Available Qty" += L_WarehouseEntryReceive.Qty_Base
+            else
+                Rec."GoodsIn Available Qty" += L_WarehouseEntryReceive.Qty_Base;
+            Rec.Modify();
         end;
         L_WarehouseEntryReceive.Close();
     end;
 
     var
+        G_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
         G_LastItemNo: Code[20];
         G_Loaded: Boolean;
 }

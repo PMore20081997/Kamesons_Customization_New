@@ -9,6 +9,18 @@ tableextension 99975 Purchase_Header_Ext extends "Purchase Header"
 {
     fields
     {
+        field(99954; "Expected Pallets"; Decimal)
+        {
+            DataClassification = CustomerContent;
+            BlankZero = true;
+            DecimalPlaces = 0 : 5;
+        }
+        field(99959; "Received Pallets"; Decimal)
+        {
+            DataClassification = CustomerContent;
+            BlankZero = true;
+            DecimalPlaces = 0 : 5;
+        }
         field(99971; "Second Check"; Enum "Second Check Status")
         {
             trigger OnValidate()

@@ -15,23 +15,23 @@ pageextension 99951 "Warehouse Receipt Card Ext" extends "Warehouse Receipt"
                 {
                     ApplicationArea = Warehouse;
                 }
-                field("Confirmed Delivery Date"; Rec."Confirmed Delivery Date")
+                field("Expected Delivery Date"; Rec."Expected Delivery Date")
                 {
                     ApplicationArea = Warehouse;
                 }
-                field("Confirmed Delivery Time"; Rec."Confirmed Delivery Time")
+                field("Expected Delivery Time"; Rec."Expected Delivery Time")
                 {
                     ApplicationArea = Warehouse;
                 }
-                field("Confirmed Pallets"; Rec."Confirmed Pallets")
+                field("Expected Pallets"; Rec."Expected Pallets")
                 {
                     ApplicationArea = Warehouse;
                 }
-                field("Confirmed Lifts"; Rec."Confirmed Lifts")
+                field("Expected Lifts"; Rec."Expected Lifts")
                 {
                     ApplicationArea = Warehouse;
                 }
-                field("Confirmed Loose Boxes"; Rec."Confirmed Loose Boxes")
+                field("Expected Loose Boxes"; Rec."Expected Loose Boxes")
                 {
                     ApplicationArea = Warehouse;
                 }

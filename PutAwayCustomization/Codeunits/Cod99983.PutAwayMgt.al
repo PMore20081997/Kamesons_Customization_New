@@ -362,7 +362,7 @@ codeunit 99983 "Put-Away Mgt. NDPP"
             end;
         end;
 
-        if Item."Routing Type" in [Item."Routing Type"::Flowrack, Item."Routing Type"::"Static"] then begin
+        if Item."Routing Type" = Item."Routing Type"::Flowrack then begin
             QtyPerTote := KamToteMath.GetQtyPerTote(WhseActivityLine."Item No.", WhseActivityLine."Manufacturer Code");
             if QtyPerTote <= 0 then
                 exit(0);

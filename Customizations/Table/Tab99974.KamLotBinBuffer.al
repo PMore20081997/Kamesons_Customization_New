@@ -67,6 +67,11 @@ table 99974 "Kam Lot Bin Buffer"
             Caption = 'Max. Qty.';
             DecimalPlaces = 0 : 5;
         }
+        field(15; "Available Qty. (Base)"; Decimal)
+        {
+            Caption = 'Available Qty. (Base)';
+            DecimalPlaces = 0 : 5;
+        }
     }
 
     keys

@@ -22,10 +22,10 @@ pageextension 99955 WhseReceiptsExt extends "Warehouse Receipts"
                 Caption = 'Vendor Name';
                 ToolTip = 'Vendor Name taken from the source Purchase Order on the first Warehouse Receipt Line.';
             }
-            field("Confirmed Delivery Date"; Rec."Confirmed Delivery Date")
+            field("Expected Delivery Date"; Rec."Expected Delivery Date")
             {
                 ApplicationArea = All;
-                ToolTip = 'Specifies the value of the Confirmed Delivery Date field.', Comment = '%';
+                ToolTip = 'Specifies the value of the Expected Delivery Date field.', Comment = '%';
             }
             field("Shipping Carrier"; Rec."Shipping Carrier")
             {

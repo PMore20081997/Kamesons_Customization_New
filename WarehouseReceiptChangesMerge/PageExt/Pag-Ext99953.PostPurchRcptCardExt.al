@@ -21,27 +21,27 @@ pageextension 99953 PostPurchRcptCardExt extends "Posted Purchase Receipt"
                     ApplicationArea = Warehouse;
                     Editable = false;
                 }
-                field("Confirmed Delivery Date"; Rec."Confirmed Delivery Date")
+                field("Expected Delivery Date"; Rec."Expected Delivery Date")
                 {
                     ApplicationArea = Warehouse;
                     Editable = false;
                 }
-                field("Confirmed Delivery Time"; Rec."Confirmed Delivery Time")
+                field("Expected Delivery Time"; Rec."Expected Delivery Time")
                 {
                     ApplicationArea = Warehouse;
                     Editable = false;
                 }
-                field("Confirmed Pallets"; Rec."Confirmed Pallets")
+                field("Expected Pallets"; Rec."Expected Pallets")
                 {
                     ApplicationArea = Warehouse;
                     Editable = false;
                 }
-                field("Confirmed Lifts"; Rec."Confirmed Lifts")
+                field("Expected Lifts"; Rec."Expected Lifts")
                 {
                     ApplicationArea = Warehouse;
                     Editable = false;
                 }
-                field("Confirmed Loose Boxes"; Rec."Confirmed Loose Boxes")
+                field("Expected Loose Boxes"; Rec."Expected Loose Boxes")
                 {
                     ApplicationArea = Warehouse;
                     Editable = false;

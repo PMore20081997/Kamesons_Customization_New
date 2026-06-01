@@ -11,33 +11,33 @@ tableextension 99950 "Warehousereceiptheaderext" extends "Warehouse Receipt Head
             DataClassification = CustomerContent;
             NotBlank = true;
         }
-        field(99952; "Confirmed Delivery Date"; Date)
+        field(99952; "Expected Delivery Date"; Date)
         {
             DataClassification = CustomerContent;
             NotBlank = true;
         }
-        field(99953; "Confirmed Delivery Time"; Time)
+        field(99953; "Expected Delivery Time"; Time)
         {
             DataClassification = CustomerContent;
             NotBlank = true;
         }
-        field(99954; "Confirmed Pallets"; Decimal)
+        field(99954; "Expected Pallets"; Decimal)
         {
             DataClassification = CustomerContent;
             BlankZero = true;
             DecimalPlaces = 0 : 5;
         }
-        field(99955; "Confirmed Lifts"; Decimal)
+        field(99955; "Expected Lifts"; Decimal)
         {
             DataClassification = CustomerContent;
-            Caption = 'Confirmed Lifts';
+            Caption = 'Expected Lifts';
             BlankZero = true;
             DecimalPlaces = 0 : 5;
         }
-        field(99956; "Confirmed Loose Boxes"; Decimal)
+        field(99956; "Expected Loose Boxes"; Decimal)
         {
             DataClassification = CustomerContent;
-            Caption = 'Confirmed Loose Boxes';
+            Caption = 'Expected Loose Boxes';
             BlankZero = true;
             DecimalPlaces = 0 : 5;
         }

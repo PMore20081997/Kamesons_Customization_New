@@ -15,9 +15,17 @@ tableextension 99976 ItemManufacturerExt extends "Item Manufacturer Table"
         // a Warehouse Entry query aggregation (same pattern as the Bin
         // Content Details factbox), so this is a regular Decimal — not a
         // FlowField — and is only meaningful on the page's temporary buffer.
-        field(99972; "Total Qty. (Base)"; Decimal)
+        field(99972; "MainWH Available Qty"; Decimal)
         {
-            Caption = 'Available Quantity';
+            Caption = 'MainWH Available Qty';
+            DataClassification = CustomerContent;
+            Editable = false;
+            BlankZero = true;
+            DecimalPlaces = 0 : 5;
+        }
+        field(99973; "GoodsIn Available Qty"; Decimal)
+        {
+            Caption = 'GoodsIn Available Qty';
             DataClassification = CustomerContent;
             Editable = false;
             BlankZero = true;

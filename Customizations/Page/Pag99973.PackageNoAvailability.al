@@ -1,8 +1,8 @@
 namespace Kamesons_Customization.Kamesons_Customization;
 
-using Microsoft.Warehouse.Structure;
 using Microsoft.Inventory.Item;
 using Microsoft.Inventory.Location;
+using Microsoft.Inventory.Tracking;
 
 page 99973 "Package No. Availability"
 {
@@ -98,6 +98,12 @@ page 99973 "Package No. Availability"
                 {
                     ApplicationArea = All;
                     ToolTip = 'Specifies how many items with the package exist in the bin.';
+                }
+                field("Available Qty. (Base)"; Rec."Available Qty. (Base)")
+                {
+                    ApplicationArea = All;
+                    Caption = 'Available Qty.';
+                    ToolTip = 'On-hand qty minus any qty already allocated on outstanding outbound Warehouse Activity Lines (Pick, Movement, etc. — Action Type = Take) for the same Item / Location / Bin / Lot / Package / UOM.';
                 }
                 field("Lot No."; Rec."Lot No.")
                 {
@@ -208,9 +214,45 @@ page 99973 "Package No. Availability"
             Rec."Manufacturer Code" := L_WarehouseEntry.Manufacturer_Code;
             Rec."Qty. (Base)" := L_WarehouseEntry.Qty_Base;
             Rec."Expiration Date" := L_WarehouseEntry.Expiration_Date;
+            Rec."Available Qty. (Base)" := Rec."Qty. (Base)" - GetCommittedBaseQty(
+                Rec."Location Code", Rec."Item No.", Rec."Variant Code",
+                Rec."Lot No.", Rec."Package No.");
             Rec.Insert();
         end;
         L_WarehouseEntry.Close();
+    end;
+
+    /// <summary>
+    /// Sum of outbound qty committed against this exact Item / Location / Lot /
+    /// Package / Variant via Reservation Entries. Covers every outbound source
+    /// type (Sales Line, Transfer Line, Service Line, Job Planning Line,
+    /// Production / Assembly Component, etc.) — Reservation Entry is the
+    /// single lot/package-aware commitment store in BC.
+    ///
+    /// Model A trade-off (intentional): if a non-tracked Sales Order has had a
+    /// pick created where the picker assigned a specific Lot/Package at pick
+    /// time, no Reservation Entry exists for it and this row will not be
+    /// deducted. Acceptable when item tracking is enforced on every outbound
+    /// document before picks are created (typical lot-controlled workflow).
+    /// If non-tracked-sale picks against specific lots become common, switch
+    /// to Model C (dedupe between Reservation Entry and Warehouse Activity
+    /// Line by Source Sales Line keys).
+    /// </summary>
+    local procedure GetCommittedBaseQty(LocationCode: Code[10]; ItemNo: Code[20]; VariantCode: Code[10]; LotNo: Code[50]; PackageNo: Code[50]): Decimal
+    var
+        L_ReservEntry: Record "Reservation Entry";
+    begin
+        L_ReservEntry.SetRange("Item No.", ItemNo);
+        L_ReservEntry.SetRange("Variant Code", VariantCode);
+        L_ReservEntry.SetRange("Location Code", LocationCode);
+        L_ReservEntry.SetRange("Lot No.", LotNo);
+        L_ReservEntry.SetRange("Package No.", PackageNo);
+        L_ReservEntry.SetFilter("Reservation Status", '%1|%2',
+            L_ReservEntry."Reservation Status"::Reservation,
+            L_ReservEntry."Reservation Status"::Tracking);
+        L_ReservEntry.SetFilter("Quantity (Base)", '<%1', 0); // demand side only
+        L_ReservEntry.CalcSums("Quantity (Base)");
+        exit(-L_ReservEntry."Quantity (Base)");
     end;
 
     var
