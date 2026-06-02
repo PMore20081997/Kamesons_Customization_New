@@ -24,27 +24,28 @@ codeunit 99963 "Kam Replenishment Mgt."
         WhseWkshName: Code[10];
         PickBulkLocation: Code[10];
         ReceiveLocation: Code[10];
-        BulkDecantZone: Code[10];
-        GenDecantZone: Code[10];
-        HighBayZone: Code[10];
-        PickBulkZone: Code[10];
         BulkDecantBin: Code[20];
         GenDecantBin: Code[20];
+        StaticDecantBin: Code[20];
+        HighBayBin: Code[20];
+        PickBulkBin: Code[20];
         DoNotFillQtytoHandle: Boolean;
         NextLineNo: Integer;
         LinesInserted: Integer;
         ProcessedFlowrackItems: List of [Code[20]];
         PickBulkLocNotSetErr: Label 'The PICK BULK Location is not set. Configure it in Warehouse Setup (MAIN Warehouse) or enter it on the request page.';
         ReceiveLocNotSetErr: Label 'The BULK Location is not set. Configure the RECEIVE Warehouse in Warehouse Setup.';
-        BulkDecantZoneNotFoundErr: Label 'No zone with the Bulk flag was found in the BULK Location.';
-        HighBayZoneNotFoundErr: Label 'No zone with the High Bay flag was found in the BULK Location.';
-        PickBulkZoneNotFoundErr: Label 'No zone with the Bulk flag was found in the PICK BULK Location.';
-        GenDecantZoneNotFoundErr: Label 'No zone with the General Decant flag was found in the BULK Location.';
+        BulkDecantBinNotFoundErr: Label 'No bin with the Bulk flag was found in the BULK Location.';
+        HighBayBinNotFoundErr: Label 'No bin with the High Bay flag was found in the BULK Location.';
+        PickBulkBinNotFoundErr: Label 'No bin with the Bulk flag was found in the PICK BULK Location.';
+        GenDecantBinNotFoundErr: Label 'No bin with the Flowrack flag was found in the BULK Location.';
+        StaticBinNotFoundErr: Label 'No bin with the Static flag was found in the BULK Location.';
 
     /// <summary>
-    /// Captures request parameters, resolves all warehouse zones, and primes the
-    /// next worksheet line number. Must be called once before the first
-    /// ProcessBinContent call (typically in OnPreDataItem).
+    /// Captures request parameters, resolves all warehouse bins (by Boolean
+    /// flag on the Bin record), and primes the next worksheet line number.
+    /// Must be called once before the first ProcessBinContent call (typically
+    /// in OnPreDataItem).
     /// </summary>
     procedure Initialize(WkshTemplate: Code[10]; Wksh: Code[10]; PickBulkLoc: Code[10]; SkipQtyToHandle: Boolean)
     begin
@@ -57,28 +58,31 @@ codeunit 99963 "Kam Replenishment Mgt."
             PickBulkLocation := SetupLookup.GetMainLocation();
         ReceiveLocation := SetupLookup.GetReceiveLocation();
 
-        BulkDecantZone := SetupLookup.GetBulkZone(ReceiveLocation);
-        GenDecantZone := SetupLookup.GetReceiveFlowrackZone(ReceiveLocation);
-        HighBayZone := SetupLookup.GetHighBayZone(ReceiveLocation);
-        PickBulkZone := SetupLookup.GetBulkZone(PickBulkLocation);
-
         if PickBulkLocation = '' then
             Error(PickBulkLocNotSetErr);
         if ReceiveLocation = '' then
             Error(ReceiveLocNotSetErr);
-        if BulkDecantZone = '' then
-            Error(BulkDecantZoneNotFoundErr);
-        if HighBayZone = '' then
-            Error(HighBayZoneNotFoundErr);
-        if PickBulkZone = '' then
-            Error(PickBulkZoneNotFoundErr);
-        if GenDecantZone = '' then
-            Error(GenDecantZoneNotFoundErr);
 
-        // RECEIVE holds exactly one bin per routing type. Resolve them once;
-        // GetBulkBin / GetFlowrackBin throw if their flagged bin is missing.
+        // RECEIVE holds exactly one bin per routing type. PICK BULK has one
+        // BULK bin. All resolved by Boolean flag on Bin. Get* helpers throw
+        // if their flagged bin is missing — the defensive '' checks below
+        // are belt-and-braces only.
         BulkDecantBin := SetupLookup.GetBulkBin(ReceiveLocation);
         GenDecantBin := SetupLookup.GetFlowrackBin(ReceiveLocation);
+        StaticDecantBin := SetupLookup.GetStaticBin(ReceiveLocation);
+        HighBayBin := SetupLookup.GetHighBayBin(ReceiveLocation);
+        PickBulkBin := SetupLookup.GetBulkBin(PickBulkLocation);
+
+        if BulkDecantBin = '' then
+            Error(BulkDecantBinNotFoundErr);
+        if HighBayBin = '' then
+            Error(HighBayBinNotFoundErr);
+        if PickBulkBin = '' then
+            Error(PickBulkBinNotFoundErr);
+        if GenDecantBin = '' then
+            Error(GenDecantBinNotFoundErr);
+        if StaticDecantBin = '' then
+            Error(StaticBinNotFoundErr);
 
         SetNextLineNo();
         LinesInserted := 0;
@@ -92,8 +96,8 @@ codeunit 99963 "Kam Replenishment Mgt."
     procedure ProcessBinContent(var BinContent: Record "Bin Content")
     var
         Item: Record Item;
-        ToZoneCode: Code[10];
-        MainGenDecantZone: Code[10];
+        Bin: Record Bin;
+        ToBinCode: Code[20];
         IsHandled: Boolean;
     begin
         OnBeforeProcessBinContent(BinContent, IsHandled);
@@ -107,20 +111,30 @@ codeunit 99963 "Kam Replenishment Mgt."
         if not Item.Get(BinContent."Item No.") then
             exit;
 
+        // MAIN may have multiple bins of each routing type for the same item
+        // (e.g. several Flowrack bins, several Static bins). Match by the bin's
+        // Boolean flag on the Bin record, not by a single resolved Bin Code.
+        if not Bin.Get(BinContent."Location Code", BinContent."Bin Code") then
+            exit;
+
         case Item."Routing Type" of
             Item."Routing Type"::BULK:
                 begin
-                    if BinContent."Zone Code" <> PickBulkZone then
+                    if not Bin.Bulk then
                         exit;
-                    ToZoneCode := BulkDecantZone;
+                    ToBinCode := BulkDecantBin;
                 end;
-            Item."Routing Type"::Flowrack,
+            Item."Routing Type"::Flowrack:
+                begin
+                    if not Bin.Flowrack then
+                        exit;
+                    ToBinCode := GenDecantBin;
+                end;
             Item."Routing Type"::"Static":
                 begin
-                    MainGenDecantZone := SetupLookup.GetReceiveFlowrackZone(PickBulkLocation);
-                    if BinContent."Zone Code" <> MainGenDecantZone then
+                    if not Bin."Static" then
                         exit;
-                    ToZoneCode := GenDecantZone;
+                    ToBinCode := StaticDecantBin;
                 end;
             else
                 exit;
@@ -129,7 +143,7 @@ codeunit 99963 "Kam Replenishment Mgt."
         case Item."Routing Type" of
             Item."Routing Type"::BULK,
             Item."Routing Type"::"Static":
-                ProcessBulkItem(BinContent, ToZoneCode);
+                ProcessBulkItem(BinContent, ToBinCode);
             Item."Routing Type"::Flowrack:
                 begin
                     // Flowrack items can occupy multiple PICK BULK bins. Aggregate the need
@@ -137,7 +151,7 @@ codeunit 99963 "Kam Replenishment Mgt."
                     if ProcessedFlowrackItems.Contains(BinContent."Item No.") then
                         exit;
                     ProcessedFlowrackItems.Add(BinContent."Item No.");
-                    ProcessFlowrackItem(BinContent, ToZoneCode);
+                    ProcessFlowrackItem(BinContent, ToBinCode);
                 end;
         end;
 
@@ -149,7 +163,7 @@ codeunit 99963 "Kam Replenishment Mgt."
         exit(LinesInserted);
     end;
 
-    local procedure ProcessBulkItem(var BinContent: Record "Bin Content"; ToZoneCode: Code[10])
+    local procedure ProcessBulkItem(var BinContent: Record "Bin Content"; ToBinCode: Code[20])
     var
         FEFOQuery: Query "FEFO Whse Entry HIGHBAY";
         PickBulkAvailBase: Decimal;
@@ -159,7 +173,6 @@ codeunit 99963 "Kam Replenishment Mgt."
         LotAvailBase: Decimal;
         PendingLotBase: Decimal;
         MoveQtyBase: Decimal;
-        DestBin: Code[20];
     begin
         // Trigger: PICK BULK bin available qty < PICK BULK Min. Qty.
         PickBulkAvailBase := BinContent.CalcQtyAvailToTake(0);
@@ -174,21 +187,15 @@ codeunit 99963 "Kam Replenishment Mgt."
         NeedQtyBase :=
             MaxQtyBase
             - PickBulkAvailBase
-            - ToteMath.GetDestinationZoneAvailQty(ReceiveLocation, ToZoneCode, BinContent."Item No.")
-            - ToteMath.GetActivityQtyToDestination(ReceiveLocation, ToZoneCode, BinContent."Item No.")
-            - ToteMath.GetQtyAlreadyInWorksheet(WhseWkshTemplateName, WhseWkshName, ReceiveLocation, HighBayZone, ToZoneCode, BinContent."Item No.");
+            - ToteMath.GetDestinationBinAvailQty(ReceiveLocation, ToBinCode, BinContent."Item No.")
+            - ToteMath.GetActivityQtyToDestination(ReceiveLocation, ToBinCode, BinContent."Item No.")
+            - ToteMath.GetQtyAlreadyInWorksheet(WhseWkshTemplateName, WhseWkshName, ReceiveLocation, HighBayBin, ToBinCode, BinContent."Item No.");
         if NeedQtyBase <= 0 then
             exit;
 
-        // RECEIVE holds one bin per routing type — resolved once in Initialize.
-        if ToZoneCode = BulkDecantZone then
-            DestBin := BulkDecantBin
-        else
-            DestBin := GenDecantBin;
-
-        // FEFO from HIGHBAY, partial-lot allowed; placement is into the single Receive bin.
+        // FEFO from HIGHBAY, partial-lot allowed; placement is into the single Receive bin (ToBinCode).
         FEFOQuery.SetFilter(FEFOQuery.Location_Code, '%1', ReceiveLocation);
-        FEFOQuery.SetFilter(FEFOQuery.Zone_Code, '%1', HighBayZone);
+        FEFOQuery.SetFilter(FEFOQuery.Bin_Code, '%1', HighBayBin);
         FEFOQuery.SetFilter(FEFOQuery.Item_No_, '%1', BinContent."Item No.");
         FEFOQuery.SetFilter(FEFOQuery.Quantity_Base, '>%1', 0);
         FEFOQuery.Open();
@@ -206,7 +213,7 @@ codeunit 99963 "Kam Replenishment Mgt."
                 InsertMovementWkshLine(
                     BinContent, FEFOQuery.Lot_No_, FEFOQuery.Expiration_Date,
                     FEFOQuery.Unit_of_Measure_Code, FEFOQuery.Qty_per_Unit_of_Measure,
-                    MoveQtyBase, ToZoneCode, DestBin, FEFOQuery.Bin_Code,
+                    MoveQtyBase, ToBinCode, FEFOQuery.Bin_Code,
                     FEFOQuery.Manufacturer_Code, FEFOQuery.Package_No_);
 
                 NeedQtyBase -= MoveQtyBase;
@@ -215,7 +222,7 @@ codeunit 99963 "Kam Replenishment Mgt."
         FEFOQuery.Close();
     end;
 
-    local procedure ProcessFlowrackItem(var BinContent: Record "Bin Content"; ToZoneCode: Code[10])
+    local procedure ProcessFlowrackItem(var BinContent: Record "Bin Content"; ToBinCode: Code[20])
     var
         BinContentIter: Record "Bin Content";
         FEFOQuery: Query "FEFO Whse Entry HIGHBAY";
@@ -256,9 +263,9 @@ codeunit 99963 "Kam Replenishment Mgt."
         if TotesNeededForItem = 0 then
             exit;
 
-        DestTotes := ToteMath.GetDestinationTotes(ReceiveLocation, ToZoneCode, BinContent."Item No.");
-        ActivityTotes := ToteMath.GetActivityTotesToDestination(ReceiveLocation, ToZoneCode, BinContent."Item No.");
-        PendingTotes := ToteMath.CountPendingTotesInWorksheet(WhseWkshTemplateName, WhseWkshName, ReceiveLocation, HighBayZone, ToZoneCode, BinContent."Item No.");
+        DestTotes := ToteMath.GetDestinationTotes(ReceiveLocation, ToBinCode, BinContent."Item No.");
+        ActivityTotes := ToteMath.GetActivityTotesToDestination(ReceiveLocation, ToBinCode, BinContent."Item No.");
+        PendingTotes := ToteMath.CountPendingTotesInWorksheet(WhseWkshTemplateName, WhseWkshName, ReceiveLocation, HighBayBin, ToBinCode, BinContent."Item No.");
         TotesNeededForItem -= DestTotes;
         TotesNeededForItem -= ActivityTotes;
         TotesNeededForItem -= PendingTotes;
@@ -267,7 +274,7 @@ codeunit 99963 "Kam Replenishment Mgt."
 
         // FEFO from HIGHBAY — whole totes only, per manufacturer's Qty per Tote.
         FEFOQuery.SetFilter(FEFOQuery.Location_Code, '%1', ReceiveLocation);
-        FEFOQuery.SetFilter(FEFOQuery.Zone_Code, '%1', HighBayZone);
+        FEFOQuery.SetFilter(FEFOQuery.Bin_Code, '%1', HighBayBin);
         FEFOQuery.SetFilter(FEFOQuery.Item_No_, '%1', BinContent."Item No.");
         FEFOQuery.SetFilter(FEFOQuery.Quantity_Base, '>%1', 0);
         FEFOQuery.Open();
@@ -290,7 +297,7 @@ codeunit 99963 "Kam Replenishment Mgt."
                         InsertMovementWkshLine(
                             BinContent, FEFOQuery.Lot_No_, FEFOQuery.Expiration_Date,
                             FEFOQuery.Unit_of_Measure_Code, FEFOQuery.Qty_per_Unit_of_Measure,
-                            MoveQtyBase, ToZoneCode, GenDecantBin, FEFOQuery.Bin_Code,
+                            MoveQtyBase, ToBinCode, FEFOQuery.Bin_Code,
                             FEFOQuery.Manufacturer_Code, FEFOQuery.Package_No_);
 
                         TotesNeededForItem -= TotesToMove;
@@ -301,7 +308,7 @@ codeunit 99963 "Kam Replenishment Mgt."
         FEFOQuery.Close();
     end;
 
-    local procedure InsertMovementWkshLine(var BinContent: Record "Bin Content"; LotNo: Code[50]; ExpirationDate: Date; UoMCode: Code[10]; QtyPerUoM: Decimal; MoveQtyBase: Decimal; ToZoneCode: Code[10]; ToBinCode: Code[20]; FromBinCode: Code[20]; ManufacturerCode: Code[10]; PackageNo: Code[50])
+    local procedure InsertMovementWkshLine(var BinContent: Record "Bin Content"; LotNo: Code[50]; ExpirationDate: Date; UoMCode: Code[10]; QtyPerUoM: Decimal; MoveQtyBase: Decimal; ToBinCode: Code[20]; FromBinCode: Code[20]; ManufacturerCode: Code[10]; PackageNo: Code[50])
     var
         WhseWkshLine: Record "Whse. Worksheet Line";
         Item: Record Item;
@@ -319,10 +326,10 @@ codeunit 99963 "Kam Replenishment Mgt."
             QtyPerUoM := BinContent."Qty. per Unit of Measure";
         WhseWkshLine."Qty. per Unit of Measure" := QtyPerUoM;
 
-        WhseWkshLine."From Zone Code" := HighBayZone;
-        WhseWkshLine."From Bin Code" := FromBinCode;
-        WhseWkshLine."To Zone Code" := ToZoneCode;
-        WhseWkshLine."To Bin Code" := ToBinCode;
+        // Bin codes set via Validate so BC auto-derives the From/To Zone Code
+        // from the Bin record. We never look up zones from setup ourselves.
+        WhseWkshLine.Validate("From Bin Code", FromBinCode);
+        WhseWkshLine.Validate("To Bin Code", ToBinCode);
 
         WhseWkshLine.Validate(Quantity, MoveQtyBase / QtyPerUoM);
         if not DoNotFillQtytoHandle then

@@ -498,7 +498,7 @@ page 99991 "Decant Screen"
 
                     DecantMgt.RegisterDecant(
                         Rec."Journal Template Name",
-                        CurrentJnlBatchName
+                        CurrentJnlBatchName, Rec."Location Code"
                     );
                     CurrPage.Update(false);
                 end;

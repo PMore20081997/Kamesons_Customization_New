@@ -105,6 +105,19 @@ codeunit 99961 "Kam Whse Setup Lookup"
         exit(Bin."Zone Code");
     end;
 
+    /// <summary>Returns the Zone Code of the Static-flagged bin. Errors if not found.</summary>
+    procedure GetStaticZone(LocationCode: Code[10]): Code[10]
+    var
+        Bin: Record Bin;
+        BinNotFoundErr: Label 'No bin with the Static flag was found in location %1.', Comment = '%1 = Location Code';
+    begin
+        Bin.SetRange("Location Code", LocationCode);
+        Bin.SetRange("Static", true);
+        if not Bin.FindFirst() then
+            Error(BinNotFoundErr, LocationCode);
+        exit(Bin."Zone Code");
+    end;
+
     /// <summary>Returns the Zone Code of the High Bay-flagged bin. Errors if not found.</summary>
     procedure GetHighBayZone(LocationCode: Code[10]): Code[10]
     var

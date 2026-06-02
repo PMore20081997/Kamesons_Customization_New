@@ -6,6 +6,12 @@
 //      destination bins consume from that in-memory buffer in sequence.
 //      No re-opening the query per bin, no per-key dictionary. The temp
 //      record is `temporary` so it never reaches the persisted table.
+//    - Source is always the RECEIVE Location (auto-resolved from setup).
+//      Source bins are the Flowrack and Static flagged bins in RECEIVE.
+//    - Destination bins are identified by their Boolean flags on Bin —
+//      Flowrack items go to Flowrack-flagged bins, Static items go to
+//      Static-flagged bins. Multiple bins per item are processed in BC
+//      default order, sized by "Number of Totes in a Bin".
 //    - Register writes to "Item Journal Line" (table 83) on an
 //      Item Journal Template of type Transfer (Item Reclassification),
 //      attaches lot/package tracking via Reservation Entry (table 337),
@@ -36,10 +42,13 @@ codeunit 99991 "Decant Reclass Mgt."
     var
         DecantDetails: Record "Decant Details";
         BinContent: Record "Bin Content";
+        Bin: Record Bin;
+        Item: Record Item;
         TempSource: Record "Decant Details" temporary;
         WhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
-        SourceZone: Code[10];
-        DestZone: Code[10];
+        ReceiveLocation: Code[10];
+        SourceFlowrackBin: Code[20];
+        SourceStaticBin: Code[20];
         NextLineNo: Integer;
         BinsSkippedNoToteConfig: Integer;
         IsHandled: Boolean;
@@ -52,49 +61,66 @@ codeunit 99991 "Decant Reclass Mgt."
         if IsHandled then
             exit;
 
-        ValidateCalculateInputs(SourceLocationCode, DestLocationCode);
+        // Source for Decant is always RECEIVE (the staging area filled by the
+        // Movement Worksheet). Page-supplied SourceLocationCode is ignored.
+        ReceiveLocation := WhseSetupLookup.GetReceiveLocation();
+        SourceFlowrackBin := WhseSetupLookup.GetFlowrackBin(ReceiveLocation);
+        SourceStaticBin := WhseSetupLookup.GetStaticBin(ReceiveLocation);
 
-        SourceZone := WhseSetupLookup.GetReceiveFlowrackZone(SourceLocationCode);
-        DestZone := WhseSetupLookup.GetMainFlowrackZone(DestLocationCode, ItemFilter);
-
-        if SourceZone = '' then
-            Error(GenDecantZoneMissingErr, SourceLocationCode);
-        if DestZone = '' then
-            Error(GenDecantZoneMissingErr, DestLocationCode);
+        ValidateCalculateInputs(ReceiveLocation, DestLocationCode);
 
         ClearBuffer(TemplateName, BatchName);
 
-        // FEFO source — read once into the temp buffer, then consume sequentially.
-        LoadSourceBuffer(TempSource, SourceLocationCode, SourceZone, ItemFilter, ManufacturerFilter, QtyPerToteOverride);
+        // FEFO source — read once into the temp buffer from BOTH the Flowrack
+        // and Static staging bins in RECEIVE. Items naturally segregate by
+        // routing type because each item's lots only live in its own source bin.
+        LoadSourceBuffer(TempSource, ReceiveLocation, SourceFlowrackBin, SourceStaticBin, ItemFilter, ManufacturerFilter, QtyPerToteOverride);
 
         NextLineNo := 10000;
 
+        // Iterate Bin Content rows at the destination location. We don't filter
+        // by zone — bins are identified by their Boolean Flowrack/Static flags,
+        // which is checked per-row against the item's Routing Type below.
         BinContent.SetRange("Location Code", DestLocationCode);
-        BinContent.SetRange("Zone Code", DestZone);
         if ItemFilter <> '' then
             BinContent.SetRange("Item No.", ItemFilter);
 
         if BinContent.FindSet() then
             repeat
-                if BinContent."Number of Totes in a Bin" <= 0 then
-                    BinsSkippedNoToteConfig += 1
-                else
-                    AllocateToBin(
-                        DecantDetails, TempSource, BinContent,
-                        TemplateName, BatchName,
-                        DestLocationCode, DestZone,
-                        ManufacturerFilter, QtyPerToteOverride,
-                        NextLineNo);
+                if Item.Get(BinContent."Item No.") and Bin.Get(BinContent."Location Code", BinContent."Bin Code") then
+                    if BinFlagMatchesRoutingType(Bin, Item."Routing Type") then begin
+                        if BinContent."Number of Totes in a Bin" <= 0 then
+                            BinsSkippedNoToteConfig += 1
+                        else
+                            AllocateToBin(
+                                DecantDetails, TempSource, BinContent,
+                                TemplateName, BatchName,
+                                DestLocationCode, BinContent."Zone Code",
+                                ManufacturerFilter, QtyPerToteOverride,
+                                NextLineNo);
+                    end;
             until BinContent.Next() = 0;
 
         if BinsSkippedNoToteConfig > 0 then
             Message(BinsSkippedMsg, BinsSkippedNoToteConfig);
 
         OnAfterCalculateDecant(TemplateName, BatchName, NextLineNo);
-        LogTelemetry('CalculateDecant', SourceLocationCode, DestLocationCode, NextLineNo, StartTime);
+        LogTelemetry('CalculateDecant', ReceiveLocation, DestLocationCode, NextLineNo, StartTime);
     end;
 
-    procedure RegisterDecant(TemplateName: Code[10]; BatchName: Code[10])
+    local procedure BinFlagMatchesRoutingType(Bin: Record Bin; RoutingType: Enum "Item Routing Type NDPP"): Boolean
+    begin
+        case RoutingType of
+            RoutingType::Flowrack:
+                exit(Bin.Flowrack);
+            RoutingType::"Static":
+                exit(Bin."Static");
+            else
+                exit(false);  // BULK or other — not handled by Decant
+        end;
+    end;
+
+    procedure RegisterDecant(TemplateName: Code[10]; BatchName: Code[10]; _LocationCode: Code[10])
     var
         DecantDetails: Record "Decant Details";
         ItemJnlLine: Record "Item Journal Line";
@@ -113,6 +139,7 @@ codeunit 99991 "Decant Reclass Mgt."
 
         DecantDetails.SetRange("Journal Template Name", TemplateName);
         DecantDetails.SetRange("Journal Batch Name", BatchName);
+        DecantDetails.SetRange("Location Code", _LocationCode);
         if not DecantDetails.FindSet() then
             Error(NoLinesToRegisterErr);
 
@@ -184,7 +211,8 @@ codeunit 99991 "Decant Reclass Mgt."
     local procedure LoadSourceBuffer(
         var TempSource: Record "Decant Details" temporary;
         SourceLocationCode: Code[10];
-        SourceZone: Code[10];
+        SourceFlowrackBin: Code[20];
+        SourceStaticBin: Code[20];
         ItemFilter: Code[20];
         ManufacturerFilter: Code[50];
         QtyPerToteOverride: Decimal)
@@ -196,9 +224,11 @@ codeunit 99991 "Decant Reclass Mgt."
         LineNo: Integer;
     begin
         // Open the FEFO query exactly once, in expiration-date order (defined
-        // on the query itself: OrderBy = ascending(Expiration_Date)).
+        // on the query itself: OrderBy = ascending(Expiration_Date)). Source
+        // bins are identified directly — Flowrack and Static staging bins
+        // in RECEIVE — rather than via a zone code.
         SourceQuery.SetFilter(Location_Code, SourceLocationCode);
-        SourceQuery.SetFilter(Zone_Code, SourceZone);
+        SourceQuery.SetFilter(Bin_Code, '%1|%2', SourceFlowrackBin, SourceStaticBin);
         if ItemFilter <> '' then
             SourceQuery.SetFilter(Item_No_, ItemFilter);
         if (ManufacturerFilter <> '') and (QtyPerToteOverride <> 0) then
@@ -577,7 +607,6 @@ codeunit 99991 "Decant Reclass Mgt."
     var
         SourceLocationMissingErr: Label 'Source Location Code must be specified.';
         DestLocationMissingErr: Label 'Destination Location Code must be specified.';
-        GenDecantZoneMissingErr: Label 'GEN DECANT zone not found for Location %1.', Comment = '%1 = Location Code';
         ItemTemplateMissingErr: Label 'No Item Journal Template of type Transfer (Reclassification) was found. Configure one before running Register.';
         NoLinesToRegisterErr: Label 'There are no Decant Detail lines to register for the selected batch.';
         MissingNewPackageErr: Label 'New Package No. is required on Decant Detail line %1 before registration.', Comment = '%1 = Line No.';

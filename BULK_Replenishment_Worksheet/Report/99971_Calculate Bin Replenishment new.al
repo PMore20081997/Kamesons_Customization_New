@@ -101,8 +101,8 @@ Report 99971 "Cal _Bin Replenishment New"
         L_DupCheck: Record "Replenishment Worksheet";
         L_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
         L_ReceiveLocation: Code[20];
-        L_ReceiveDecantZone: Code[20];
-        L_PickBulkZone: Code[20];
+        L_ReceiveBULKBin: Code[20];
+        L_PickBulkBin: Code[20];
         L_CurrentQtyBase: Decimal;
         L_MinQtyBase: Decimal;
         L_MaxQtyBase: Decimal;
@@ -118,8 +118,18 @@ Report 99971 "Cal _Bin Replenishment New"
         L_BinGapBase: Decimal;
     begin
         L_ReceiveLocation := L_KamWhseSetupLookup.GetReceiveLocation();
-        L_ReceiveDecantZone := L_KamWhseSetupLookup.GetBulkZone(L_ReceiveLocation);
-        L_PickBulkZone := L_KamWhseSetupLookup.GetBulkZone(_LocationCode);
+        L_ReceiveBULKBin := L_KamWhseSetupLookup.GetBulkBin(L_ReceiveLocation);
+
+        // Resolve the BULK bin for THIS item in MAIN. One Item → one BULK bin
+        // in PICK BULK, identified by the Bulk flag on Bin (mirrored to Bin
+        // Content as a FlowField).
+        L_BinContent.Reset();
+        L_BinContent.SetRange("Item No.", _ItemNo);
+        L_BinContent.SetRange("Location Code", _LocationCode);
+        L_BinContent.SetRange(Bulk, true);
+        if not L_BinContent.FindFirst() then
+            exit;
+        L_PickBulkBin := L_BinContent."Bin Code";
 
         // Total Outstanding qty on existing Transfer Orders (Receive -> destination) for this item.
         // This is a per-item pool consumed across bins (TOs have no destination bin), so each bin
@@ -139,7 +149,7 @@ Report 99971 "Cal _Bin Replenishment New"
         L_BinContent.Reset();
         L_BinContent.SetRange("Item No.", _ItemNo);
         L_BinContent.SetRange("Location Code", _LocationCode);
-        L_BinContent.SetRange("Zone Code", L_PickBulkZone);
+        L_BinContent.SetRange("Bin Code", L_PickBulkBin);
         if L_BinContent.FindSet() then
             repeat
                 // Current qty (base) in this destination bin (sums Warehouse Entry via FlowField)
@@ -171,8 +181,7 @@ Report 99971 "Cal _Bin Replenishment New"
                     // Source: BULK location, BULK DECANT or HIGHBAY zones, FEFO (query is ordered by Expiration_Date asc)
                     L_SourceQ.SetFilter(L_SourceQ.Item_No_, '%1', _ItemNo);
                     L_SourceQ.SetFilter(L_SourceQ.Location_Code, '%1', L_ReceiveLocation);
-                    // L_SourceQ.SetFilter(L_SourceQ.Zone_Code, '%1|%2', L_BulkDecantZone, L_HighBayZone);
-                    L_SourceQ.SetFilter(L_SourceQ.Zone_Code, '%1', L_ReceiveDecantZone);
+                    L_SourceQ.SetFilter(L_SourceQ.Bin_Code, '%1', L_ReceiveBULKBin);
                     L_SourceQ.SetFilter(L_SourceQ.Expiration_Date, '>=%1', WorkDate());
                     L_SourceQ.SetFilter(L_SourceQ.Qty_Base, '>%1', 0);
                     L_SourceQ.SetFilter(L_SourceQ.Manufacturer_Code, '<>%1', '');

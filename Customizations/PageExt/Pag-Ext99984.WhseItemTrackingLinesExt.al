@@ -9,6 +9,18 @@ using Microsoft.Warehouse.Tracking;
 // from any existing Warehouse Entry for the same Item + Variant + Lot.
 pageextension 99984 WhseItemTrackingLinesExt extends "Whse. Item Tracking Lines"
 {
+    layout
+    {
+        addafter("Expiration Date")
+        {
+
+            field("Manufacturer Code"; Rec."Manufacturer Code")
+            {
+                ApplicationArea = All;
+                ToolTip = 'Specifies the value of the Manufacturer Code field.', Comment = '%';
+            }
+        }
+    }
     trigger OnAfterGetRecord()
     begin
         if (Rec."Manufacturer Code" = '') and (Rec."Lot No." <> '') then

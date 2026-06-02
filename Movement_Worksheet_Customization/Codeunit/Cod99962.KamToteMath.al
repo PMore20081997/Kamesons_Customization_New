@@ -28,9 +28,9 @@ codeunit 99962 "Kam Tote Math"
         QtyPerTote: Decimal;
         Totes: Integer;
     begin
+        // Bin Code uniquely identifies the location-scoped bin; Zone filter is redundant.
         WhseEntryQry.SetFilter(WhseEntryQry.Item_No_, '=%1', BinContent."Item No.");
         WhseEntryQry.SetFilter(WhseEntryQry.Location_Code, '=%1', BinContent."Location Code");
-        WhseEntryQry.SetFilter(WhseEntryQry.Zone_Code, '=%1', BinContent."Zone Code");
         WhseEntryQry.SetFilter(WhseEntryQry.Bin_Code, '=%1', BinContent."Bin Code");
         WhseEntryQry.SetFilter(WhseEntryQry.Qty___Base_, '>%1', 0);
         WhseEntryQry.Open();
@@ -55,10 +55,10 @@ codeunit 99962 "Kam Tote Math"
     end;
 
     /// <summary>
-    /// Whole totes already planned in the open Movement Worksheet for an item & destination zone.
+    /// Whole totes already planned in the open Movement Worksheet for an item & destination bin.
     /// Used to avoid double-replenishing within the same calculation run.
     /// </summary>
-    procedure CountPendingTotesInWorksheet(WkshTemplate: Code[10]; WkshName: Code[10]; LocationCode: Code[20]; FromZone: Code[10]; ToZone: Code[10]; ItemNo: Code[20]): Integer
+    procedure CountPendingTotesInWorksheet(WkshTemplate: Code[10]; WkshName: Code[10]; LocationCode: Code[20]; FromBin: Code[20]; ToBin: Code[20]; ItemNo: Code[20]): Integer
     var
         ItemMfr: Record "Item Manufacturer Table";
         WhseWkshLine: Record "Whse. Worksheet Line";
@@ -77,8 +77,8 @@ codeunit 99962 "Kam Tote Math"
             WhseWkshLine.SetRange("Worksheet Template Name", WkshTemplate);
             WhseWkshLine.SetRange(Name, WkshName);
             WhseWkshLine.SetRange("Location Code", LocationCode);
-            WhseWkshLine.SetRange("From Zone Code", FromZone);
-            WhseWkshLine.SetRange("To Zone Code", ToZone);
+            WhseWkshLine.SetRange("From Bin Code", FromBin);
+            WhseWkshLine.SetRange("To Bin Code", ToBin);
             WhseWkshLine.SetRange("Item No.", ItemNo);
             if WhseWkshLine.FindSet() then
                 repeat
@@ -100,9 +100,9 @@ codeunit 99962 "Kam Tote Math"
     end;
 
     /// <summary>
-    /// Quantity already planned in the open worksheet for an item & destination zone (in base units).
+    /// Quantity already planned in the open worksheet for an item & destination bin (in base units).
     /// </summary>
-    procedure GetQtyAlreadyInWorksheet(WkshTemplate: Code[10]; WkshName: Code[10]; LocationCode: Code[20]; FromZone: Code[10]; ToZone: Code[10]; ItemNo: Code[20]): Decimal
+    procedure GetQtyAlreadyInWorksheet(WkshTemplate: Code[10]; WkshName: Code[10]; LocationCode: Code[20]; FromBin: Code[20]; ToBin: Code[20]; ItemNo: Code[20]): Decimal
     var
         WhseWkshLine: Record "Whse. Worksheet Line";
     begin
@@ -110,8 +110,8 @@ codeunit 99962 "Kam Tote Math"
         WhseWkshLine.SetRange("Worksheet Template Name", WkshTemplate);
         WhseWkshLine.SetRange(Name, WkshName);
         WhseWkshLine.SetRange("Location Code", LocationCode);
-        WhseWkshLine.SetRange("From Zone Code", FromZone);
-        WhseWkshLine.SetRange("To Zone Code", ToZone);
+        WhseWkshLine.SetRange("From Bin Code", FromBin);
+        WhseWkshLine.SetRange("To Bin Code", ToBin);
         WhseWkshLine.SetRange("Item No.", ItemNo);
         WhseWkshLine.CalcSums("Qty. (Base)");
         exit(WhseWkshLine."Qty. (Base)");
@@ -132,16 +132,15 @@ codeunit 99962 "Kam Tote Math"
     end;
 
     /// <summary>
-    /// Total quantity available in a destination zone for an item, across all bins.
+    /// Total quantity available in a destination bin for an item.
     /// </summary>
-    procedure GetDestinationZoneAvailQty(LocationCode: Code[10]; ZoneCode: Code[10]; ItemNo: Code[20]): Decimal
+    procedure GetDestinationBinAvailQty(LocationCode: Code[10]; BinCode: Code[20]; ItemNo: Code[20]): Decimal
     var
         BinContent: Record "Bin Content";
         Total: Decimal;
     begin
-        BinContent.SetCurrentKey("Location Code", "Zone Code", "Item No.");
         BinContent.SetRange("Location Code", LocationCode);
-        BinContent.SetRange("Zone Code", ZoneCode);
+        BinContent.SetRange("Bin Code", BinCode);
         BinContent.SetRange("Item No.", ItemNo);
         if BinContent.FindSet() then
             repeat
@@ -152,16 +151,16 @@ codeunit 99962 "Kam Tote Math"
 
     /// <summary>
     /// Qty already in flight via registered Movement documents (not yet posted) heading
-    /// into the destination zone. Treated as indirectly available toward Min. Qty.
+    /// into the destination bin. Treated as indirectly available toward Min. Qty.
     /// </summary>
-    procedure GetActivityQtyToDestination(LocationCode: Code[20]; ZoneCode: Code[10]; ItemNo: Code[20]): Decimal
+    procedure GetActivityQtyToDestination(LocationCode: Code[20]; BinCode: Code[20]; ItemNo: Code[20]): Decimal
     var
         WhseActLine: Record "Warehouse Activity Line";
     begin
         WhseActLine.SetRange("Activity Type", WhseActLine."Activity Type"::Movement);
         WhseActLine.SetRange("Action Type", WhseActLine."Action Type"::Place);
         WhseActLine.SetRange("Location Code", LocationCode);
-        WhseActLine.SetRange("Zone Code", ZoneCode);
+        WhseActLine.SetRange("Bin Code", BinCode);
         WhseActLine.SetRange("Item No.", ItemNo);
         WhseActLine.CalcSums("Qty. Outstanding (Base)");
         exit(WhseActLine."Qty. Outstanding (Base)");
@@ -170,7 +169,7 @@ codeunit 99962 "Kam Tote Math"
     /// <summary>
     /// Per-manufacturer whole-tote count of in-flight Movement Place lines into destination.
     /// </summary>
-    procedure GetActivityTotesToDestination(LocationCode: Code[20]; ZoneCode: Code[10]; ItemNo: Code[20]): Integer
+    procedure GetActivityTotesToDestination(LocationCode: Code[20]; BinCode: Code[20]; ItemNo: Code[20]): Integer
     var
         ItemMfr: Record "Item Manufacturer Table";
         WhseActLine: Record "Warehouse Activity Line";
@@ -185,7 +184,7 @@ codeunit 99962 "Kam Tote Math"
                 WhseActLine.SetRange("Activity Type", WhseActLine."Activity Type"::Movement);
                 WhseActLine.SetRange("Action Type", WhseActLine."Action Type"::Place);
                 WhseActLine.SetRange("Location Code", LocationCode);
-                WhseActLine.SetRange("Zone Code", ZoneCode);
+                WhseActLine.SetRange("Bin Code", BinCode);
                 WhseActLine.SetRange("Item No.", ItemNo);
                 WhseActLine.SetRange("Manufacturer Code", ItemMfr."Manufacturer Code");
                 WhseActLine.CalcSums("Qty. Outstanding (Base)");
@@ -197,10 +196,10 @@ codeunit 99962 "Kam Tote Math"
     end;
 
     /// <summary>
-    /// Totes already staged in the destination zone, counted per manufacturer using each
+    /// Totes already staged in the destination bin, counted per manufacturer using each
     /// manufacturer's Qty per Tote.
     /// </summary>
-    procedure GetDestinationTotes(LocationCode: Code[20]; ZoneCode: Code[10]; ItemNo: Code[20]): Integer
+    procedure GetDestinationTotes(LocationCode: Code[20]; BinCode: Code[20]; ItemNo: Code[20]): Integer
     var
         ItemMfr: Record "Item Manufacturer Table";
         WhseEntry: Record "Warehouse Entry";
@@ -214,7 +213,7 @@ codeunit 99962 "Kam Tote Math"
                 WhseEntry.Reset();
                 WhseEntry.SetRange("Item No.", ItemNo);
                 WhseEntry.SetRange("Location Code", LocationCode);
-                WhseEntry.SetRange("Zone Code", ZoneCode);
+                WhseEntry.SetRange("Bin Code", BinCode);
                 WhseEntry.SetRange("Manufacturer Code", ItemMfr."Manufacturer Code");
                 WhseEntry.CalcSums("Qty. (Base)");
                 MfgQtyBase := WhseEntry."Qty. (Base)";
@@ -233,9 +232,9 @@ codeunit 99962 "Kam Tote Math"
         QtyPerTote: Decimal;
         Totes: Integer;
     begin
+        // Bin Code uniquely identifies the location-scoped bin; Zone filter is redundant.
         WhseEntryQry.SetFilter(WhseEntryQry.Item_No_, '%1', BinContent."Item No.");
         WhseEntryQry.SetFilter(WhseEntryQry.Location_Code, '%1', BinContent."Location Code");
-        WhseEntryQry.SetFilter(WhseEntryQry.Zone_Code, '%1', BinContent."Zone Code");
         WhseEntryQry.SetFilter(WhseEntryQry.Bin_Code, '%1', BinContent."Bin Code");
         WhseEntryQry.SetFilter(WhseEntryQry.Qty___Base_, '>%1', 0);
         WhseEntryQry.Open();
@@ -247,19 +246,5 @@ codeunit 99962 "Kam Tote Math"
         end;
         WhseEntryQry.Close();
         exit(Totes);
-    end;
-
-    /// <summary>Look up the bin code holding the item in a given zone.</summary>
-    procedure GetBinForItemInZone(LocationCode: Code[10]; ZoneCode: Code[10]; ItemNo: Code[20]): Code[20]
-    var
-        BinContent: Record "Bin Content";
-    begin
-        BinContent.SetCurrentKey("Location Code", "Zone Code", "Item No.");
-        BinContent.SetRange("Location Code", LocationCode);
-        BinContent.SetRange("Zone Code", ZoneCode);
-        BinContent.SetRange("Item No.", ItemNo);
-        if BinContent.FindFirst() then
-            exit(BinContent."Bin Code");
-        exit('');
     end;
 }

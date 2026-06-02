@@ -392,33 +392,34 @@ page 99971 "Replenishment Worksheet"
 
     procedure LookupName(var CurrentJnlBatchName: Code[10]; var _ReplanishmentWorksheet: Record "Replenishment Worksheet")
     var
-        ItemJnlBatch: Record "Item Journal Batch";
+        //ItemJnlBatch: Record "Item Journal Batch";
+        L_ReqWorkshtTemNm: Record "Requisition Wksh. Name";
         IsHandled: Boolean;
     begin
         Commit();
-        ItemJnlBatch."Journal Template Name" := _ReplanishmentWorksheet.GetRangeMax("Template Name");
-        ItemJnlBatch.Name := _ReplanishmentWorksheet.GetRangeMax("Batch Name");
-        ItemJnlBatch.FilterGroup(2);
-        ItemJnlBatch.SetRange("Journal Template Name", ItemJnlBatch."Journal Template Name");
-        ItemJnlBatch.FilterGroup(0);
+        L_ReqWorkshtTemNm."Worksheet Template Name" := _ReplanishmentWorksheet.GetRangeMax("Template Name");
+        L_ReqWorkshtTemNm.Name := _ReplanishmentWorksheet.GetRangeMax("Batch Name");
+        L_ReqWorkshtTemNm.FilterGroup(2);
+        L_ReqWorkshtTemNm.SetRange("Worksheet Template Name", L_ReqWorkshtTemNm."Worksheet Template Name");
+        L_ReqWorkshtTemNm.FilterGroup(0);
         IsHandled := false;
         if not IsHandled then
-            if PAGE.RunModal(0, ItemJnlBatch) = ACTION::LookupOK then begin
-                CurrentJnlBatchName := ItemJnlBatch.Name;
+            if PAGE.RunModal(0, L_ReqWorkshtTemNm) = ACTION::LookupOK then begin
+                CurrentJnlBatchName := L_ReqWorkshtTemNm.Name;
                 SetName(CurrentJnlBatchName, _ReplanishmentWorksheet);
             end;
     end;
 
     procedure CheckName(CurrentJnlBatchName: Code[10]; var _ReplanishmentWorksheet: Record "Replenishment Worksheet")
     var
-        ItemJnlBatch: Record "Item Journal Batch";
+        L_ReqWorkshtTemNm: Record "Requisition Wksh. Name";
         IsHandled: Boolean;
     begin
         IsHandled := false;
         if IsHandled then
             exit;
 
-        ItemJnlBatch.Get(_ReplanishmentWorksheet.GetRangeMax("Template Name"), CurrentJnlBatchName);
+        L_ReqWorkshtTemNm.Get(_ReplanishmentWorksheet.GetRangeMax("Template Name"), CurrentJnlBatchName);
     end;
 
     procedure TemplateSelection(PageID: Integer; PageTemplate: Option Item,Transfer,"Phys. Inventory",Revaluation,Consumption,Output,Capacity,"Prod. Order"; RecurringJnl: Boolean; var _ReplanishmentWorksheet: Record "Replenishment Worksheet"; var JnlSelected: Boolean)
