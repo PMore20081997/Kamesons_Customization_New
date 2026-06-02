@@ -22,9 +22,9 @@ codeunit 99984 "Put-Away Subscribers NDPP"
     var
         i: Integer;
     begin
-        if WarehouseActivityLine."Item No." = 'W00017' then
+        if WarehouseActivityLine."Item No." = 'W00018' then
             clear(i);
-            
+
         PutAwayMgt.RoutePutAwayLine(WarehouseActivityLine);
     end;
 

@@ -335,8 +335,10 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         case Item."Routing Type" of
             Item."Routing Type"::BULK:
                 exit(TargetType::BulkDecant);
+            Item."Routing Type"::"Static":
+                exit(TargetType::"Static");
             else
-                // Static and Flowrack both route to GEN DECANT at put-away.
+                // Flowrack (and any future non-BULK / non-Static routing).
                 exit(TargetType::Flowrack);
         end;
     end;
@@ -383,8 +385,8 @@ codeunit 99983 "Put-Away Mgt. NDPP"
             MaxQtySpace := SumMainWHMaxQtySpaceLeft(WhseActivityLine."Item No.", Item."Routing Type");
             if MaxQtySpace > 0 then begin
                 MaxQtySpace := MaxQtySpace
-                               - GetReceiveDecantPendingForItem(WhseActivityLine."Item No.")
-                               + GetCurrentLineSelfContribution(WhseActivityLine, "Put-Away Target Zone NDPP"::Flowrack);
+                               - GetReceiveDecantPendingForItem(WhseActivityLine."Item No.", Item."Routing Type")
+                               + GetCurrentLineSelfContribution(WhseActivityLine, "Put-Away Target Zone NDPP"::"Static");
                 if MaxQtySpace < 0 then
                     MaxQtySpace := 0;
                 exit(MaxQtySpace);
@@ -479,12 +481,52 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     end;
 
     /// <summary>
-    /// Sums (Quantity + Put-away + Positive Adjmt) at the Receive Flowrack bin
-    /// across all Bin Content rows for the item. Catches sibling lines from
-    /// the same put-away batch that are pending at the decant face but not
-    /// yet decanted to Main WH.
+    /// Sums pending Put-away Place qty at the Receive-side bin flagged for the
+    /// given RoutingType (Flowrack or Static) for this item, INCLUDING the
+    /// current in-flight line. RoutingType picks which Receive bin to read —
+    /// Static items pull from the Static bin, Flowrack items from the
+    /// Flowrack bin. Returns 0 for any other type.
+    ///
+    /// Why query Warehouse Activity Line directly rather than read
+    /// Bin Content's "Put-away Quantity (Base)" FlowField: the FlowField
+    /// only evaluates against an existing Bin Content row. For an item that
+    /// has never had stock at the Receive bin (first-ever put-away of that
+    /// item there), no Bin Content row exists → the FlowField yields 0 →
+    /// Max-Qty math silently over-allocates capacity. A direct CalcSums on
+    /// the activity line works whether or not a Bin Content row exists.
     /// </summary>
-    local procedure GetReceiveDecantPendingForItem(ItemNo: Code[20]): Decimal
+    local procedure GetReceiveDecantPendingForItem(ItemNo: Code[20]; RoutingType: Enum "Item Routing Type NDPP"): Decimal
+    var
+        Bin: Record Bin;
+        WhseActLine: Record "Warehouse Activity Line";
+        ReceiveLocation: Code[20];
+    begin
+        ReceiveLocation := G_KamWhseSetupLookup.GetReceiveLocation();
+        Bin.SetRange("Location Code", ReceiveLocation);
+        case RoutingType of
+            RoutingType::Flowrack:
+                Bin.SetRange(Flowrack, true);
+            RoutingType::"Static":
+                Bin.SetRange("Static", true);
+            else
+                exit(0);
+        end;
+        if not Bin.FindFirst() then
+            exit(0);
+
+        WhseActLine.SetCurrentKey("Item No.", "Location Code");
+        WhseActLine.SetRange("Item No.", ItemNo);
+        WhseActLine.SetRange("Location Code", ReceiveLocation);
+        WhseActLine.SetRange("Bin Code", Bin.Code);
+        WhseActLine.SetRange("Activity Type", WhseActLine."Activity Type"::"Put-away");
+        WhseActLine.SetRange("Action Type", WhseActLine."Action Type"::Place);
+        WhseActLine.CalcSums("Qty. Outstanding (Base)");
+        exit(WhseActLine."Qty. Outstanding (Base)");
+    end;
+
+    // Vestigial Bin Content branch — kept temporarily, will remove once we
+    // confirm the activity-line path above behaves correctly in production.
+    local procedure GetReceiveDecantPendingForItem_BinContentImpl(ItemNo: Code[20]; RoutingType: Enum "Item Routing Type NDPP"): Decimal
     var
         Bin: Record Bin;
         BinContent: Record "Bin Content";
@@ -493,7 +535,14 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     begin
         ReceiveLocation := G_KamWhseSetupLookup.GetReceiveLocation();
         Bin.SetRange("Location Code", ReceiveLocation);
-        Bin.SetRange(Flowrack, true);
+        case RoutingType of
+            RoutingType::Flowrack:
+                Bin.SetRange(Flowrack, true);
+            RoutingType::"Static":
+                Bin.SetRange("Static", true);
+            else
+                exit(0);
+        end;
         if not Bin.FindFirst() then
             exit(0);
 
