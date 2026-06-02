@@ -41,6 +41,40 @@ pageextension 99950 "purchase order fact box extend" extends "Purchase Line Fact
                     Caption = 'Stock on order';
                     DecimalPlaces = 0 : 5;
                 }
+                field("WH Receipts"; CountWhseReceipts())
+                {
+                    ApplicationArea = All;
+                    Caption = 'WH Receipts';
+                    DrillDown = true;
+                    ToolTip = 'Number of Warehouse Receipts that contain this Purchase Line. Click to open the Warehouse Receipt card.';
+
+                    trigger OnDrillDown()
+                    var
+                        WhseRcptLine: Record "Warehouse Receipt Line";
+                        WhseRcptHeader: Record "Warehouse Receipt Header";
+                        NoFilter: Text;
+                    begin
+                        WhseRcptLine.SetRange("Source Type", Database::"Purchase Line");
+                        WhseRcptLine.SetRange("Source Subtype", Rec."Document Type".AsInteger());
+                        WhseRcptLine.SetRange("Source No.", Rec."Document No.");
+                        WhseRcptLine.SetRange("Source Line No.", Rec."Line No.");
+                        if WhseRcptLine.Findfirst() then
+                            //repeat
+                            if NoFilter = '' then
+                                NoFilter := WhseRcptLine."No.";
+                        // else
+                        //     if StrPos('|' + NoFilter + '|', '|' + WhseRcptLine."No." + '|') = 0 then
+                        //         NoFilter += '|' + WhseRcptLine."No.";
+                        //until WhseRcptLine.Next() = 0;
+
+                        if NoFilter = '' then
+                            exit;
+
+                        WhseRcptHeader.SetFilter("No.", NoFilter);
+                        if WhseRcptHeader.FindFirst() then
+                            Page.Run(Page::"Warehouse Receipt", WhseRcptHeader);
+                    end;
+                }
                 field("Weeks cover stock"; 0)
                 {
                     ApplicationArea = All;
@@ -141,11 +175,33 @@ pageextension 99950 "purchase order fact box extend" extends "Purchase Line Fact
     begin
         purchaseLine.Reset();
         purchaseLine.SetRange("No.", Rec."No.");
-        if purchaseLine.FindSet() then begin
+        if purchaseLine.FindSet() then
             repeat
                 qtyOnOrder += purchaseLine.Quantity;
             until purchaseLine.Next() = 0;
-        end;
+
         exit(qtyOnOrder);
+    end;
+
+    /// <summary>
+    /// Count of distinct Warehouse Receipt Headers that have at least one line
+    /// pointing at this Purchase Line. Used for the drill-downable "WH Receipts"
+    /// field — a Purchase Line can sit on multiple split receipts.
+    /// </summary>
+    local procedure CountWhseReceipts(): Integer
+    var
+        WhseRcptLine: Record "Warehouse Receipt Line";
+        Headers: List of [Code[20]];
+    begin
+        WhseRcptLine.SetRange("Source Type", Database::"Purchase Line");
+        WhseRcptLine.SetRange("Source Subtype", Rec."Document Type".AsInteger());
+        WhseRcptLine.SetRange("Source No.", Rec."Document No.");
+        WhseRcptLine.SetRange("Source Line No.", Rec."Line No.");
+        if WhseRcptLine.FindSet() then
+            repeat
+                if not Headers.Contains(WhseRcptLine."No.") then
+                    Headers.Add(WhseRcptLine."No.");
+            until WhseRcptLine.Next() = 0;
+        exit(Headers.Count);
     end;
 }
