@@ -60,6 +60,7 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         Item: Record Item;
         IsHandled: Boolean;
         LastDecantExpiry: Date;
+        EarliestHighBayExpiry: Date;
         TargetType: Enum "Put-Away Target Zone NDPP";
         ScopeKey: Text;
     begin
@@ -113,6 +114,22 @@ codeunit 99983 "Put-Away Mgt. NDPP"
             exit;
         end;
 
+        // 3a. HighBay older-stock guard (FEFO trumps everything else):
+        //     If Receive's HighBay already holds positive-qty stock for this
+        //     item with expiry STRICTLY OLDER than the incoming line, push
+        //     the incoming line to HighBay. Rationale: the older HighBay
+        //     batch must reach Main first via the decant process; putting
+        //     the fresher incoming into Main now would leave the older lot
+        //     to expire in HighBay. This trumps the Min-Qty bypass below —
+        //     Main can stay below Min until the older HighBay stock catches
+        //     up via decant.
+        EarliestHighBayExpiry := GetEarliestHighBayExpiry(WhseActivityLine."Item No.");
+        if (EarliestHighBayExpiry <> 0D) and (EarliestHighBayExpiry < WhseActivityLine."Expiration Date") then begin
+            AssignTargetBin(WhseActivityLine, TargetType::HighBay);
+            OnAfterRoutePutAwayLine(WhseActivityLine);
+            exit;
+        end;
+
         // 3. Min-Qty top-up bypass (applies to all target types):
         //    If on-hand qty for the item in the target decant bin (Main + Receive)
         //    is below the Main-WH bin's Min Qty, skip the expiry check and route
@@ -158,7 +175,6 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         ReceiveBinContent: Record "Bin Content";
         Bin: Record Bin;
         MainLocation: Code[20];
-        ReceiveBin: Code[20];
         AvailableBaseQty: Decimal;
         MinBaseQty: Decimal;
     begin
@@ -168,13 +184,19 @@ codeunit 99983 "Put-Away Mgt. NDPP"
 
         MainLocation := G_KamWhseSetupLookup.GetMainLocation();
 
-        // Flowrack / Static: walk every flagged Main bin that holds this item.
-        // Skip Main bins this batch has already CLAIMED for the same item (so
-        // successive lines don't keep targeting the same Main bin's capacity).
-        // On the first unclaimed Main bin found below its own Min Qty: claim
-        // that Main bin and return TRUE. Returns FALSE when no remaining Main
-        // bin qualifies — bypass is exhausted and the line falls through to
-        // the expiry check.
+        // Flowrack / Static branch.
+        //
+        // Step A (aggregate gate): sum every flagged Main bin's Quantity and
+        // Min Qty, and add Receive-side pipeline qty (posted + pending) for
+        // the routing type. If aggregate qty already meets aggregate Min, no
+        // bin needs topping up — the pipeline will satisfy them via decant.
+        // Bypass is suppressed; line falls through to the expiry check.
+        //
+        // Step B (per-bin rotation): if the pipeline is NOT enough, walk
+        // flagged Main bins. Skip any already CLAIMED by an earlier line in
+        // this batch (so successive lines don't keep targeting the same Main
+        // bin's capacity). On the first unclaimed below-Min bin: claim it
+        // and return TRUE. Returns FALSE when no remaining Main bin qualifies.
         if TargetType in [TargetType::Flowrack, TargetType::"Static"] then begin
             Bin.SetRange("Location Code", MainLocation);
             case TargetType of
@@ -185,25 +207,54 @@ codeunit 99983 "Put-Away Mgt. NDPP"
             end;
             if not Bin.FindSet() then
                 exit(false);
+
+            // Step A: aggregate pre-check.
+            AvailableBaseQty := 0;
+            MinBaseQty := 0;
             repeat
-                if not IsBinClaimedThisBatch(ItemNo, Bin.Code) then begin
-                    MainBinContent.Reset();
-                    MainBinContent.SetRange("Location Code", MainLocation);
-                    MainBinContent.SetRange("Bin Code", Bin.Code);
-                    MainBinContent.SetRange("Item No.", ItemNo);
-                    if MainBinContent.FindFirst() then begin
-                        MinBaseQty := MainBinContent."Min. Qty." * MainBinContent."Qty. per Unit of Measure";
-                        if MinBaseQty > 0 then begin
-                            MainBinContent.CalcFields("Quantity (Base)");
-                            if MainBinContent."Quantity (Base)" < MinBaseQty then begin
-                                MarkBinClaimedThisBatch(ItemNo, Bin.Code);
-                                //G_CurrentLineMainBin := Bin.Code;
-                                exit(true);
+                MainBinContent.Reset();
+                MainBinContent.SetRange("Location Code", MainLocation);
+                MainBinContent.SetRange("Bin Code", Bin.Code);
+                MainBinContent.SetRange("Item No.", ItemNo);
+                if MainBinContent.FindFirst() then begin
+                    MainBinContent.CalcFields("Quantity (Base)");
+                    AvailableBaseQty += MainBinContent."Quantity (Base)";
+                    MinBaseQty += MainBinContent."Min. Qty." * MainBinContent."Qty. per Unit of Measure";
+                end;
+            until Bin.Next() = 0;
+
+            AvailableBaseQty += GetReceivePipelineQty(ItemNo, TargetType);
+            if (MinBaseQty > 0) and (AvailableBaseQty >= MinBaseQty) then
+                exit(false); // Pipeline meets aggregate Min — no bypass needed.
+
+            // Step B: per-bin rotation walk.
+            Bin.Reset();
+            Bin.SetRange("Location Code", MainLocation);
+            case TargetType of
+                TargetType::Flowrack:
+                    Bin.SetRange(Flowrack, true);
+                TargetType::"Static":
+                    Bin.SetRange("Static", true);
+            end;
+            if Bin.FindSet() then
+                repeat
+                    if not IsBinClaimedThisBatch(ItemNo, Bin.Code) then begin
+                        MainBinContent.Reset();
+                        MainBinContent.SetRange("Location Code", MainLocation);
+                        MainBinContent.SetRange("Bin Code", Bin.Code);
+                        MainBinContent.SetRange("Item No.", ItemNo);
+                        if MainBinContent.FindFirst() then begin
+                            MinBaseQty := MainBinContent."Min. Qty." * MainBinContent."Qty. per Unit of Measure";
+                            if MinBaseQty > 0 then begin
+                                MainBinContent.CalcFields("Quantity (Base)");
+                                if MainBinContent."Quantity (Base)" < MinBaseQty then begin
+                                    MarkBinClaimedThisBatch(ItemNo, Bin.Code);
+                                    exit(true);
+                                end;
                             end;
                         end;
                     end;
-                end;
-            until Bin.Next() = 0;
+                until Bin.Next() = 0;
             exit(false);
         end;
 
@@ -217,20 +268,7 @@ codeunit 99983 "Put-Away Mgt. NDPP"
             exit(false); // No Min Qty configured — bypass disabled for this item.
 
         MainBinContent.CalcFields("Quantity (Base)");
-        AvailableBaseQty := MainBinContent."Quantity (Base)";
-
-        ReceiveBin := GetItemBulkBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), ItemNo);
-
-        /* if ReceiveBin <> '' then begin
-             ReceiveBinContent.SetRange("Location Code", G_KamWhseSetupLookup.GetReceiveLocation());
-             ReceiveBinContent.SetRange("Bin Code", ReceiveBin);
-             ReceiveBinContent.SetRange("Item No.", ItemNo);
-             if ReceiveBinContent.FindSet() then
-                 repeat
-                     ReceiveBinContent.CalcFields("Quantity (Base)");
-                     AvailableBaseQty += ReceiveBinContent."Quantity (Base)";
-                 until ReceiveBinContent.Next() = 0;
-         end;*/
+        AvailableBaseQty := MainBinContent."Quantity (Base)" + GetReceivePipelineQty(ItemNo, TargetType);
 
         exit(AvailableBaseQty < MinBaseQty);
     end;
@@ -500,24 +538,39 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         Bin: Record Bin;
         WhseActLine: Record "Warehouse Activity Line";
         ReceiveLocation: Code[20];
+        ReceiveBinCode: Code[20];
     begin
         ReceiveLocation := G_KamWhseSetupLookup.GetReceiveLocation();
-        Bin.SetRange("Location Code", ReceiveLocation);
         case RoutingType of
             RoutingType::Flowrack:
-                Bin.SetRange(Flowrack, true);
+                begin
+                    Bin.SetRange("Location Code", ReceiveLocation);
+                    Bin.SetRange(Flowrack, true);
+                    if not Bin.FindFirst() then
+                        exit(0);
+                    ReceiveBinCode := Bin.Code;
+                end;
             RoutingType::"Static":
-                Bin.SetRange("Static", true);
+                begin
+                    Bin.SetRange("Location Code", ReceiveLocation);
+                    Bin.SetRange("Static", true);
+                    if not Bin.FindFirst() then
+                        exit(0);
+                    ReceiveBinCode := Bin.Code;
+                end;
+            RoutingType::BULK:
+                // BULK is item-specific: one BULK bin per item per location.
+                ReceiveBinCode := GetItemBulkBinCode(ReceiveLocation, ItemNo);
             else
                 exit(0);
         end;
-        if not Bin.FindFirst() then
+        if ReceiveBinCode = '' then
             exit(0);
 
         WhseActLine.SetCurrentKey("Item No.", "Location Code");
         WhseActLine.SetRange("Item No.", ItemNo);
         WhseActLine.SetRange("Location Code", ReceiveLocation);
-        WhseActLine.SetRange("Bin Code", Bin.Code);
+        WhseActLine.SetRange("Bin Code", ReceiveBinCode);
         WhseActLine.SetRange("Activity Type", WhseActLine."Activity Type"::"Put-away");
         WhseActLine.SetRange("Action Type", WhseActLine."Action Type"::Place);
         WhseActLine.CalcSums("Qty. Outstanding (Base)");
@@ -684,6 +737,83 @@ codeunit 99983 "Put-Away Mgt. NDPP"
 
         WhseActivityLine.Validate("Zone Code", Bin."Zone Code");
         WhseActivityLine.Validate("Bin Code", Bin.Code);
+    end;
+
+    /// <summary>
+    /// Returns total Receive-side "pipeline" qty for the item at the Receive
+    /// bin flagged for the given TargetType — i.e. stock that will reach Main
+    /// soon and should suppress the Min-Qty bypass.
+    ///   Posted   — Warehouse Entry sum at the Receive bin (already received,
+    ///              not yet decanted).
+    ///   Pending  — Warehouse Activity Line Place lines targeted at the
+    ///              Receive bin (current batch's put-aways not yet registered).
+    /// BULK uses the item-specific BULK bin; Static / Flowrack use the
+    /// routing-type-flagged shared bin. HighBay routes here as 0 (HighBay is
+    /// not a decant pipeline).
+    /// </summary>
+    local procedure GetReceivePipelineQty(ItemNo: Code[20]; TargetType: Enum "Put-Away Target Zone NDPP"): Decimal
+    var
+        WhseEntry: Record "Warehouse Entry";
+        WhseActLine: Record "Warehouse Activity Line";
+        ReceiveLocation: Code[20];
+        ReceiveBinCode: Code[20];
+        Total: Decimal;
+    begin
+        ReceiveLocation := G_KamWhseSetupLookup.GetReceiveLocation();
+        if TargetType = TargetType::BulkDecant then
+            ReceiveBinCode := GetItemBulkBinCode(ReceiveLocation, ItemNo)
+        else
+            ReceiveBinCode := GetTargetBinCode(ReceiveLocation, TargetType);
+        if ReceiveBinCode = '' then
+            exit(0);
+
+        WhseEntry.SetRange("Item No.", ItemNo);
+        WhseEntry.SetRange("Location Code", ReceiveLocation);
+        WhseEntry.SetRange("Bin Code", ReceiveBinCode);
+        WhseEntry.CalcSums("Qty. (Base)");
+        Total := WhseEntry."Qty. (Base)";
+
+        WhseActLine.SetCurrentKey("Item No.", "Location Code");
+        WhseActLine.SetRange("Item No.", ItemNo);
+        WhseActLine.SetRange("Location Code", ReceiveLocation);
+        WhseActLine.SetRange("Bin Code", ReceiveBinCode);
+        WhseActLine.SetRange("Activity Type", WhseActLine."Activity Type"::"Put-away");
+        WhseActLine.SetRange("Action Type", WhseActLine."Action Type"::Place);
+        WhseActLine.CalcSums("Qty. Outstanding (Base)");
+        Total += WhseActLine."Qty. Outstanding (Base)";
+
+        exit(Total);
+    end;
+
+    /// <summary>
+    /// Returns the EARLIEST positive-qty Expiration Date in Receive HighBay
+    /// for the item. Used by the HighBay-older-stock guard in
+    /// RoutePutAwayLine: if HighBay already holds a lot older than the
+    /// incoming line's expiry, the incoming line is pushed to HighBay so the
+    /// older HighBay batch can reach Main first via decant (FEFO).
+    /// Returns 0D when HighBay has no positive-qty stock for the item.
+    /// </summary>
+    local procedure GetEarliestHighBayExpiry(ItemNo: Code[20]): Date
+    var
+        WhseEntryQry: Query "Whse Entry Lot Det Asc NDPP";
+        HighBayBin: Code[20];
+        EarliestExpiry: Date;
+    begin
+        HighBayBin := GetItemHighbayBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), ItemNo);
+        if HighBayBin = '' then
+            exit(0D);
+
+        WhseEntryQry.SetFilter(WhseEntryQry.Item_No_, '%1', ItemNo);
+        WhseEntryQry.SetFilter(WhseEntryQry.Location_Code, '%1', G_KamWhseSetupLookup.GetReceiveLocation());
+        WhseEntryQry.SetFilter(WhseEntryQry.Bin_Code, '%1', HighBayBin);
+        WhseEntryQry.SetFilter(WhseEntryQry.Qty_Base, '>%1', 0);
+        WhseEntryQry.SetFilter(WhseEntryQry.Expiration_Date, '<>%1', 0D);
+        WhseEntryQry.TopNumberOfRows(1);
+        WhseEntryQry.Open();
+        if WhseEntryQry.Read() then
+            EarliestExpiry := WhseEntryQry.Expiration_Date;
+        WhseEntryQry.Close();
+        exit(EarliestExpiry);
     end;
 
     /// <summary>

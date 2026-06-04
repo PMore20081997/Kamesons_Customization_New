@@ -2,6 +2,14 @@ pageextension 99974 BinContentExt extends "Bin Contents"
 {
     layout
     {
+        // Lock Max. Qty. to 0 / non-editable when the row's bin is Flowrack —
+        // Flowrack capacity is driven by tote count, not by base-unit Max Qty.
+        // Field is auto-coerced to 0 in Cod99976 on insert / modify too.
+        // modify("Max. Qty.")
+        // {
+        //     Editable = MaxQtyEditable;
+        // }
+
         addafter("Max. Qty.")
         {
             field("Number of Totes in a Bin"; Rec."Number of Totes in a Bin")
@@ -40,4 +48,13 @@ pageextension 99974 BinContentExt extends "Bin Contents"
             }
         }
     }
+
+    trigger OnAfterGetCurrRecord()
+    begin
+        Rec.CalcFields(Flowrack);
+        MaxQtyEditable := not Rec.Flowrack;
+    end;
+
+    var
+        MaxQtyEditable: Boolean;
 }

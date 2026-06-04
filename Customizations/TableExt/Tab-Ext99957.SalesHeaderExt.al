@@ -21,5 +21,13 @@ tableextension 99957 SalesHeaderExt extends "Sales Header"
             Caption = 'Special Order';
             DataClassification = CustomerContent;
         }
+        // Mirror of Purchase Header."Whse. Receipt Error" — populated by the
+        // Cod99952 batch when Inventory Pick creation fails. Empty when the
+        // most recent run succeeded.
+        field(99973; "Invt. Pick Error"; Text[1024])
+        {
+            Caption = 'Invt. Pick Error';
+            DataClassification = CustomerContent;
+        }
     }
 }

@@ -10,6 +10,7 @@ using Microsoft.Warehouse.Tracking;
 using Microsoft.Inventory.Item.Catalog;
 using Microsoft.Sales.Document;
 using Microsoft.Sales.Customer;
+using Microsoft.Inventory.Item;
 
 codeunit 99976 Customize_Events
 {
@@ -137,4 +138,76 @@ codeunit 99976 Customize_Events
     //     end;
     // end;
 
+    // (1) Force Max. Qty. := 0 when the row's Bin is flagged Flowrack.
+    //     Flowrack faces are sized by tote count (Number of Totes in a Bin),
+    //     not by a base-unit Max Qty, so any value > 0 here is misleading.
+    // [EventSubscriber(ObjectType::Table, Database::"Bin Content", OnBeforeInsertEvent, '', false, false)]
+    // local procedure BinContent_OnBeforeInsert_ForceFlowrackMaxQty(var Rec: Record "Bin Content"; RunTrigger: Boolean)
+    // begin
+    //     if Rec.IsTemporary() then
+    //         exit;
+    //     if IsFlowrackBin(Rec."Location Code", Rec."Bin Code") then
+    //         Rec."Max. Qty." := 0;
+    // end;
+
+    // [EventSubscriber(ObjectType::Table, Database::"Bin Content", OnBeforeModifyEvent, '', false, false)]
+    // local procedure BinContent_OnBeforeModify_ForceFlowrackMaxQty(var Rec: Record "Bin Content"; var xRec: Record "Bin Content"; RunTrigger: Boolean)
+    // begin
+    //     if Rec.IsTemporary() then
+    //         exit;
+    //     if IsFlowrackBin(Rec."Location Code", Rec."Bin Code") then
+    //         Rec."Max. Qty." := 0;
+    // end;
+
+    // (2) For BULK items, enforce one-bin-per-item at Main and Receive locations.
+    //     A new Bin Content row for a BULK item is rejected if another Bin Content
+    //     already exists for the same Item at the same Location in a different Bin.
+    [EventSubscriber(ObjectType::Table, Database::"Bin Content", OnBeforeInsertEvent, '', false, false)]
+    local procedure BinContent_OnBeforeInsert_RestrictOneBinPerBulkItem(var Rec: Record "Bin Content"; RunTrigger: Boolean)
+    var
+        L_Item: Record Item;
+        L_ExistingBinContent: Record "Bin Content";
+        L_MainLocation: Code[20];
+        L_ReceiveLocation: Code[20];
+    begin
+        if Rec.IsTemporary() then
+            exit;
+        if Rec."Item No." = '' then
+            exit;
+
+        L_MainLocation := G_KamWhseSetupLookup.GetMainLocation();
+        L_ReceiveLocation := G_KamWhseSetupLookup.GetReceiveLocation();
+        if (Rec."Location Code" <> L_MainLocation) and (Rec."Location Code" <> L_ReceiveLocation) then
+            exit;
+
+        if not L_Item.Get(Rec."Item No.") then
+            exit;
+        if L_Item."Routing Type" <> L_Item."Routing Type"::BULK then
+            exit;
+
+        L_ExistingBinContent.SetRange("Location Code", Rec."Location Code");
+        L_ExistingBinContent.SetRange("Item No.", Rec."Item No.");
+        L_ExistingBinContent.SetFilter("Bin Code", '<>%1', Rec."Bin Code");
+        if L_ExistingBinContent.FindFirst() then
+            Error('Item %1 (BULK) is already assigned to Bin %2 / Zone %3 at Location %4. A BULK item can occupy only one Bin per Location.',
+                Rec."Item No.", L_ExistingBinContent."Bin Code", L_ExistingBinContent."Zone Code", Rec."Location Code");
+    end;
+
+    /// <summary>
+    /// TRUE if the given Location + Bin combination has the Flowrack flag set
+    /// on the Bin record (PutAwayCustomization Tab-Ext99956 field "Flowrack").
+    /// </summary>
+    // local procedure IsFlowrackBin(LocationCode: Code[10]; BinCode: Code[20]): Boolean
+    // var
+    //     L_Bin: Record Bin;
+    // begin
+    //     if (LocationCode = '') or (BinCode = '') then
+    //         exit(false);
+    //     if not L_Bin.Get(LocationCode, BinCode) then
+    //         exit(false);
+    //     exit(L_Bin.Flowrack);
+    // end;
+
+    var
+        G_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
 }
