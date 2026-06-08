@@ -1,20 +1,19 @@
-page 99971 "Replenishment Worksheet"
+page 99971 "Bulk Replan"
 {
     ApplicationArea = Basic, Suite;
-    AutoSplitKey = true;
-    Caption = 'Replenishment Worksheet';
-    DataCaptionFields = "Batch Name";
+    Caption = 'Bulk Replan';
+    DataCaptionFields = "Journal Batch Name";
     DelayedInsert = true;
     PageType = Worksheet;
     SaveValues = true;
-    SourceTable = "Replenishment Worksheet";
+    SourceTable = "Decant Details";
     UsageCategory = Tasks;
 
     layout
     {
         area(Content)
         {
-            field("Batch Name"; Rec."Batch Name")
+            field("Journal Batch Name"; Rec."Journal Batch Name")
             {
                 ApplicationArea = All;
                 ToolTip = 'Specifies the value of the Batch Name field.', Comment = '%';
@@ -29,13 +28,13 @@ page 99971 "Replenishment Worksheet"
                 trigger OnLookup(var Text: Text): Boolean
                 begin
                     CurrPage.SaveRecord();
-                    LookupName(CurrentJnlBatchName, Rec);
+                    Rec.LookupName(CurrentJnlBatchName, CurrentLocationCode, Rec);
                     CurrPage.Update(false);
                 end;
 
                 trigger OnValidate()
                 begin
-                    CheckName(CurrentJnlBatchName, Rec);
+                    Rec.CheckName(CurrentJnlBatchName, CurrentLocationCode, Rec);
                     CurrentJnlBatchNameOnAfterValidate();
                 end;
             }
@@ -153,7 +152,7 @@ page 99971 "Replenishment Worksheet"
             }
             repeater(GroupName)
             {
-                field(Action; Rec.Action)
+                field(Status; Rec.Status)
                 {
                     ApplicationArea = All;
                     ToolTip = 'Specifies the action to be performed on the line. Only Accept action lines can be registered.';
@@ -175,23 +174,26 @@ page 99971 "Replenishment Worksheet"
                     Editable = false;
                     ToolTip = 'Specifies the description of the item.';
                 }
-                field("Location Code"; Rec."Location Code")
+                // "To Location Code" = destination (main warehouse)
+                field("To Location Code"; Rec."To Location Code")
                 {
                     ApplicationArea = All;
+                    Caption = 'Location Code';
                     Editable = false;
                 }
-                field("System Quantity"; Rec."System Quantity")
+                field("Available Qty. to Take"; Rec."Available Qty. to Take")
                 {
                     ApplicationArea = All;
                     DecimalPlaces = 0 : 5;
                     Caption = 'Available Quantity';
                     Editable = false;
-                    ToolTip = 'Available to take from bincontent';
+                    ToolTip = 'Available to take from bin content';
                 }
-
-                field("From Location Code"; Rec."From Location Code")
+                // "Location Code" = source/from location (receive location)
+                field("From Location Code"; Rec."Location Code")
                 {
                     ApplicationArea = All;
+                    Caption = 'From Location Code';
                 }
                 field("From Bin Code"; Rec."From Bin Code")
                 {
@@ -203,9 +205,10 @@ page 99971 "Replenishment Worksheet"
                     ToolTip = 'Specifies the value of the Lot No. field.', Comment = '%';
                     ApplicationArea = All;
                 }
-                field("Expiration Date"; Rec."Expiration Date")
+                field("Expiry Date"; Rec."Expiry Date")
                 {
-                    ToolTip = 'Specifies the value of the Expiration Date field.', Comment = '%';
+                    ToolTip = 'Specifies the expiration date.', Comment = '%';
+                    Caption = 'Expiration Date';
                     ApplicationArea = All;
                 }
                 field("Package No."; Rec."Package No.")
@@ -218,10 +221,11 @@ page 99971 "Replenishment Worksheet"
                     ApplicationArea = All;
                     ToolTip = 'Specifies the value of the Manufacturer Code field.', Comment = '%';
                 }
-                field("Qty to Move"; Rec."Qty to Move")
+                field("Qty to Move"; Rec."To Qty.")
                 {
                     ApplicationArea = All;
                     DecimalPlaces = 0 : 5;
+                    Caption = 'Qty to Move';
                     ToolTip = 'System suggestion Qty to Move';
                 }
             }
@@ -230,8 +234,8 @@ page 99971 "Replenishment Worksheet"
         {
             part(ReceiveBinContentDetails; "Bin Content Details")
             {
-                SubPageLink = "Item No." = field("Item No."), "Location Code" = field("From Location Code");
-
+                // "Location Code" in Decant Details = source (receive) location
+                SubPageLink = "Item No." = field("Item No."), "Location Code" = field("Location Code");
                 ApplicationArea = all;
                 Caption = 'Receive Bin Content Details';
             }
@@ -261,7 +265,7 @@ page 99971 "Replenishment Worksheet"
                 begin
                     Commit();
                     Location.Get(L_KamWhseSetupLookup.GetMainLocation());
-                    ReplenishBinContent.InitializeRequest(Rec."Template Name", Rec."Batch Name", L_KamWhseSetupLookup.GetMainLocation(), false);
+                    ReplenishBinContent.InitializeRequest(Rec."Journal Template Name", Rec."Journal Batch Name", L_KamWhseSetupLookup.GetMainLocation(), false);
                     if ItemFilter <> '' then begin
                         L_Item.SetFilter("No.", ItemFilter);
                         ReplenishBinContent.SetTableView(L_Item);
@@ -283,20 +287,21 @@ page 99971 "Replenishment Worksheet"
 
                 trigger OnAction()
                 var
-                    L_ReplenishmentWorksheet: Record "Replenishment Worksheet";
+                    L_DecantDetails: Record "Decant Details";
                     L_ReqLine: Record "Requisition Line";
                     L_BatchName: Code[10];
                     L_LineNo: Integer;
                     ProcessCompletedMsg: Label 'Process completed.';
                     NothingToRegisterMsg: Label 'No lines with Action = Accept and Qty to Move > 0 were selected.';
                 begin
-                    L_BatchName := Rec."Batch Name";
+                    L_BatchName := Rec."Journal Batch Name";
 
-                    L_ReplenishmentWorksheet.Reset();
-                    L_ReplenishmentWorksheet.SetRange(Action, L_ReplenishmentWorksheet.Action::Accept);
-                    L_ReplenishmentWorksheet.SetRange("Batch Name", L_BatchName);
-                    L_ReplenishmentWorksheet.SetFilter("Qty to Move", '>%1', 0);
-                    if not L_ReplenishmentWorksheet.FindSet() then begin
+                    L_DecantDetails.Reset();
+                    L_DecantDetails.SetRange("Entry Type", L_DecantDetails."Entry Type"::Replenishment);
+                    L_DecantDetails.SetRange("Status", L_DecantDetails."Status"::Accept);
+                    L_DecantDetails.SetRange("Journal Batch Name", L_BatchName);
+                    L_DecantDetails.SetFilter("To Qty.", '>%1', 0);
+                    if not L_DecantDetails.FindSet() then begin
                         Message(NothingToRegisterMsg);
                         exit;
                     end;
@@ -310,10 +315,10 @@ page 99971 "Replenishment Worksheet"
 
                     repeat
                         L_LineNo := L_LineNo + 10000;
-                        G_Replenishment_Worksheet.CreateReqWorksheet(L_ReplenishmentWorksheet, L_LineNo);
-                    until L_ReplenishmentWorksheet.Next() = 0;
+                        G_Replenishment_Worksheet.CreateReqWorksheet(L_DecantDetails, L_LineNo);
+                    until L_DecantDetails.Next() = 0;
 
-                    L_ReplenishmentWorksheet.DeleteAll();
+                    L_DecantDetails.DeleteAll();
 
                     L_ReqLine.Reset();
                     L_ReqLine.SetRange("Journal Batch Name", L_BatchName);
@@ -334,12 +339,6 @@ page 99971 "Replenishment Worksheet"
         ItemFilter: Code[50];
         ItemDescription: Text[250];
         G_ItemBarcode: Code[250];
-        Text000: Label '%1 journal';
-        Text001: Label 'RECURRING';
-        Text002: Label 'Recurring Item Journal';
-        Text005: Label 'REC-';
-        Text006: Label 'Recurring ';
-        OpenFromBatch: Boolean;
         G_Replenishment_Worksheet: Codeunit "Replenishment Worksheet";
 
 
@@ -348,19 +347,22 @@ page 99971 "Replenishment Worksheet"
         L_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
         JnlSelected: Boolean;
     begin
+        Rec.FilterGroup := 2;
+        Rec.SetRange("Entry Type", Rec."Entry Type"::Replenishment);
+        Rec.FilterGroup := 0;
+
         if Rec.IsOpenedFromBatch() then begin
-            CurrentJnlBatchName := Rec."Batch Name";
-            Rec.OpenJnl(CurrentJnlBatchName, Rec);
+            CurrentJnlBatchName := Rec."Journal Batch Name";
+            Rec.OpenJnl(CurrentJnlBatchName, CurrentLocationCode, DestLocationCode, Rec);
             CurrentLocationCode := L_KamWhseSetupLookup.GetReceiveLocation();
             DestLocationCode := L_KamWhseSetupLookup.GetMainLocation();
             exit;
         end;
 
-
-        TemplateSelection(PAGE::"Item Reclass. Journal", 1, false, Rec, JnlSelected);
+        Rec.TemplateSelection(PAGE::"Bulk Replan", 2, Rec, JnlSelected);
         if not JnlSelected then
             Error('');
-        Rec.OpenJnl(CurrentJnlBatchName, Rec);
+        Rec.OpenJnl(CurrentJnlBatchName, CurrentLocationCode, DestLocationCode, Rec);
         CurrentLocationCode := L_KamWhseSetupLookup.GetReceiveLocation();
         DestLocationCode := L_KamWhseSetupLookup.GetMainLocation();
     end;
@@ -374,99 +376,10 @@ page 99971 "Replenishment Worksheet"
             Rec.SetRange("Item No.");
     end;
 
-
     local procedure CurrentJnlBatchNameOnAfterValidate()
     begin
         CurrPage.SaveRecord();
-        SetName(CurrentJnlBatchName, Rec);
+        Rec.SetName(CurrentJnlBatchName, CurrentLocationCode, Rec);
         CurrPage.Update(false);
-    end;
-
-    procedure SetName(CurrentJnlBatchName: Code[10]; var _ReplanishmentWorksheet: Record "Replenishment Worksheet")
-    begin
-        _ReplanishmentWorksheet.FilterGroup := 2;
-        _ReplanishmentWorksheet.SetRange("Batch Name", CurrentJnlBatchName);
-        _ReplanishmentWorksheet.FilterGroup := 0;
-        if _ReplanishmentWorksheet.Find('-') then;
-    end;
-
-    procedure LookupName(var CurrentJnlBatchName: Code[10]; var _ReplanishmentWorksheet: Record "Replenishment Worksheet")
-    var
-        //ItemJnlBatch: Record "Item Journal Batch";
-        L_ReqWorkshtTemNm: Record "Requisition Wksh. Name";
-        IsHandled: Boolean;
-    begin
-        Commit();
-        L_ReqWorkshtTemNm."Worksheet Template Name" := _ReplanishmentWorksheet.GetRangeMax("Template Name");
-        L_ReqWorkshtTemNm.Name := _ReplanishmentWorksheet.GetRangeMax("Batch Name");
-        L_ReqWorkshtTemNm.FilterGroup(2);
-        L_ReqWorkshtTemNm.SetRange("Worksheet Template Name", L_ReqWorkshtTemNm."Worksheet Template Name");
-        L_ReqWorkshtTemNm.FilterGroup(0);
-        IsHandled := false;
-        if not IsHandled then
-            if PAGE.RunModal(0, L_ReqWorkshtTemNm) = ACTION::LookupOK then begin
-                CurrentJnlBatchName := L_ReqWorkshtTemNm.Name;
-                SetName(CurrentJnlBatchName, _ReplanishmentWorksheet);
-            end;
-    end;
-
-    procedure CheckName(CurrentJnlBatchName: Code[10]; var _ReplanishmentWorksheet: Record "Replenishment Worksheet")
-    var
-        L_ReqWorkshtTemNm: Record "Requisition Wksh. Name";
-        IsHandled: Boolean;
-    begin
-        IsHandled := false;
-        if IsHandled then
-            exit;
-
-        L_ReqWorkshtTemNm.Get(_ReplanishmentWorksheet.GetRangeMax("Template Name"), CurrentJnlBatchName);
-    end;
-
-    procedure TemplateSelection(PageID: Integer; PageTemplate: Option Item,Transfer,"Phys. Inventory",Revaluation,Consumption,Output,Capacity,"Prod. Order"; RecurringJnl: Boolean; var _ReplanishmentWorksheet: Record "Replenishment Worksheet"; var JnlSelected: Boolean)
-    var
-        ItemJnlTemplate: Record "Item Journal Template";
-    begin
-        JnlSelected := true;
-
-        ItemJnlTemplate.Reset();
-        ItemJnlTemplate.SetRange("Page ID", PageID);
-        ItemJnlTemplate.SetRange(Recurring, RecurringJnl);
-        ItemJnlTemplate.SetRange(Type, PageTemplate);
-        case ItemJnlTemplate.Count of
-            0:
-                begin
-                    ItemJnlTemplate.Init();
-                    ItemJnlTemplate.Recurring := RecurringJnl;
-                    ItemJnlTemplate.Validate(Type, PageTemplate);
-                    ItemJnlTemplate.Validate("Page ID");
-                    if not RecurringJnl then begin
-                        ItemJnlTemplate.Name := Format(ItemJnlTemplate.Type, MaxStrLen(ItemJnlTemplate.Name));
-                        ItemJnlTemplate.Description := StrSubstNo(Text000, ItemJnlTemplate.Type);
-                    end else
-                        if ItemJnlTemplate.Type = ItemJnlTemplate.Type::Item then begin
-                            ItemJnlTemplate.Name := Text001;
-                            ItemJnlTemplate.Description := Text002;
-                        end else begin
-                            ItemJnlTemplate.Name :=
-                              Text005 + Format(ItemJnlTemplate.Type, MaxStrLen(ItemJnlTemplate.Name) - StrLen(Text005));
-                            ItemJnlTemplate.Description := Text006 + StrSubstNo(Text000, ItemJnlTemplate.Type);
-                        end;
-                    ItemJnlTemplate.Insert();
-                    Commit();
-                end;
-            1:
-                ItemJnlTemplate.FindFirst();
-            else
-                JnlSelected := PAGE.RunModal(0, ItemJnlTemplate) = ACTION::LookupOK;
-        end;
-        if JnlSelected then begin
-            _ReplanishmentWorksheet.FilterGroup := 2;
-            _ReplanishmentWorksheet.SetRange("Template Name", ItemJnlTemplate.Name);
-            _ReplanishmentWorksheet.FilterGroup := 0;
-            if OpenFromBatch then begin
-                _ReplanishmentWorksheet."Template Name" := '';
-                PAGE.Run(ItemJnlTemplate."Page ID", _ReplanishmentWorksheet);
-            end;
-        end;
     end;
 }

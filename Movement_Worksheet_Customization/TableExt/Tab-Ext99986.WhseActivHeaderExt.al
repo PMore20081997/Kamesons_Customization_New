@@ -2,15 +2,10 @@ namespace Kamesons_Customization.Kamesons_Customization;
 
 using Microsoft.Warehouse.Activity;
 
-tableextension 99984 WhseActLineExt extends "Warehouse Activity Line"
+tableextension 99986 WhseActivHeaderExt extends "Warehouse Activity Header"
 {
     fields
     {
-        field(99971; "Manufacturer Code"; Code[100])
-        {
-            Caption = 'Manufacturer Code';
-            DataClassification = CustomerContent;
-        }
         field(99972; Priority; Integer)
         {
             Caption = 'Priority';

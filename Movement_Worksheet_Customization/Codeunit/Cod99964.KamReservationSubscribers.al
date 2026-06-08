@@ -3,6 +3,7 @@ namespace Kamesons_Customization.Kamesons_Customization;
 using Microsoft.Inventory.Tracking;
 using Microsoft.Inventory.Transfer;
 using Microsoft.Inventory.Requisition;
+using Microsoft.Inventory.Ledger;
 //using Microsoft.Inventory.Reservation;
 using Microsoft.Warehouse.Ledger;
 using Microsoft.Warehouse.Activity;
@@ -76,5 +77,63 @@ codeunit 99964 "Kam Reservation Subscribers"
     local procedure OnAfterCopyTrkgFromNewWhseJnlLine(var WarehouseEntry: Record "Warehouse Entry"; WarehouseJournalLine: Record "Warehouse Journal Line")
     begin
         WarehouseEntry."Manufacturer Code" := WarehouseJournalLine."Manufacturer Code";
+    end;
+
+    // Catch-all for pick line creation: fires just before the activity line is inserted.
+    // OnAfterCopyTrackingFromSpec (called earlier in the same code path) handles the
+    // case when Whse. Item Tracking Lines exist. This covers the common scenario where
+    // those lines were already purged after put-away registration.
+    [EventSubscriber(ObjectType::Table, Database::"Warehouse Activity Line", OnBeforeInsertEvent, '', false, false)]
+    local procedure WhseActLine_OnBeforeInsert_FillMfrCode(var Rec: Record "Warehouse Activity Line"; RunTrigger: Boolean)
+    begin
+        if Rec.IsTemporary() then
+            exit;
+        if not (Rec."Activity Type" in [Rec."Activity Type"::Pick, Rec."Activity Type"::"Invt. Pick"]) then
+            exit;
+        if Rec."Lot No." = '' then
+            exit;
+        if Rec."Manufacturer Code" <> '' then
+            exit;
+        Rec."Manufacturer Code" := ReservationMgt.LookupManufacturerCodeByLot(Rec."Item No.", Rec."Variant Code", Rec."Lot No.");
+        if Rec."Manufacturer Code" = '' then
+            Rec."Manufacturer Code" := ReservationMgt.LookupManufacturerCodeFromILE(Rec."Item No.", Rec."Variant Code", Rec."Lot No.");
+    end;
+
+    // Fallback for Warehouse Entries created during Warehouse Shipment posting.
+    // During shipment posting the Warehouse Journal Line is built from Tracking
+    // Specifications / Reservation Entries rather than from the Warehouse Activity
+    // Line, so the OnAfterCopyTrackingFromWhseJnlLine chain does not carry the
+    // Manufacturer Code. This subscriber catches that gap and looks it up by lot,
+    // mirroring the same pattern used for Item Ledger Entries below.
+    [EventSubscriber(ObjectType::Table, Database::"Warehouse Entry", OnBeforeInsertEvent, '', false, false)]
+    local procedure WhseEntry_OnBeforeInsert_FillMfrCode(var Rec: Record "Warehouse Entry"; RunTrigger: Boolean)
+    begin
+        if Rec.IsTemporary() then
+            exit;
+        if Rec."Manufacturer Code" <> '' then
+            exit;
+        if Rec."Lot No." = '' then
+            exit;
+        Rec."Manufacturer Code" := ReservationMgt.LookupManufacturerCodeByLot(Rec."Item No.", Rec."Variant Code", Rec."Lot No.");
+        if Rec."Manufacturer Code" = '' then
+            Rec."Manufacturer Code" := ReservationMgt.LookupManufacturerCodeFromILE(Rec."Item No.", Rec."Variant Code", Rec."Lot No.");
+    end;
+
+    // Fallback for outbound Item Ledger Entries: fires before the ILE is written.
+    // Covers cases where the Reservation Entry did not carry the Manufacturer Code
+    // (e.g. stock received before this customisation was deployed). Looks up the code
+    // from existing positive ILEs or Warehouse Entries for the same lot.
+    [EventSubscriber(ObjectType::Table, Database::"Item Ledger Entry", OnBeforeInsertEvent, '', false, false)]
+    local procedure ILE_OnBeforeInsert_FillMfrCode(var Rec: Record "Item Ledger Entry"; RunTrigger: Boolean)
+    begin
+        if Rec.IsTemporary() then
+            exit;
+        if Rec."Manufacturer Code" <> '' then
+            exit;
+        if Rec."Lot No." = '' then
+            exit;
+        Rec."Manufacturer Code" := ReservationMgt.LookupManufacturerCodeFromILE(Rec."Item No.", Rec."Variant Code", Rec."Lot No.");
+        if Rec."Manufacturer Code" = '' then
+            Rec."Manufacturer Code" := ReservationMgt.LookupManufacturerCodeByLot(Rec."Item No.", Rec."Variant Code", Rec."Lot No.");
     end;
 }

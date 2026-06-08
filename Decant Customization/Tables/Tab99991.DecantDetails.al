@@ -167,6 +167,25 @@ table 99991 "Decant Details"
             Caption = 'Unit of Measure Code';
             TableRelation = "Item Unit of Measure".Code WHERE("Item No." = FIELD("Item No."));
         }
+        field(24; "Entry Type"; Option)
+        {
+            DataClassification = CustomerContent;
+            Caption = 'Entry Type';
+            OptionCaption = 'Decant,Replenishment';
+            OptionMembers = Decant,Replenishment;
+        }
+        field(25; "Status"; Option)
+        {
+            DataClassification = CustomerContent;
+            Caption = 'Action';
+            OptionCaption = ' ,Accept,Cancel';
+            OptionMembers = " ","Accept","Cancel";
+        }
+        field(26; "Posting Date"; Date)
+        {
+            DataClassification = CustomerContent;
+            Caption = 'Posting Date';
+        }
     }
     keys
     {
@@ -177,6 +196,14 @@ table 99991 "Decant Details"
     }
 
 
+
+    procedure IsOpenedFromBatch(): Boolean
+    var
+        BatchFilter: Text;
+    begin
+        BatchFilter := GetFilter("Journal Batch Name");
+        exit((("Journal Batch Name" <> '') and ("Journal Template Name" = '')) or (BatchFilter <> ''));
+    end;
 
     procedure LookupName(var CurrentJnlBatchName: Code[10]; var CurrentLocationCode: Code[10]; var DecantDetails: Record "Decant Details")
     var
@@ -317,6 +344,7 @@ table 99991 "Decant Details"
     procedure TemplateSelection(PageID: Integer; PageTemplate: Option Adjustment,"Phys. Inventory",Reclassification; var DecantDetails: Record "Decant Details"; var JnlSelected: Boolean)
     var
         WhseJnlTemplate: Record "Warehouse Journal Template";
+        WhseJnlTemplateName: Code[10];
     begin
         JnlSelected := true;
 
@@ -331,8 +359,15 @@ table 99991 "Decant Details"
                 begin
                     WhseJnlTemplate.Init();
                     WhseJnlTemplate.Validate(Type, PageTemplate);
-                    WhseJnlTemplate.Validate("Page ID");
-                    WhseJnlTemplate.Name := Format(WhseJnlTemplate.Type, MaxStrLen(WhseJnlTemplate.Name));
+                    WhseJnlTemplateName := Format(WhseJnlTemplate.Type, MaxStrLen(WhseJnlTemplate.Name));
+                    // If standard BC already has a template with the auto-generated name (e.g. 'RECLASSIFI'),
+                    // use a page-specific name to avoid duplicate key on Insert.
+                    if WhseJnlTemplate.Get(WhseJnlTemplateName) then
+                        WhseJnlTemplateName := 'REPLENISH';
+                    WhseJnlTemplate.Init();
+                    WhseJnlTemplate.Validate(Type, PageTemplate);
+                    WhseJnlTemplate.Name := WhseJnlTemplateName;
+                    WhseJnlTemplate."Page ID" := PageID;
                     WhseJnlTemplate.Description := StrSubstNo(Text001, WhseJnlTemplate.Type);
                     WhseJnlTemplate.Insert();
                     Commit();

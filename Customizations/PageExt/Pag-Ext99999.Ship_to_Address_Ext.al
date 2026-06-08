@@ -2,7 +2,7 @@ namespace Kamesons_Customization.Kamesons_Customization;
 
 using Microsoft.Sales.Customer;
 
-pageextension 99978 Ship_to_Address_Ext extends "Ship-to Address"
+pageextension 99999 Ship_to_Address_Ext extends "Ship-to Address"
 {
     layout
     {

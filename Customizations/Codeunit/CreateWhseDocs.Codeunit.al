@@ -6,7 +6,7 @@ using Microsoft.Warehouse.Request;
 using System.Threading;
 using Microsoft.Inventory.Location;
 
-codeunit 99951 "Create Whse. Docs"
+codeunit 99999 "Create Whse. Docs"
 {
     TableNo = "Job Queue Entry";
 

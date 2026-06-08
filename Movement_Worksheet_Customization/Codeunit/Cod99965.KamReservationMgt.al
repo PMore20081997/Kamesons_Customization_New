@@ -4,6 +4,7 @@ using Microsoft.Inventory.Tracking;
 using Microsoft.Inventory.Transfer;
 //using Microsoft.Inventory.Reservation;
 using Microsoft.Inventory.Requisition;
+using Microsoft.Inventory.Ledger;
 using Microsoft.Warehouse.Activity;
 using Microsoft.Warehouse.Ledger;
 using Microsoft.Warehouse.Tracking;
@@ -108,8 +109,17 @@ codeunit 99965 "Kam Reservation Mgt."
         if TrackingSpec."Variant Code" <> '' then
             WhseItemTrk.SetRange("Variant Code", TrackingSpec."Variant Code");
         WhseItemTrk.SetFilter("Manufacturer Code", '<>%1', '');
-        if WhseItemTrk.FindFirst() then
+        if WhseItemTrk.FindFirst() then begin
             WhseActLine."Manufacturer Code" := WhseItemTrk."Manufacturer Code";
+            exit;
+        end;
+        // Whse. Item Tracking Lines are purged after put-away registration.
+        // Fall back to the Warehouse Entry which retains the code permanently.
+        WhseActLine."Manufacturer Code" :=
+            LookupManufacturerCodeByLot(TrackingSpec."Item No.", TrackingSpec."Variant Code", TrackingSpec."Lot No.");
+        if WhseActLine."Manufacturer Code" = '' then
+            WhseActLine."Manufacturer Code" :=
+                LookupManufacturerCodeFromILE(TrackingSpec."Item No.", TrackingSpec."Variant Code", TrackingSpec."Lot No.");
     end;
 
     procedure LookupManufacturerCodeByLot(ItemNo: Code[20]; VariantCode: Code[10]; LotNo: Code[50]): Code[10]
@@ -126,6 +136,24 @@ codeunit 99965 "Kam Reservation Mgt."
         WhseEntry.SetFilter("Manufacturer Code", '<>%1', '');
         if WhseEntry.FindLast() then
             exit(WhseEntry."Manufacturer Code");
+        exit('');
+    end;
+
+    // Secondary fallback: look up Manufacturer Code from existing Item Ledger Entries
+    // for the same item and lot. Covers stock received before the Warehouse Entry lookup
+    // was in place, or locations without bin tracking.
+    procedure LookupManufacturerCodeFromILE(ItemNo: Code[20]; VariantCode: Code[10]; LotNo: Code[50]): Code[10]
+    var
+        ILE: Record "Item Ledger Entry";
+    begin
+        if (ItemNo = '') or (LotNo = '') then
+            exit('');
+        ILE.SetRange("Item No.", ItemNo);
+        ILE.SetRange("Variant Code", VariantCode);
+        ILE.SetRange("Lot No.", LotNo);
+        ILE.SetFilter("Manufacturer Code", '<>%1', '');
+        if ILE.FindLast() then
+            exit(ILE."Manufacturer Code");
         exit('');
     end;
 

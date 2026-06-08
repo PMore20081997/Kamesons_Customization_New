@@ -8,7 +8,15 @@ pageextension 99976 MovementWorksheetExt extends "Movement Worksheet"
 {
     layout
     {
-
+        addafter("Item No.")
+        {
+            field(Priority; Rec.Priority)
+            {
+                ApplicationArea = All;
+                Caption = 'Priority';
+                ToolTip = 'Specifies the priority for this movement line (1 = highest). This value is copied to the Warehouse Movement when Create Movement is run.';
+            }
+        }
     }
     actions
     {

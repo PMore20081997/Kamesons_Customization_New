@@ -10,6 +10,20 @@ pageextension 99974 BinContentExt extends "Bin Contents"
         //     Editable = MaxQtyEditable;
         // }
 
+
+
+        addlast(factboxes)
+        {
+            part(BinLotTrackingFactbox; "Bin Lot Tracking Factbox")
+            {
+                ApplicationArea = All;
+                Caption = 'Lot No. by Item';
+                SubPageLink = "Item No." = field("Item No."),
+                              "Location Code" = field("Location Code"),
+                              "Bin Code" = field("Bin Code");
+            }
+        }
+
         addafter("Max. Qty.")
         {
             field("Number of Totes in a Bin"; Rec."Number of Totes in a Bin")
