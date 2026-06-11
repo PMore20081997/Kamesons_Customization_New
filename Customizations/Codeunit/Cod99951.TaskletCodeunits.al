@@ -8,21 +8,7 @@ using Microsoft.Inventory.Item.Catalog;
 
 codeunit 99951 Tasklet_Codeunits
 {
-    // SingleInstance so the barcode captured from the line-selection scan
-    // (GetReceiveLineInformation, fires when the operator scans to select the
-    // line) survives to the Manufacture Code step build and to registration save.
     SingleInstance = true;
-
-    // ---------------------------------------------------------------------
-    // Line-selection scan handling (LineSelection).
-    // The Receive service config routes the scan to a "GetReceiveLineInformation"
-    // request (application.cfg: <lineSelection>GetReceiveLineInformation</lineSelection>).
-    // We register that document type and respond with a <select> that:
-    //   * picks the line by Item No. resolved from the scanned barcode, and
-    //   * sets the Manufacture Code step default to that barcode's Manufacturer.
-    // We also keep the barcode in a SingleInstance var as a fallback for the
-    // stored value at save.
-    // ---------------------------------------------------------------------
 
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"MOB WMS Setup Doc. Types", 'OnAfterCreateDefaultDocumentTypes', '', true, true)]
     local procedure RegisterLineSelectionDocumentType()
@@ -37,15 +23,16 @@ codeunit 99951 Tasklet_Codeunits
     var
         L_ScannedValue: Text;
         L_ItemNo: Code[20];
-        L_MfrCode: Code[100];
     begin
         if _IsHandled then
             exit;
         if not _DocumentType.Contains('GetReceiveLineInformation') then
             exit;
 
-        // The scanned value is mapped onto the request (converter expressionAis="91").
-        // Try the common element names; keep the first non-blank.
+        Clear(G_ScannedBarcode);
+        Clear(G_MfrCode);
+
+
         L_ScannedValue := _RequestValues.GetValue('ScannedValue', false);
         if L_ScannedValue = '' then
             L_ScannedValue := _RequestValues.GetValue('SerialNumber', false);
@@ -56,19 +43,16 @@ codeunit 99951 Tasklet_Codeunits
 
         L_ItemNo := GetItemNoFromBarcode(G_ScannedBarcode);
         if L_ItemNo = '' then
-            exit;  // let standard handling deal with an unknown scan
+            exit;
 
-        L_MfrCode := GetManufacturerFromBarcode(L_ItemNo, G_ScannedBarcode);
+        G_MfrCode := GetManufacturerFromBarcode(L_ItemNo, G_ScannedBarcode);
 
-        // Respond with a <select> on Item No. and (if resolved) pre-set the
-        // ManufactureCode step's default value — exactly the LineSelection
-        // "select + step default values" pattern.
         _ResponseElement.Create('select');
         _ResponseElement.SetValue('@name', 'ItemNumber');
         _ResponseElement.SetValue('@value', L_ItemNo);
-        if L_MfrCode <> '' then begin
+        if G_MfrCode <> '' then begin
             _ResponseElement.SetValue('values', '');
-            _ResponseElement.SetValue('/values/ManufactureCode', L_MfrCode);
+            _ResponseElement.SetValue('/values/ManufactureCode', G_MfrCode);
         end;
 
         _IsHandled := true;
@@ -98,9 +82,7 @@ codeunit 99951 Tasklet_Codeunits
         L_ItemNo := CopyStr(_BaseOrderLineElement.Get_ItemNumber(), 1, MaxStrLen(L_ItemNo));
         L_ListValues := BuildManufacturerCodeListValues(L_ItemNo);
 
-        L_DefaultValue := GetManufacturerFromBarcode(L_ItemNo, G_ScannedBarcode);
-        if L_DefaultValue = '' then
-            L_DefaultValue := GetSingleRefManufacturerDefault(L_ItemNo);
+        L_DefaultValue := G_MfrCode;
 
         if L_ListValues = '' then begin
             _Steps.Create_TextStep(45, 'ManufactureCode');
@@ -112,27 +94,6 @@ codeunit 99951 Tasklet_Codeunits
         _Steps.Set_label('Manufacture Code: ');
         _Steps.Set_helpLabel('Select the Manufacture Code');
         _Steps.Set_optional(false);  // Mandatory: operator cannot leave it blank.
-    end;
-
-    local procedure GetSingleRefManufacturerDefault(_ItemNo: Code[20]): Text
-    var
-        L_ItemRef: Record "Item Reference";
-        L_FoundMfr: Code[100];
-    begin
-        if _ItemNo = '' then
-            exit('');
-
-        L_ItemRef.SetRange("Item No.", _ItemNo);
-        L_ItemRef.SetRange("Reference Type", L_ItemRef."Reference Type"::"Bar Code");
-        L_ItemRef.SetFilter(Manufacturer, '<>%1', '');
-        if L_ItemRef.FindSet() then
-            repeat
-                if (L_FoundMfr <> '') and (L_ItemRef.Manufacturer <> L_FoundMfr) then
-                    exit('');  // more than one distinct manufacturer -> ambiguous
-                L_FoundMfr := CopyStr(L_ItemRef.Manufacturer, 1, MaxStrLen(L_FoundMfr));
-            until L_ItemRef.Next() = 0;
-
-        exit(L_FoundMfr);
     end;
 
     local procedure BuildManufacturerCodeListValues(_ItemNo: Code[20]): Text
@@ -184,19 +145,13 @@ codeunit 99951 Tasklet_Codeunits
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"MOB Sync. Item Tracking", 'OnAfterCopyTrackingFromMobRegistration', '', true, true)]
     local procedure OnAfterCopyTrackingFromMobRegistration_FlowMfrCode(var _TempReservEntry: Record "Reservation Entry" temporary; _MobRegistration: Record "MOB WMS Registration")
     var
-        L_MfrCode: Code[100];
+    // L_MfrCode: Code[100];
     begin
-        L_MfrCode := GetManufacturerFromBarcode(_MobRegistration."Item No.", G_ScannedBarcode);
-        if L_MfrCode = '' then
-            L_MfrCode := _MobRegistration."Manufacturer Code";
-        if L_MfrCode = '' then
-            exit;
-
-        // Reservation Entry."Manufacturer Code" (from C&D) is Code[20]; truncate.
-        _TempReservEntry."Manufacturer Code" := CopyStr(L_MfrCode, 1, MaxStrLen(_TempReservEntry."Manufacturer Code"));
+        _TempReservEntry."Manufacturer Code" := CopyStr(_MobRegistration."Manufacturer Code", 1, MaxStrLen(_TempReservEntry."Manufacturer Code"));
     end;
 
     var
         G_ScannedBarcode: Code[50];
+        G_MfrCode: Code[100];
         ManufactureCodeMandatoryErr: Label 'Manufacture Code is mandatory. Please scan or type a value.';
 }
