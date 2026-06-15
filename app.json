@@ -16,6 +16,12 @@
       "name": "C&D Integration",
       "publisher": "Default Publisher",
       "version": "1.0.0.0"
+    },
+    {
+      "id": "a5727ce6-368c-49e2-84cb-1a6052f0551c",
+      "name": "Tasklet Mobile WMS",
+      "publisher": "Tasklet Factory",
+      "version": "5.66.280.282"
     }
   ],
   "screenshots": [],

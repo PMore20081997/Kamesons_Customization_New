@@ -1,0 +1,52 @@
+<!-- <?xml version="1.0" encoding="utf-8"?>
+<application xmlns="http://schemas.taskletfactory.com/MobileWMS/Application"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://schemas.taskletfactory.com/MobileWMS/Application http://schemas.taskletfactory.com/MobileWMS/Application.xsd">
+
+    <!-- Service: maps the mobile request names to the BC document types. -->
+    <services>
+        <service id="DecantScreen" tweak="Append" type="Order" orderType="DecantScreen">
+            <requests>
+                <getOrders>GetDecantOrders</getOrders>
+                <getOrderLines>GetDecantOrderLines</getOrderLines>
+                <postOrder>PostDecantOrder</postOrder>
+            </requests>
+        </service>
+    </services>
+
+    <!-- Menu: the menu item opens the page with the same id ("DecantScreen"). -->
+    <pages>
+        <page id="MainMenu" type="Menu" icon="icon">
+            <menuConfiguration>
+                <menuItems>
+                    <menuItem id="DecantScreen" tweak="Append" displayName="@{MainMenuDecantScreen}" icon="document"/>
+                </menuItems>
+            </menuConfiguration>
+        </page>
+    </pages>
+
+    <!-- Order List page: one entry per warehouse journal batch with Decant Details. -->
+    <pages>
+        <page id="DecantScreen" tweak="Append" type="OrderList" icon="document">
+            <title defaultValue="@{PageDecantOrderListTitle}"/>
+            <orderListConfiguration automaticOrderSelectionAfterFilter="true">
+                <service id="DecantScreen"/>
+                <filter configurationKey="DecantHeader" automaticAcceptOnOpen="true"/>
+                <list listId="Orders"/>
+                <onOrderSelected navigateTo="DecantLines"/>
+            </orderListConfiguration>
+        </page>
+    </pages>
+
+    <!-- Order Lines page: shows each Decant Details row like a Warehouse Receipt Line. -->
+    <pages>
+        <page id="DecantLines" tweak="Append" type="OrderLines" icon="document">
+            <title defaultValue="@{PageDecantOrderLinesTitle}"/>
+            <orderLinesConfiguration actionOnEmptyList="ClosePage">
+                <service id="DecantScreen"/>
+                <list listId="OrderLinesWithImages"/>
+                <scanToSelectBehaviour gs1SearchTerm="Item" behaviour="Auto"/>
+            </orderLinesConfiguration>
+        </page>
+    </pages>
+</application> -->
