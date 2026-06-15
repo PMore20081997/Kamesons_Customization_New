@@ -36,9 +36,12 @@ codeunit 99975 SecondCheck_Events
     // SameUserSecondCheck guard on Purchase Header."Second Check".OnValidate.
     // The standard Modify(true) inside Release Purchase Document.Reopen
     // persists these values.
-    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Release Purchase Document", OnReopenOnBeforePurchaseHeaderModify, '', false, false)]
-    local procedure OnReopen_ClearSecondCheck(var PurchaseHeader: Record "Purchase Header")
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Release Purchase Document", OnBeforeReopenPurchaseDoc, '', false, false)]
+    local procedure OnReopen_ClearSecondCheck(var PurchaseHeader: Record "Purchase Header"; SkipWhseRequestOperations: Boolean)
     begin
+        if SkipWhseRequestOperations then
+            exit;
+
         PurchaseHeader."Second Check" := PurchaseHeader."Second Check"::" ";
         PurchaseHeader."Second Check User" := '';
         PurchaseHeader."Second Check Date & Time" := 0DT;

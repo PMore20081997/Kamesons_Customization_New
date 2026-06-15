@@ -43,6 +43,25 @@ codeunit 99964 "Kam Reservation Subscribers"
         ReservationEntry."Manufacturer Code" := FromReservationEntry."Manufacturer Code";
     end;
 
+    /* // Fallback for Reservation Entries created when Item Tracking is assigned
+     // (e.g. the mobile receive flow creates a Reservation Entry alongside the
+     // Whse. Item Tracking Line). When the entry carries a Lot but no
+     // Manufacturer Code, recover it by lot — mirroring the Warehouse Entry /
+     // ILE OnBeforeInsert fallbacks below so the code flows consistently.
+     [EventSubscriber(ObjectType::Table, Database::"Reservation Entry", OnBeforeInsertEvent, '', false, false)]
+     local procedure ReservEntry_OnBeforeInsert_FillMfrCode(var Rec: Record "Reservation Entry"; RunTrigger: Boolean)
+     begin
+         if Rec.IsTemporary() then
+             exit;
+         if Rec."Manufacturer Code" <> '' then
+             exit;
+         if Rec."Lot No." = '' then
+             exit;
+         Rec."Manufacturer Code" := ReservationMgt.LookupManufacturerCodeByLot(Rec."Item No.", Rec."Variant Code", Rec."Lot No.");
+         if Rec."Manufacturer Code" = '' then
+             Rec."Manufacturer Code" := ReservationMgt.LookupManufacturerCodeFromILE(Rec."Item No.", Rec."Variant Code", Rec."Lot No.");
+     end;*/
+
     [EventSubscriber(ObjectType::Page, Page::"Item Tracking Lines", OnBeforeAddToGlobalRecordSet, '', false, false)]
     local procedure ItemTrackingLines_OnBeforeAddToGlobalRecordSet(var TrackingSpecification: Record "Tracking Specification"; EntriesExist: Boolean; CurrentSignFactor: Integer; var TempTrackingSpecification: Record "Tracking Specification" temporary)
     begin

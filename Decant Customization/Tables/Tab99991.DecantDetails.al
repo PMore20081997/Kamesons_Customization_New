@@ -60,10 +60,11 @@ table 99991 "Decant Details"
         field(11; "To Bin Code"; Code[20])
         {
             DataClassification = CustomerContent;
-            TableRelation = IF ("To Zone Code" = FILTER('')) Bin.Code WHERE("Location Code" = FIELD("Location Code"))
+            /*TableRelation = IF ("To Zone Code" = FILTER('')) Bin.Code WHERE("Location Code" = FIELD("To Location Code"))
             ELSE
-            IF ("To Zone Code" = FILTER(<> '')) Bin.Code WHERE("Location Code" = FIELD("Location Code"),
-                                                                                              "Zone Code" = FIELD("To Zone Code"));
+            IF ("To Zone Code" = FILTER(<> '')) Bin.Code WHERE("Location Code" = FIELD("To Location Code"),
+                                                                                              "Zone Code" = FIELD("To Zone Code"));*/
+            TableRelation = Bin.Code;
         }
         field(12; "Package No."; Code[20])
         {
