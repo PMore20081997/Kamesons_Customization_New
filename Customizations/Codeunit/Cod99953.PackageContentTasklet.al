@@ -56,7 +56,7 @@ codeunit 99953 "Package Content Tasklet"
         end;
 
         // Item No. — optional; operator can leave blank to see all items at the location.
-        _HeaderFields.Create_TextField(2, 'ItemNo', 'Item No.:');
+        _HeaderFields.Create_TextField(2, 'ItemNo', 'Item:');
         _HeaderFields.Set_optional(true);
     end;
 
