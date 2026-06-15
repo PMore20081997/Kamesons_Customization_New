@@ -408,6 +408,9 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     /// missing tote setup (no QtyPerTote / no Number-of-Totes in Main WH bins)
     /// yields 0 → entire line to HighBay.
     /// </summary>
+
+
+
     local procedure ResolveSpaceLeft(var WhseActivityLine: Record "Warehouse Activity Line"; Item: Record Item): Decimal
     var
         MainBinContent: Record "Bin Content";
@@ -1242,5 +1245,5 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         G_CachedItem: Record Item;
         G_TargetedBins: Dictionary of [Text, Boolean];
         G_ClaimScopeKey: Text;
-        //G_CurrentLineMainBin: Code[20];
+    //G_CurrentLineMainBin: Code[20];
 }

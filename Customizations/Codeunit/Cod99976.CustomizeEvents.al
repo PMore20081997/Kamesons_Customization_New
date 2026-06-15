@@ -108,6 +108,9 @@ codeunit 99976 Customize_Events
         end;
     end;
 
+
+
+
     // Restrict Main Warehouse to a single Item / Location / Zone / Bin combination.
     // Why: business rule — one item must live in exactly one bin at the Main location.
     // [EventSubscriber(ObjectType::Table, Database::"Bin Content", OnBeforeInsertEvent, '', false, false)]
