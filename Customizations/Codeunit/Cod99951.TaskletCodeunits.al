@@ -110,7 +110,13 @@ codeunit 99951 Tasklet_Codeunits
                 L_ListValues += ';' + L_ItemMfr."Manufacturer code";
             until L_ItemMfr.Next() = 0;
 
-        exit(DelChr(L_ListValues, '<', ';'));  // strip leading separators
+        L_ListValues := DelChr(L_ListValues, '<', ';');  // strip leading separators
+        if L_ListValues = '' then
+            exit('');
+
+        // Prepend a blank entry so the dropdown shows blank as the first option
+        // (lets the operator leave Manufacturer Code empty when none applies).
+        exit(';' + L_ListValues);
     end;
 
     local procedure GetManufacturerFromBarcode(_ItemNo: Code[20]; _Barcode: Code[50]): Code[100]
