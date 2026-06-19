@@ -1,7 +1,5 @@
 namespace Kamesons_Customization.Kamesons_Customization;
 
-using Microsoft.Inventory.Location;
-using Microsoft.Warehouse.Journal;
 
 // -------------------------------------------------------------------------------------
 // Decant Screen on Tasklet Mobile WMS — "Lookup + Unplanned" pattern.
@@ -29,47 +27,25 @@ codeunit 99952 DecantScreenTasklet
 
     var
         DecantPostMgt: Codeunit "Decant Tasklet Post Mgt.";
-        SetupLookup: Codeunit "Kam Whse Setup Lookup";
         PostedOkMsgTok: Label 'Posted successfully.';
-        DefaultBatchNameTok: Label 'DEFAULT', Locked = true;
 
     // ---------- 1. Header configurations -------------------------------------
 
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"MOB WMS Reference Data", 'OnGetReferenceData_OnAddHeaderConfigurations', '', true, true)]
     local procedure OnAddHeaderConfigurations_Decant(var _HeaderFields: Record "MOB HeaderField Element")
-    var
-        ReceiveLocation: Code[20];
     begin
-        ReceiveLocation := SetupLookup.GetReceiveLocation();
-
         // Decant Screen lookup filters (visible to operator)
         _HeaderFields.InitConfigurationKey('DecantScreenLookup');
 
-        // Batch — default 'DEFAULT'.
-        _HeaderFields.Create_TextField(1, 'Batch', 'Batch:');
-        _HeaderFields.Set_DefaultValue(DefaultBatchNameTok);
-
-        // Location Code — default = Receive Location from Warehouse Setup.
-        _HeaderFields.Create_TextField(2, 'LocationCode', 'Location Code:');
-        if ReceiveLocation <> '' then
-            _HeaderFields.Set_DefaultValue(ReceiveLocation);
-
-        // Item No. — optional; operator can leave blank to see all items in the batch.
-        _HeaderFields.Create_TextField(3, 'ItemNo', 'Item No.:');
+        // Package No. — operator scans or enters the package to filter Decant Details.
+        _HeaderFields.Create_TextField(1, 'PackageNo', 'Package No.:');
         _HeaderFields.Set_optional(true);
 
         // Hidden carriers passed from the lookup row to the per-line registration.
-        // Field names must match the SetValue keys used in OnLookupOnCustomLookupType.
         _HeaderFields.InitConfigurationKey('DecantItemReg');
-        _HeaderFields.Create_TextField(1, 'Template', 'Template:');
-        _HeaderFields.Set_locked(true);
-        _HeaderFields.Create_TextField(2, 'Batch', 'Batch:');
-        _HeaderFields.Set_locked(true);
-        _HeaderFields.Create_TextField(3, 'LocationCode', 'Location:');
-        _HeaderFields.Set_locked(true);
         _HeaderFields.Create_TextField(4, 'ItemNo', 'Item No.:');
         _HeaderFields.Set_locked(true);
-        _HeaderFields.Create_TextField(5, 'LineNumber', 'Line No.:');
+        _HeaderFields.Create_TextField(5, 'Description', 'Description:');
         _HeaderFields.Set_locked(true);
     end;
 
@@ -79,25 +55,17 @@ codeunit 99952 DecantScreenTasklet
     local procedure OnLookupOnCustomLookupType_Decant(_MessageId: Guid; _LookupType: Text; var _RequestValues: Record "MOB NS Request Element"; var _LookupResponseElement: Record "MOB NS WhseInquery Element"; var _RegistrationTypeTracking: Text; var _IsHandled: Boolean)
     var
         DecantDetails: Record "Decant Details";
-        BatchFilter: Text;
-        LocationFilter: Text;
-        ItemFilter: Text;
+        PackageFilter: Text;
     begin
         if _IsHandled then
             exit;
         if _LookupType <> 'DecantScreenLookup' then
             exit;
 
-        BatchFilter := _RequestValues.GetValue('Batch');
-        LocationFilter := _RequestValues.GetValue('LocationCode');
-        ItemFilter := _RequestValues.GetValue('ItemNo');
+        PackageFilter := _RequestValues.GetValue('PackageNo');
 
-        if BatchFilter <> '' then
-            DecantDetails.SetFilter("Journal Batch Name", BatchFilter);
-        if LocationFilter <> '' then
-            DecantDetails.SetFilter("Location Code", LocationFilter);
-        if ItemFilter <> '' then
-            DecantDetails.SetFilter("Item No.", ItemFilter);
+        if PackageFilter <> '' then
+            DecantDetails.SetFilter("Package No.", PackageFilter);
 
         if DecantDetails.FindSet() then
             repeat
@@ -109,13 +77,16 @@ codeunit 99952 DecantScreenTasklet
                 _LookupResponseElement.SetValue('Batch', DecantDetails."Journal Batch Name");
                 _LookupResponseElement.SetValue('LocationCode', DecantDetails."Location Code");
                 _LookupResponseElement.SetValue('ItemNo', DecantDetails."Item No.");
+                _LookupResponseElement.SetValue('Description', DecantDetails.Description);
                 _LookupResponseElement.SetValue('LineNumber', Format(DecantDetails."Line No."));
 
                 // What the operator sees on each list row.
-                _LookupResponseElement.Set_DisplayLine1(DecantDetails."Item No." + '  ' + DecantDetails.Description);
-                _LookupResponseElement.Set_DisplayLine2(BuildLotExpiryLine(DecantDetails));
-                _LookupResponseElement.Set_DisplayLine3(BuildBinLine(DecantDetails));
-                _LookupResponseElement.Set_DisplayLine4(BuildPackageLine(DecantDetails));
+                _LookupResponseElement.Set_DisplayLine1(BuildNewPackageLine(DecantDetails));
+                _LookupResponseElement.Set_DisplayLine2(DecantDetails."Item No.");
+                _LookupResponseElement.Set_DisplayLine3(DecantDetails.Description);
+                _LookupResponseElement.Set_DisplayLine4(BuildLotExpiryLine(DecantDetails));
+                _LookupResponseElement.Set_DisplayLine5(BuildBinLine(DecantDetails));
+
 
                 // Right-hand column on the LookupWithRegistrations list shows
                 // "{Quantity}/{ExtraInfo1}" — fill both with the line's qty and UoM.
@@ -142,97 +113,29 @@ codeunit 99952 DecantScreenTasklet
     /// </summary>
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"MOB WMS Lookup", 'OnLookupOnCustomLookupType', '', true, true)]
     local procedure OnLookupOnCustomLookupType_DecantHeaderFields(_MessageId: Guid; _LookupType: Text; var _RequestValues: Record "MOB NS Request Element"; var _LookupResponseElement: Record "MOB NS WhseInquery Element"; var _RegistrationTypeTracking: Text; var _IsHandled: Boolean)
-    var
-        BatchFilter: Text;
-        LocationFilter: Text;
     begin
         if _IsHandled then
             exit;
 
-        case _LookupType of
-            'DecantScreenLookup.Batch':
-                begin
-                    LocationFilter := _RequestValues.GetValue('LocationCode');
-                    BuildBatchLookup(LocationFilter, _LookupResponseElement);
-                    _IsHandled := true;
-                end;
-            'DecantScreenLookup.LocationCode':
-                begin
-                    BuildLocationLookup(_LookupResponseElement);
-                    _IsHandled := true;
-                end;
-            'DecantScreenLookup.ItemNo':
-                begin
-                    BatchFilter := _RequestValues.GetValue('Batch');
-                    LocationFilter := _RequestValues.GetValue('LocationCode');
-                    BuildItemLookup(BatchFilter, LocationFilter, _LookupResponseElement);
-                    _IsHandled := true;
-                end;
+        if _LookupType = 'DecantScreenLookup.PackageNo' then begin
+            BuildPackageNoLookup(_LookupResponseElement);
+            _IsHandled := true;
         end;
     end;
 
-    local procedure BuildBatchLookup(LocationFilter: Text; var _LookupResponseElement: Record "MOB NS WhseInquery Element")
+    local procedure BuildPackageNoLookup(var _LookupResponseElement: Record "MOB NS WhseInquery Element")
     var
         DecantDetails: Record "Decant Details";
-        WhseJnlBatch: Record "Warehouse Journal Batch";
-        SeenBatches: List of [Code[10]];
+        SeenPackages: List of [Code[50]];
     begin
-        // Distinct Decant Details batches at the selected Location (if entered).
-        // Falls back to all Warehouse Journal Batches if Decant has no rows yet.
-        if LocationFilter <> '' then
-            DecantDetails.SetFilter("Location Code", LocationFilter);
         if DecantDetails.FindSet() then
             repeat
-                if not SeenBatches.Contains(DecantDetails."Journal Batch Name") then begin
-                    SeenBatches.Add(DecantDetails."Journal Batch Name");
+                if (DecantDetails."Package No." <> '') and not SeenPackages.Contains(DecantDetails."Package No.") then begin
+                    SeenPackages.Add(DecantDetails."Package No.");
                     _LookupResponseElement.Create();
-                    _LookupResponseElement.SetValue('Value', DecantDetails."Journal Batch Name");
-                    _LookupResponseElement.Set_DisplayLine1(DecantDetails."Journal Batch Name");
-                    _LookupResponseElement.Set_DisplayLine2('Template: ' + DecantDetails."Journal Template Name");
-                end;
-            until DecantDetails.Next() = 0;
-
-        if SeenBatches.Count() = 0 then
-            if WhseJnlBatch.FindSet() then
-                repeat
-                    _LookupResponseElement.Create();
-                    _LookupResponseElement.SetValue('Value', WhseJnlBatch.Name);
-                    _LookupResponseElement.Set_DisplayLine1(WhseJnlBatch.Name);
-                    _LookupResponseElement.Set_DisplayLine2(WhseJnlBatch.Description);
-                until WhseJnlBatch.Next() = 0;
-    end;
-
-    local procedure BuildLocationLookup(var _LookupResponseElement: Record "MOB NS WhseInquery Element")
-    var
-        Location: Record Location;
-    begin
-        if Location.FindSet() then
-            repeat
-                _LookupResponseElement.Create();
-                _LookupResponseElement.SetValue('Value', Location.Code);
-                _LookupResponseElement.Set_DisplayLine1(Location.Code);
-                _LookupResponseElement.Set_DisplayLine2(Location.Name);
-            until Location.Next() = 0;
-    end;
-
-    local procedure BuildItemLookup(BatchFilter: Text; LocationFilter: Text; var _LookupResponseElement: Record "MOB NS WhseInquery Element")
-    var
-        DecantDetails: Record "Decant Details";
-        SeenItems: List of [Code[20]];
-    begin
-        // Distinct items on Decant Details for the selected Batch + Location.
-        if BatchFilter <> '' then
-            DecantDetails.SetFilter("Journal Batch Name", BatchFilter);
-        if LocationFilter <> '' then
-            DecantDetails.SetFilter("Location Code", LocationFilter);
-        if DecantDetails.FindSet() then
-            repeat
-                if not SeenItems.Contains(DecantDetails."Item No.") then begin
-                    SeenItems.Add(DecantDetails."Item No.");
-                    _LookupResponseElement.Create();
-                    _LookupResponseElement.SetValue('Value', DecantDetails."Item No.");
-                    _LookupResponseElement.Set_DisplayLine1(DecantDetails."Item No.");
-                    _LookupResponseElement.Set_DisplayLine2(DecantDetails.Description);
+                    _LookupResponseElement.SetValue('Value', DecantDetails."Package No.");
+                    _LookupResponseElement.Set_DisplayLine1(DecantDetails."Package No.");
+                    _LookupResponseElement.Set_DisplayLine2(DecantDetails."Item No." + '  ' + DecantDetails.Description);
                 end;
             until DecantDetails.Next() = 0;
     end;
@@ -246,14 +149,11 @@ codeunit 99952 DecantScreenTasklet
         Template: Code[10];
         Batch: Code[10];
         LineNo: Integer;
-        DefaultToBin: Code[20];
         DefaultNewPackage: Code[50];
     begin
         if not (_RegistrationType in ['DecantItemReg', 'DecantScreenLookup']) then
             exit;
 
-        // Pre-fill the two scan steps with the current values on the matching
-        // Decant Details row so the operator can just confirm or overwrite.
         Template := CopyStr(_HeaderFieldValues.GetValue('Template'), 1, MaxStrLen(Template));
         Batch := CopyStr(_HeaderFieldValues.GetValue('Batch'), 1, MaxStrLen(Batch));
         LineNo := _HeaderFieldValues.GetValueAsInteger('LineNumber');
@@ -262,17 +162,11 @@ codeunit 99952 DecantScreenTasklet
             DecantDetails.SetRange("Journal Template Name", Template);
             DecantDetails.SetRange("Journal Batch Name", Batch);
             DecantDetails.SetRange("Line No.", LineNo);
-            if DecantDetails.FindFirst() then begin
-                DefaultToBin := DecantDetails."To Bin Code";
+            if DecantDetails.FindFirst() then
                 DefaultNewPackage := DecantDetails."New Package No.";
-            end;
         end;
 
-        _Steps.Create_TextStep(1, 'ToBinCode', 'Scan To Bin Code');
-        if DefaultToBin <> '' then
-            _Steps.Set_DefaultValue(DefaultToBin);
-
-        _Steps.Create_TextStep(2, 'NewPackageNo', 'Scan New Package No.');
+        _Steps.Create_TextStep(1, 'NewPackageNo', 'Scan New Package No.');
         if DefaultNewPackage <> '' then
             _Steps.Set_DefaultValue(DefaultNewPackage);
     end;
@@ -282,6 +176,7 @@ codeunit 99952 DecantScreenTasklet
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"MOB WMS Adhoc Registr.", 'OnPostAdhocRegistrationOnCustomRegistrationType', '', true, true)]
     local procedure OnPostAdhocRegistration_DecantItemReg(_MessageId: Guid; _RegistrationType: Text; var _RequestValues: Record "MOB NS Request Element"; var _CurrentRegistrations: Record "MOB WMS Registration"; var _SuccessMessage: Text; var _RegistrationTypeTracking: Text; var _IsHandled: Boolean)
     var
+        DecantDetails: Record "Decant Details";
         TemplateName: Code[10];
         BatchName: Code[10];
         LineNo: Integer;
@@ -296,8 +191,13 @@ codeunit 99952 DecantScreenTasklet
         TemplateName := CopyStr(_RequestValues.GetValue('Template'), 1, MaxStrLen(TemplateName));
         BatchName := CopyStr(_RequestValues.GetValue('Batch'), 1, MaxStrLen(BatchName));
         LineNo := _RequestValues.GetValueAsInteger('LineNumber');
-        ToBinCode := CopyStr(_RequestValues.GetValue('ToBinCode'), 1, MaxStrLen(ToBinCode));
         NewPackageNo := CopyStr(_RequestValues.GetValue('NewPackageNo'), 1, MaxStrLen(NewPackageNo));
+
+        DecantDetails.SetRange("Journal Template Name", TemplateName);
+        DecantDetails.SetRange("Journal Batch Name", BatchName);
+        DecantDetails.SetRange("Line No.", LineNo);
+        if DecantDetails.FindFirst() then
+            ToBinCode := DecantDetails."To Bin Code";
 
         DecantPostMgt.PostSingleDecantLine(TemplateName, BatchName, LineNo, ToBinCode, NewPackageNo);
 
@@ -324,14 +224,14 @@ codeunit 99952 DecantScreenTasklet
 
     local procedure BuildBinLine(DecantDetails: Record "Decant Details"): Text
     begin
-        exit('From: ' + DecantDetails."From Bin Code" + '  ->  To: ' + DecantDetails."To Bin Code");
+        exit('To: ' + DecantDetails."To Bin Code");
     end;
 
-    local procedure BuildPackageLine(DecantDetails: Record "Decant Details"): Text
+    local procedure BuildNewPackageLine(DecantDetails: Record "Decant Details"): Text
     begin
         if DecantDetails."Package No." = '' then
             exit('');
-        exit('Pkg: ' + DecantDetails."Package No.");
+        exit('PKG: ' + DecantDetails."Package No.");
     end;
 
 }
