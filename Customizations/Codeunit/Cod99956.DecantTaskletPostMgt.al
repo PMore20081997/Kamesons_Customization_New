@@ -23,6 +23,7 @@ codeunit 99956 "Decant Tasklet Post Mgt."
     var
         NoLinesToPostErr: Label 'No Decant Details lines found for Template %1 / Batch %2.', Comment = '%1 = Template, %2 = Batch';
         LineNotFoundErr: Label 'Decant Details line %1 not found in Template %2 / Batch %3.', Comment = '%1 = Line No., %2 = Template, %3 = Batch';
+        NewPackageNoBlankErr: Label 'New Package No. is blank for line %1. Please assign a New Package No. before posting.', Comment = '%1 = Line No.';
         NoTransferTemplateErr: Label 'No Item Journal Template of type Transfer is configured. Configure an Item Reclassification template before posting from Tasklet.';
         PostingFailedErr: Label 'Posting the Item Reclassification journal failed:\%1', Comment = '%1 = error text from the post codeunit';
         ReclassBatchNameTok: Label 'GENDECANT', Locked = true;
@@ -48,7 +49,7 @@ codeunit 99956 "Decant Tasklet Post Mgt."
         // keeps Validate so its duplicate-check OnValidate still fires.
         if NewToBinCode <> '' then
             DecantDetails."To Bin Code" := NewToBinCode;
-        if NewPackageNo <> '' then
+        if (NewPackageNo <> '') and (NewPackageNo <> DecantDetails."New Package No.") then
             DecantDetails.Validate("New Package No.", NewPackageNo);
         DecantDetails.Modify(true);
     end;
@@ -61,7 +62,6 @@ codeunit 99956 "Decant Tasklet Post Mgt."
     procedure PostSingleDecantLine(TemplateName: Code[10]; BatchName: Code[10]; LineNo: Integer; NewToBinCode: Code[20]; NewPackageNo: Code[50])
     var
         DecantDetails: Record "Decant Details";
-        ItemJnlLine: Record "Item Journal Line";
         ReclassTemplateName: Code[10];
         ReclassBatchName: Code[10];
         DocNo: Code[20];
@@ -69,23 +69,22 @@ codeunit 99956 "Decant Tasklet Post Mgt."
         if not FindDecantLine(TemplateName, BatchName, LineNo, DecantDetails) then
             Error(LineNotFoundErr, LineNo, TemplateName, BatchName);
 
+        if DecantDetails."New Package No." = '' then
+            Error(NewPackageNoBlankErr, LineNo);
+
         // See note in SaveScanForDecantLine — bypass Validate on "To Bin Code"
         // because its TableRelation filters by the source location, not destination.
         if NewToBinCode <> '' then
             DecantDetails."To Bin Code" := NewToBinCode;
-        if NewPackageNo <> '' then
+        if (NewPackageNo <> '') and (NewPackageNo <> DecantDetails."New Package No.") then
             DecantDetails.Validate("New Package No.", NewPackageNo);
         DecantDetails.Modify(true);
 
         ResolveReclassTemplateAndBatch(ReclassTemplateName, ReclassBatchName);
 
-        // Clear any leftover lines for this batch so single-line posting doesn't
-        // sweep previously-staged unrelated rows along with it.
-        ItemJnlLine.Reset();
-        ItemJnlLine.SetRange("Journal Template Name", ReclassTemplateName);
-        ItemJnlLine.SetRange("Journal Batch Name", ReclassBatchName);
-        if ItemJnlLine.FindSet() then
-            ItemJnlLine.DeleteAll(true);
+        // Clear any leftover lines — delete reservation entries first to avoid
+        // "item tracking defined" error when deleting journal lines.
+        DeleteReclassJournalLinesWithTracking(ReclassTemplateName, ReclassBatchName);
 
         DocNo := DocNoPrefixTok + Format(WorkDate(), 0, '<Year4><Month,2><Day,2>');
         CreateReclassJournalLine(DecantDetails, ReclassTemplateName, ReclassBatchName, DocNo, 10000);
@@ -104,7 +103,6 @@ codeunit 99956 "Decant Tasklet Post Mgt."
     procedure PostDecantBatchFromTasklet(TemplateName: Code[10]; BatchName: Code[10])
     var
         DecantDetails: Record "Decant Details";
-        ItemJnlLine: Record "Item Journal Line";
         ReclassTemplateName: Code[10];
         ReclassBatchName: Code[10];
         DocNo: Code[20];
@@ -118,11 +116,7 @@ codeunit 99956 "Decant Tasklet Post Mgt."
 
         ResolveReclassTemplateAndBatch(ReclassTemplateName, ReclassBatchName);
 
-        ItemJnlLine.Reset();
-        ItemJnlLine.SetRange("Journal Template Name", ReclassTemplateName);
-        ItemJnlLine.SetRange("Journal Batch Name", ReclassBatchName);
-        if ItemJnlLine.FindSet() then
-            ItemJnlLine.DeleteAll(true);
+        DeleteReclassJournalLinesWithTracking(ReclassTemplateName, ReclassBatchName);
 
         Line := 10000;
         DocNo := DocNoPrefixTok + Format(WorkDate(), 0, '<Year4><Month,2><Day,2>');
@@ -197,13 +191,14 @@ codeunit 99956 "Decant Tasklet Post Mgt."
             ItemJnlLine.Validate("Unit of Measure Code", DecantDetails."Unit of Measure Code");
         ItemJnlLine.Insert(true);
 
-        CreateItemTrackingForLine(
-            ItemJnlLine,
-            DecantDetails."Lot No.",
-            DecantDetails."Expiry Date",
-            DecantDetails."Package No.",
-            DecantDetails."New Package No.",
-            DecantDetails."Manufacturer Code");
+        if DecantDetails."New Package No." <> '' then
+            CreateItemTrackingForLine(
+                ItemJnlLine,
+                DecantDetails."Lot No.",
+                DecantDetails."Expiry Date",
+                DecantDetails."Package No.",
+                DecantDetails."New Package No.",
+                DecantDetails."Manufacturer Code");
     end;
 
     local procedure CreateItemTrackingForLine(var ItemJnlLine: Record "Item Journal Line"; LotNo: Code[50]; ExpirationDate: Date; OldPackageNo: Code[50]; NewPackageNo: Code[50]; ManufacturerCode: Code[10])
@@ -256,6 +251,27 @@ codeunit 99956 "Decant Tasklet Post Mgt."
                 ReservEntry."New Expiration Date" := ExpirationDate;
             ReservEntry.Modify();
         end;
+    end;
+
+    local procedure DeleteReclassJournalLinesWithTracking(ReclassTemplateName: Code[10]; ReclassBatchName: Code[10])
+    var
+        ItemJnlLine: Record "Item Journal Line";
+        ReservEntry: Record "Reservation Entry";
+    begin
+        ItemJnlLine.Reset();
+        ItemJnlLine.SetRange("Journal Template Name", ReclassTemplateName);
+        ItemJnlLine.SetRange("Journal Batch Name", ReclassBatchName);
+        if not ItemJnlLine.FindSet() then
+            exit;
+
+        // Delete reservation entries first — BC blocks journal line deletion when tracking exists.
+        ReservEntry.Reset();
+        ReservEntry.SetRange("Source Type", DATABASE::"Item Journal Line");
+        ReservEntry.SetRange("Source ID", ReclassTemplateName);
+        ReservEntry.SetRange("Source Batch Name", ReclassBatchName);
+        ReservEntry.DeleteAll();
+
+        ItemJnlLine.DeleteAll(true);
     end;
 
     local procedure PostReclassBatch(ReclassTemplateName: Code[10]; ReclassBatchName: Code[10])
