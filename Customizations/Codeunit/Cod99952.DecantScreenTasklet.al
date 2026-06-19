@@ -244,4 +244,3 @@ codeunit 99952 DecantScreenTasklet
     end;
 
 }
-."
