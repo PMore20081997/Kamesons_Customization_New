@@ -52,8 +52,7 @@ codeunit 99951 Tasklet_Codeunits
         G_MfrCode := GetManufacturerFromBarcode(L_ItemNo, G_ScannedBarcode);
 
         // Manufacturer validity is enforced by the Manufacture Code step's online
-        // validation (ValidateManufactureCode) — an Error raised in this inquiry
-        // is swallowed by the client, so we do not validate here.
+        // validation (ValidateManufactureCode).
 
         _ResponseElement.Create('select');
         _ResponseElement.SetValue('@name', 'ItemNumber');
@@ -149,27 +148,22 @@ codeunit 99951 Tasklet_Codeunits
         if L_ItemMfr.FindSet() then
             repeat
                 if not ListContainsValue(L_ListValues, L_ItemMfr."Manufacturer code") then
-                    L_ListValues += L_ItemMfr."Manufacturer code" + ';';
+                    L_ListValues += ';' + L_ItemMfr."Manufacturer code";
             until L_ItemMfr.Next() = 0;
 
         // Also include the manufacturer(s) on the item's Bar Code Item References
         // (e.g. the scanned 1154) so the dropdown can display them. These are not
         // necessarily valid — online validation rejects an invalid pick on confirm.
-        L_ItemRef.SetRange("Item No.", _ItemNo);
+        /*L_ItemRef.SetRange("Item No.", _ItemNo);
         L_ItemRef.SetRange("Reference Type", L_ItemRef."Reference Type"::"Bar Code");
         L_ItemRef.SetFilter(Manufacturer, '<>%1', '');
         if L_ItemRef.FindSet() then
             repeat
                 if not ListContainsValue(L_ListValues, L_ItemRef.Manufacturer) then
                     L_ListValues += ';' + L_ItemRef.Manufacturer;
-            until L_ItemRef.Next() = 0;
+            until L_ItemRef.Next() = 0;*/
 
-        L_ListValues := DelChr(L_ListValues, '<', ';');  // strip leading separators
-        if L_ListValues = '' then
-            exit('');
-
-        // Prepend a blank entry so the dropdown shows blank as the first option.
-        exit(L_ListValues);
+        exit(DelChr(L_ListValues, '<', ';'));  // strip leading separators
     end;
 
     // Resolve the C&D Manufacturer Code for the item from the most recent
