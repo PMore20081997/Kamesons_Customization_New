@@ -58,11 +58,13 @@ codeunit 99953 "Package Content Tasklet"
         // Item No. — optional; operator can leave blank to see all items at the location.
         _HeaderFields.Create_TextField(2, 'ItemNo', 'Item:');
         _HeaderFields.Set_optional(true);
+
+        _HeaderFields.Create_TextField(3, 'PackageNo', 'Package No.:');
+        _HeaderFields.Set_optional(true);
     end;
 
     local procedure BuildLocationCodeListValues(): Text
     var
-        L_ItemMfr: Record "Item Manufacturer Table";
         L_ListValues: Text;
     begin
 
@@ -88,6 +90,7 @@ codeunit 99953 "Package Content Tasklet"
         ItemDescription: Text;
         LocationFilter: Text;
         ItemFilter: Text;
+        PackageNoFilter: Text;
     begin
         if _IsHandled then
             exit;
@@ -97,11 +100,14 @@ codeunit 99953 "Package Content Tasklet"
         LocationFilter := _RequestValues.GetValue('LocationCode');
         ItemFilter := _RequestValues.GetValue('ItemNo', false);
         ItemFilter := ResolveItemNoFromScan(ItemFilter);
+        PackageNoFilter := _RequestValues.GetValue('PackageNo', false);
 
         if LocationFilter <> '' then
             WhseEntryQuery.SetFilter(Location_Code, LocationFilter);
         if ItemFilter <> '' then
             WhseEntryQuery.SetFilter(Item_No_, ItemFilter);
+        if PackageNoFilter <> '' then
+            WhseEntryQuery.SetFilter(Package_No_, PackageNoFilter);
         // Only show positive on-hand quantities (mirrors the Bin Content Details factbox).
         WhseEntryQuery.SetFilter(Qty_Base, '>%1', 0);
         WhseEntryQuery.Open();
@@ -116,9 +122,9 @@ codeunit 99953 "Package Content Tasklet"
             // Line 2: Description.
             _LookupResponseElement.Set_DisplayLine2(ItemDescription);
             // Line 3: UoM.
-            _LookupResponseElement.Set_DisplayLine3('UoM: ' + WhseEntryQuery.Unit_of_Measure_Code);
+            //_LookupResponseElement.Set_DisplayLine3('UoM: ' + WhseEntryQuery.Unit_of_Measure_Code);
             // Line 4: Lot No. / Package No. / Exp. Date (as on the device screenshot).
-            _LookupResponseElement.Set_DisplayLine4(BuildTrackingLine(WhseEntryQuery));
+            _LookupResponseElement.Set_DisplayLine3(BuildTrackingLine(WhseEntryQuery));
 
             // Right-hand column: Quantity (and UoM in the registrations list slot).
             _LookupResponseElement.Set_Quantity(Format(WhseEntryQuery.Qty_Base));
@@ -128,54 +134,6 @@ codeunit 99953 "Package Content Tasklet"
         WhseEntryQuery.Close();
 
         _IsHandled := true;
-    end;
-
-    // ---------- 2b. Lookup data for header fields (Location / Item) ----------
-
-    [EventSubscriber(ObjectType::Codeunit, Codeunit::"MOB WMS Lookup", 'OnLookupOnCustomLookupType', '', true, true)]
-    local procedure OnLookupOnCustomLookupType_PackageContentHeaderFields(_MessageId: Guid; _LookupType: Text; var _RequestValues: Record "MOB NS Request Element"; var _LookupResponseElement: Record "MOB NS WhseInquery Element"; var _RegistrationTypeTracking: Text; var _IsHandled: Boolean)
-    begin
-        if _IsHandled then
-            exit;
-
-        case _LookupType of
-            'PackageContentHeader.LocationCode':
-                begin
-                    BuildLocationLookup(_LookupResponseElement);
-                    _IsHandled := true;
-                end;
-            'PackageContentHeader.ItemNo':
-                begin
-                    BuildItemLookup(_LookupResponseElement);
-                    _IsHandled := true;
-                end;
-        end;
-    end;
-
-    local procedure BuildLocationLookup(var _LookupResponseElement: Record "MOB NS WhseInquery Element")
-    var
-        Location: Record Location;
-    begin
-        if Location.FindSet() then
-            repeat
-                _LookupResponseElement.Create();
-                _LookupResponseElement.SetValue('Value', Location.Code);
-                _LookupResponseElement.Set_DisplayLine1(Location.Code);
-                _LookupResponseElement.Set_DisplayLine2(Location.Name);
-            until Location.Next() = 0;
-    end;
-
-    local procedure BuildItemLookup(var _LookupResponseElement: Record "MOB NS WhseInquery Element")
-    var
-        Item: Record Item;
-    begin
-        if Item.FindSet() then
-            repeat
-                _LookupResponseElement.Create();
-                _LookupResponseElement.SetValue('Value', Item."No.");
-                _LookupResponseElement.Set_DisplayLine1(Item."No.");
-                _LookupResponseElement.Set_DisplayLine2(Item.Description);
-            until Item.Next() = 0;
     end;
 
     // ---------- Helpers ------------------------------------------------------
