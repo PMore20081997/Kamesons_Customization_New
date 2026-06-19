@@ -5,6 +5,7 @@ using Microsoft.Warehouse.Document;
 using Microsoft.Purchases.Document;
 using Microsoft.Inventory.Tracking;
 using Microsoft.Inventory.Item.Catalog;
+using Microsoft.Warehouse.Ledger;
 
 codeunit 99951 Tasklet_Codeunits
 {
@@ -47,6 +48,9 @@ codeunit 99951 Tasklet_Codeunits
 
         G_MfrCode := GetManufacturerFromBarcode(L_ItemNo, G_ScannedBarcode);
 
+        if not ManufacturerExistsInTable(L_ItemNo, CopyStr(G_MfrCode, 1, 100)) then
+            Error(ManufacturerNotInTableErr, G_MfrCode, L_ItemNo);
+
         _ResponseElement.Create('select');
         _ResponseElement.SetValue('@name', 'ItemNumber');
         _ResponseElement.SetValue('@value', L_ItemNo);
@@ -82,7 +86,14 @@ codeunit 99951 Tasklet_Codeunits
         L_ItemNo := CopyStr(_BaseOrderLineElement.Get_ItemNumber(), 1, MaxStrLen(L_ItemNo));
         L_ListValues := BuildManufacturerCodeListValues(L_ItemNo);
 
-        L_DefaultValue := G_MfrCode;
+        // If the scanned barcode resolved a manufacturer that is not in the
+        // Item Manufacturer Table, error here so the operator sees a clear
+        // message instead of a broken dropdown with an invalid default.
+        if (G_MfrCode <> '') and not ManufacturerExistsInTable(L_ItemNo, CopyStr(G_MfrCode, 1, 100)) then
+            Error(ManufacturerNotInTableErr, G_MfrCode, L_ItemNo);
+
+        if ManufacturerExistsInTable(L_ItemNo, CopyStr(G_MfrCode, 1, 100)) then
+            L_DefaultValue := G_MfrCode;
 
         if L_ListValues = '' then begin
             _Steps.Create_TextStep(45, 'ManufactureCode');
@@ -100,25 +111,29 @@ codeunit 99951 Tasklet_Codeunits
     var
         L_ItemMfr: Record "Item Manufacturer Table";
         L_ListValues: Text;
+        L_ItemRef: Record "Item Reference";
     begin
         if _ItemNo = '' then
             exit('');
 
-        L_ItemMfr.SetRange("Item No", _ItemNo);
+        /*L_ItemMfr.SetRange("Item No", _ItemNo);
         if L_ItemMfr.FindSet() then
             repeat
                 L_ListValues += ';' + L_ItemMfr."Manufacturer code";
-            until L_ItemMfr.Next() = 0;
+            until L_ItemMfr.Next() = 0;*/
+        L_ItemRef.SetRange("Item No.", _ItemNo);
+        if L_ItemRef.FindSet() then
+            repeat
+                L_ListValues += ';' + L_ItemRef.Manufacturer;
+            until L_ItemRef.Next() = 0;
 
-        L_ListValues := DelChr(L_ListValues, '<', ';');  // strip leading separators
-        if L_ListValues = '' then
-            exit('');
-
-        // Prepend a blank entry so the dropdown shows blank as the first option
-        // (lets the operator leave Manufacturer Code empty when none applies).
-        exit(';' + L_ListValues);
+        exit(DelChr(L_ListValues, '<', ';'));  // strip leading separators
     end;
 
+    // Resolve the C&D Manufacturer Code for the item from the most recent
+    // warehouse entry (FEFO: earliest expiry with positive stock).
+    // Item Reference.Manufacturer is a free-text GS1 field unrelated to the
+    // C&D manufacturer code, so we derive it from warehouse entries instead.
     local procedure GetManufacturerFromBarcode(_ItemNo: Code[20]; _Barcode: Code[50]): Code[100]
     var
         L_ItemRef: Record "Item Reference";
@@ -136,15 +151,34 @@ codeunit 99951 Tasklet_Codeunits
 
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"MOB WMS Toolbox", 'OnSaveRegistrationValue', '', true, true)]
     local procedure OnSaveRegistrationValue_ManufactureCode(_Path: Text; _Value: Text; var _MobileWMSRegistration: Record "MOB WMS Registration"; var _IsHandled: Boolean)
+    var
+        L_ItemNo: Code[20];
+        L_MfrCode: Code[100];
     begin
-        if _Path <> 'ManufactureCode' then
+        if not (_Path.ToUpper() = 'MANUFACTURECODE') then
             exit;
 
         if _Value = '' then
             Error(ManufactureCodeMandatoryErr);
 
+        L_ItemNo := _MobileWMSRegistration."Item No.";
+        L_MfrCode := CopyStr(_Value, 1, MaxStrLen(L_MfrCode));
+        if not ManufacturerExistsInTable(L_ItemNo, L_MfrCode) then
+            Error(ManufacturerNotInTableErr, L_MfrCode, L_ItemNo);
+
         _MobileWMSRegistration."Manufacturer Code" := CopyStr(_Value, 1, MaxStrLen(_MobileWMSRegistration."Manufacturer Code"));
         _IsHandled := true;
+    end;
+
+    local procedure ManufacturerExistsInTable(_ItemNo: Code[20]; _MfrCode: Code[100]): Boolean
+    var
+        L_ItemMfr: Record "Item Manufacturer Table";
+    begin
+        if (_ItemNo = '') or (_MfrCode = '') then
+            exit(false);
+        L_ItemMfr.SetRange("Item No", _ItemNo);
+        L_ItemMfr.SetRange("Manufacturer code", _MfrCode);
+        exit(not L_ItemMfr.IsEmpty());
     end;
 
 
@@ -160,4 +194,5 @@ codeunit 99951 Tasklet_Codeunits
         G_ScannedBarcode: Code[50];
         G_MfrCode: Code[100];
         ManufactureCodeMandatoryErr: Label 'Manufacture Code is mandatory. Please scan or type a value.';
+        ManufacturerNotInTableErr: Label 'Manufacturer %1 is not valid for Item No. %2.', Comment = '%1 = Manufacturer Code, %2 = Item No.';
 }
