@@ -6,6 +6,8 @@ using Microsoft.Purchases.Document;
 using Microsoft.Inventory.Tracking;
 using Microsoft.Inventory.Item.Catalog;
 using Microsoft.Warehouse.Ledger;
+using Microsoft.Warehouse.Journal;
+using Microsoft.Inventory.Journal;
 
 codeunit 99951 Tasklet_Codeunits
 {
@@ -116,16 +118,16 @@ codeunit 99951 Tasklet_Codeunits
         if _ItemNo = '' then
             exit('');
 
-        /*L_ItemMfr.SetRange("Item No", _ItemNo);
+        L_ItemMfr.SetRange("Item No", _ItemNo);
         if L_ItemMfr.FindSet() then
             repeat
                 L_ListValues += ';' + L_ItemMfr."Manufacturer code";
-            until L_ItemMfr.Next() = 0;*/
-        L_ItemRef.SetRange("Item No.", _ItemNo);
+            until L_ItemMfr.Next() = 0;
+        /*L_ItemRef.SetRange("Item No.", _ItemNo);
         if L_ItemRef.FindSet() then
             repeat
                 L_ListValues += ';' + L_ItemRef.Manufacturer;
-            until L_ItemRef.Next() = 0;
+            until L_ItemRef.Next() = 0;*/
 
         exit(DelChr(L_ListValues, '<', ';'));  // strip leading separators
     end;
@@ -148,6 +150,43 @@ codeunit 99951 Tasklet_Codeunits
         exit('');
     end;
 
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"MOB WMS Adhoc Registr.", 'OnGetRegistrationConfiguration_OnAddSteps', '', true, true)]
+    local procedure OnAddSteps_UnplannedCount_ManufactureCode(_RegistrationType: Text; var _HeaderFieldValues: Record "MOB NS Request Element"; var _Steps: Record "MOB Steps Element"; var _RegistrationTypeTracking: Text)
+    var
+        L_ItemNo: Code[20];
+        L_ListValues: Text;
+        L_DefaultValue: Text;
+    begin
+        if _RegistrationType <> 'UnplannedCount' then
+            exit;
+
+        L_ItemNo := CopyStr(_HeaderFieldValues.GetValue('Item', false), 1, MaxStrLen(L_ItemNo));
+        L_ListValues := BuildManufacturerCodeListValues(L_ItemNo);
+
+        if L_ListValues = '' then begin
+            _Steps.Create_TextStep(75, 'ManufactureCode');
+            _Steps.Set_defaultValue(L_DefaultValue);
+        end else
+            _Steps.Create_ListStepFromListValues(75, 'ManufactureCode', '', '', '', L_ListValues, L_DefaultValue);
+
+        _Steps.Set_header('Manufacture Code');
+        _Steps.Set_label('Manufacture Code: ');
+        _Steps.Set_helpLabel('Select the Manufacture Code');
+        _Steps.Set_optional(false);
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"MOB WMS Adhoc Registr.", 'OnPostAdhocRegistrationOnUnplannedCount_OnAfterCreateItemJnlLine', '', true, true)]
+    local procedure OnAfterCreateItemJnlLine_UnplannedCount_ManufactureCode(var _RequestValues: Record "MOB NS Request Element"; _ReservationEntry: Record "Reservation Entry"; var _ItemJnlLine: Record "Item Journal Line")
+    begin
+        _ItemJnlLine."Manufacturer Code" := CopyStr(_RequestValues.GetValue('ManufactureCode', false), 1, MaxStrLen(_ItemJnlLine."Manufacturer Code"));
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"MOB WMS Adhoc Registr.", 'OnPostAdhocRegistrationOnUnplannedCount_OnAfterCreateWhseJnlLine', '', true, true)]
+    local procedure OnAfterCreateWhseJnlLine_UnplannedCount_ManufactureCode(var _RequestValues: Record "MOB NS Request Element"; var _WhseJnlLine: Record "Warehouse Journal Line")
+    begin
+        _WhseJnlLine."Manufacturer Code" := CopyStr(_RequestValues.GetValue('ManufactureCode', false), 1, MaxStrLen(_WhseJnlLine."Manufacturer Code"));
+    end;
 
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"MOB WMS Toolbox", 'OnSaveRegistrationValue', '', true, true)]
     local procedure OnSaveRegistrationValue_ManufactureCode(_Path: Text; _Value: Text; var _MobileWMSRegistration: Record "MOB WMS Registration"; var _IsHandled: Boolean)
