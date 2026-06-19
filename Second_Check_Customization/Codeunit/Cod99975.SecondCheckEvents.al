@@ -14,6 +14,11 @@ codeunit 99975 SecondCheck_Events
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Release Purchase Document", OnBeforeReleasePurchaseDoc, '', false, false)]
     local procedure OnBeforeReleasePurchaseDoc(var PurchaseHeader: Record "Purchase Header")
     begin
+
+        if PurchaseHeader."Document Type" <> PurchaseHeader."Document Type"::Order then
+            exit;
+
+
         if PurchaseHeader."Second Check" <> PurchaseHeader."Second Check"::Approved then
             Error('The Second Check field must be Approved before releasing this purchase order.');
     end;

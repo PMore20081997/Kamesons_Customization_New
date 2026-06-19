@@ -60,15 +60,15 @@ report 99956 "Create Invt. Pick"
                 end;
 
                 // ── KNAPP TOTE SECTION ──────────────────────────────────────────────────
-                // For Sales Orders that have Knapp Tote Information, create per-tote
-                // Inventory Picks using the quantities defined in table 99990.
-                // The standard Sales Line / warehouse-class-code loop is bypassed.
-                if ("Warehouse Request"."Source Document" = "Warehouse Request"."Source Document"::"Sales Order") and
-                   CreatePick and
-                   HasKnappToteInfo("Warehouse Request"."Source No.")
-                then begin
-                    CreateKnappTotePicksForOrder("Warehouse Request");
-                    exit;
+                // Sales Orders are always handled via tote information.
+                // With tote info  → create one Inventory Pick per tote, then exit.
+                // Without tote info → skip; no pick is created.
+                if ("Warehouse Request"."Source Document" = "Warehouse Request"."Source Document"::"Sales Order") and CreatePick then begin
+                    if HasKnappToteInfo("Warehouse Request"."Source No.") then begin
+                        CreateKnappTotePicksForOrder("Warehouse Request");
+                        exit;
+                    end else
+                        CurrReport.Skip();
                 end;
                 // ── END KNAPP TOTE SECTION ───────────────────────────────────────────────
 
@@ -528,34 +528,31 @@ report 99956 "Create Invt. Pick"
     var
         KnappToteInfo: Record "Knapp Tote Information";
         L_SalesLine: Record "Sales Line";
-        SavedQtyToShip: Dictionary of [Integer, Decimal];
-        SavedQtyToShipBase: Dictionary of [Integer, Decimal];
-        CumulativeQty: Dictionary of [Integer, Decimal];
+        L_SalesHeader: Record "Sales Header";
+        L_Location: Record Location;
+        L_WhseActivLineChk: Record "Warehouse Activity Line";
+        TempOrigResEntry: Record "Reservation Entry" temporary;
+        LocalPickMovement: Codeunit "Create Inventory Pick/Movement";
+        NewWhseActivLine: Record "Warehouse Activity Line";
         ToteList: List of [Code[20]];
         ToteNo: Code[20];
         SalesOrderNo: Code[20];
-        CumQty: Decimal;
+        RemQtyToPickBase: Decimal;
+        RemainingBase: Decimal;
+        AlreadyPickedBase: Decimal;
+        OrderSubtype: Integer;
+        NeedPick: Boolean;
     begin
         SalesOrderNo := WhseRequest."Source No.";
+        OrderSubtype := L_SalesLine."Document Type"::Order.AsInteger();
 
-        // Gate checks — called ONCE before the tote loop.
-        // CheckSourceDoc must NOT be called per-tote: after the first pick is
-        // committed the codeunit's internal state for this warehouse request is
-        // consumed and subsequent calls return false, silently skipping totes.
         if CheckWhseRequest(WhseRequest) then
             exit;
-        if not CreateInvtPickMovement.CheckSourceDoc(WhseRequest) then
-            exit;
 
-        // ── Save original Qty. to Ship for all item Sales Lines ──────────────
-        L_SalesLine.SetRange("Document Type", L_SalesLine."Document Type"::Order);
-        L_SalesLine.SetRange("Document No.", SalesOrderNo);
-        L_SalesLine.SetRange(Type, L_SalesLine.Type::Item);
-        if L_SalesLine.FindSet() then
-            repeat
-                SavedQtyToShip.Add(L_SalesLine."Line No.", L_SalesLine."Qty. to Ship");
-                SavedQtyToShipBase.Add(L_SalesLine."Line No.", L_SalesLine."Qty. to Ship (Base)");
-            until L_SalesLine.Next() = 0;
+        if not L_SalesHeader.Get(L_SalesHeader."Document Type"::Order, SalesOrderNo) then
+            exit;
+        if not L_Location.Get(WhseRequest."Location Code") then
+            Clear(L_Location);
 
         // ── Collect distinct Tote Nos (sorted order from the key) ────────────
         KnappToteInfo.SetRange("Sales Order No.", SalesOrderNo);
@@ -566,127 +563,239 @@ report 99956 "Create Invt. Pick"
                     ToteList.Add(KnappToteInfo."Tote No.");
             until KnappToteInfo.Next() = 0;
 
-        if ToteList.Count = 0 then begin
-            RestoreSalesLineQty(SalesOrderNo, SavedQtyToShip, SavedQtyToShipBase);
+        if ToteList.Count = 0 then
             exit;
-        end;
 
-        // ── One Inventory Pick per tote  (CUMULATIVE APPROACH) ───────────────
+        // ── One Inventory Pick per tote ──────────────────────────────────────
         //
-        // When the same Sales Line spans multiple totes, BC deducts
-        // Qty. Pick Outstanding (picks already created) from Qty. to Ship
-        // when deciding how much to pick next. Setting Qty. to Ship to the
-        // running cumulative total ensures:
+        // The standard AutoCreatePickOrMove CANNOT be used to split a single
+        // Sales Line across several picks: CreatePickOrMoveFromSales skips any
+        // Sales Line that already has a warehouse activity line anywhere
+        // (Warehouse Activity Line.ActivityExists, with no document filter).
+        // So once a line is on tote A's pick, tote B can never pick it again.
         //
-        //   BC pick qty = Qty. to Ship  -  Qty. Pick Outstanding
-        //               = (all prev totes + this tote)  -  (all prev totes)
-        //               = this tote's quantity   ✓
+        // Instead we build one Warehouse Activity Header per tote ourselves and
+        // call the PUBLIC RunCreatePickOrMoveLine once per Knapp tote entry —
+        // that method does NOT call ActivityExists, so the same Sales Line can
+        // appear on several tote picks.
         //
-        // Lines not yet assigned to any tote stay at cumulative = 0, so BC
-        // skips them entirely.
-        //
-        // Example with the test data (Sales Order 101037):
-        //   Tote 50000 → cumulative {10000:1, 20000:3, 30000:1}
-        //                BC picks 1/3/1  (Outstanding was 0) ✓
-        //   Tote 50001 → cumulative {10000:2, 20000:3, 30000:1}
-        //                BC picks (2-1)=1 for line 10000, 0 for others ✓
-        //   Tote 50002 → cumulative {10000:2, 20000:3, 30000:2}
-        //                BC picks (2-2)=0 for line 10000,
-        //                         (2-1)=1 for line 30000 ✓
+        // Quantity control: for item-tracked lines the codeunit picks the sum
+        // of the line's item-tracking "Qty. to Handle (Base)" (the whole lot),
+        // NOT the RemQtyToPickBase we pass. Nothing syncs that from Qty. to
+        // Ship. So before each call we cap the line's reservation-entry
+        // Qty. to Handle to this tote entry's quantity, then restore it.
         // ─────────────────────────────────────────────────────────────────────
         foreach ToteNo in ToteList do begin
 
-            // Step 1 — add this tote's quantities into the running cumulative
+            // Per-LINE guard: a tote may need more than one pick over time — e.g.
+            // one line had no stock when the tote first arrived, got stock later.
+            // So we only skip the lines of this tote that are ALREADY picked for
+            // this tote; if at least one line still needs picking we (re)create a
+            // pick. Two picks for the same order + tote are allowed when the lines
+            // differ.
+            NeedPick := false;
             KnappToteInfo.Reset();
             KnappToteInfo.SetRange("Sales Order No.", SalesOrderNo);
             KnappToteInfo.SetRange("Tote No.", ToteNo);
             if KnappToteInfo.FindSet() then
                 repeat
-                    CumQty := 0;
-                    if CumulativeQty.ContainsKey(KnappToteInfo."Sales Order Line No.") then
-                        CumulativeQty.Get(KnappToteInfo."Sales Order Line No.", CumQty);
-                    CumQty += KnappToteInfo.Quantity;
-                    if CumulativeQty.ContainsKey(KnappToteInfo."Sales Order Line No.") then
-                        CumulativeQty.Set(KnappToteInfo."Sales Order Line No.", CumQty)
-                    else
-                        CumulativeQty.Add(KnappToteInfo."Sales Order Line No.", CumQty);
+                    if (KnappToteInfo.Quantity > 0) and
+                       not HasExistingTotePickLine(SalesOrderNo, OrderSubtype, KnappToteInfo."Sales Order Line No.", ToteNo)
+                    then
+                        NeedPick := true;
                 until KnappToteInfo.Next() = 0;
+            if not NeedPick then
+                continue;
 
-            // Step 2 — write cumulative qty to every Sales Line
-            //          (lines with no tote entry stay at 0 — BC skips them)
-            L_SalesLine.Reset();
-            L_SalesLine.SetRange("Document Type", L_SalesLine."Document Type"::Order);
-            L_SalesLine.SetRange("Document No.", SalesOrderNo);
-            L_SalesLine.SetRange(Type, L_SalesLine.Type::Item);
-            if L_SalesLine.FindSet(true) then
-                repeat
-                    CumQty := 0;
-                    if CumulativeQty.ContainsKey(L_SalesLine."Line No.") then
-                        CumulativeQty.Get(L_SalesLine."Line No.", CumQty);
-                    L_SalesLine."Qty. to Ship" := CumQty;
-                    L_SalesLine."Qty. to Ship (Base)" := CumQty * L_SalesLine."Qty. per Unit of Measure";
-                    L_SalesLine.Modify(false);
-                until L_SalesLine.Next() = 0;
+            // Create the pick header for this tote (No. assigned from No. Series)
+            InitWhseActivHeader(L_SalesLine);
+            WarehouseActivityHeader."No." := '';
+            WarehouseActivityHeader.Insert(true);
+            WarehouseActivityHeader."Source Document" := WhseRequest."Source Document";
+            WarehouseActivityHeader."Source Type" := WhseRequest."Source Type";
+            WarehouseActivityHeader."Source Subtype" := WhseRequest."Source Subtype";
+            WarehouseActivityHeader."Source No." := WhseRequest."Source No.";
+            WarehouseActivityHeader."Location Code" := WhseRequest."Location Code";
+            WarehouseActivityHeader."Destination Type" := WhseRequest."Destination Type";
+            WarehouseActivityHeader."Destination No." := WhseRequest."Destination No.";
+            WarehouseActivityHeader."Shipment Date" := WhseRequest."Shipment Date";
+            WarehouseActivityHeader."Tote No. NDPP" := ToteNo;
+            WarehouseActivityHeader.Modify();
 
-            // Step 3 — get a Sales Line from this tote for InitWhseActivHeader
+            // Fresh codeunit, pointed at this tote's header
+            Clear(LocalPickMovement);
+            LocalPickMovement.SetInvtMovement(false);
+            LocalPickMovement.SetReportGlobals(PrintDocument, ShowError, ReservedFromStock);
+            LocalPickMovement.SetSourceDocDetailsFilter("Warehouse Source Filter");
+            LocalPickMovement.SetWhseRequest(WhseRequest, true);
+            LocalPickMovement.SetWhseActivHeader(WarehouseActivityHeader);
+            LocalPickMovement.FindNextLineNo();
+
+            // One pick line per tote entry, limited to the tote's quantity AND to
+            // the quantity still left on the sales line (outstanding minus what is
+            // already on other picks), so the picks never exceed the order qty.
             KnappToteInfo.Reset();
             KnappToteInfo.SetRange("Sales Order No.", SalesOrderNo);
             KnappToteInfo.SetRange("Tote No.", ToteNo);
-            if not KnappToteInfo.FindFirst() then
-                continue;
-            if not L_SalesLine.Get(L_SalesLine."Document Type"::Order, SalesOrderNo, KnappToteInfo."Sales Order Line No.") then
-                continue;
+            if KnappToteInfo.FindSet() then
+                repeat
+                    if (KnappToteInfo.Quantity > 0) and
+                       L_SalesLine.Get(L_SalesLine."Document Type"::Order, SalesOrderNo, KnappToteInfo."Sales Order Line No.") and
+                       (L_SalesLine.Type = L_SalesLine.Type::Item) and
+                       not HasExistingTotePickLine(SalesOrderNo, OrderSubtype, KnappToteInfo."Sales Order Line No.", ToteNo)
+                    then begin
+                        AlreadyPickedBase := AlreadyPickedQtyBase(SalesOrderNo, OrderSubtype, KnappToteInfo."Sales Order Line No.");
+                        RemainingBase := L_SalesLine."Outstanding Qty. (Base)" - AlreadyPickedBase;
 
-            // Step 4 — initialise pick header and create pick.
-            //          CheckSourceDoc is NOT called here — it was called once
-            //          before the loop; repeating it per-tote would cause the
-            //          codeunit to return false after the first pick and skip
-            //          all subsequent totes.
-            InitWhseActivHeader(L_SalesLine);
-            TotalPickCounter += 1;
-            CreateInvtPickMovement.SetWhseRequest(WhseRequest, true);
-            CreateInvtPickMovement.AutoCreatePickOrMove(WarehouseActivityHeader);
+                        RemQtyToPickBase := KnappToteInfo.Quantity * L_SalesLine."Qty. per Unit of Measure";
+                        if RemQtyToPickBase > RemainingBase then
+                            RemQtyToPickBase := RemainingBase;
 
-            // Step 7 — stamp Tote No. and commit
-            if WarehouseActivityHeader."No." <> '' then begin
-                WarehouseActivityHeader."Tote No. NDPP" := ToteNo;
-                WarehouseActivityHeader.Modify(false);
+                        if RemQtyToPickBase > 0 then begin
+                            // Cap item-tracking Qty. to Handle to the pick qty
+                            LimitTrackingToToteQty(L_SalesLine, RemQtyToPickBase, TempOrigResEntry);
+
+                            BuildToteActivLine(NewWhseActivLine, L_SalesLine, WarehouseActivityHeader, L_SalesHeader, L_Location."Bin Mandatory");
+                            L_SalesLine.CalcFields("Reserved Quantity");
+                            LocalPickMovement.RunCreatePickOrMoveLine(
+                                NewWhseActivLine, RemQtyToPickBase, L_SalesLine."Outstanding Qty. (Base)", L_SalesLine."Reserved Quantity" <> 0);
+
+                            // Restore the original item-tracking Qty. to Handle
+                            RestoreTracking(TempOrigResEntry);
+                        end;
+                    end;
+                until KnappToteInfo.Next() = 0;
+
+            // Keep the pick only if lines were actually created
+            L_WhseActivLineChk.Reset();
+            L_WhseActivLineChk.SetRange("Activity Type", WarehouseActivityHeader.Type);
+            L_WhseActivLineChk.SetRange("No.", WarehouseActivityHeader."No.");
+            if L_WhseActivLineChk.IsEmpty() then
+                WarehouseActivityHeader.Delete(true)
+            else begin
                 PickCounter += 1;
+                TotalPickCounter += 1;
                 DocumentCreated := true;
                 if PrintDocument then
                     InsertTempWhseActivHdr();
-                Commit();
-            end else
-                TotalPickCounter -= 1;
-
+            end;
+            Commit();
         end;
-
-        // ── Restore original Qty. to Ship on all Sales Lines ─────────────────
-        RestoreSalesLineQty(SalesOrderNo, SavedQtyToShip, SavedQtyToShipBase);
-        Commit();
     end;
 
-    local procedure RestoreSalesLineQty(SalesOrderNo: Code[20]; var SavedQty: Dictionary of [Integer, Decimal]; var SavedQtyBase: Dictionary of [Integer, Decimal])
+    local procedure HasExistingTotePickLine(SalesOrderNo: Code[20]; SourceSubtype: Integer; LineNo: Integer; ToteNo: Code[20]): Boolean
     var
-        L_SalesLine: Record "Sales Line";
-        SavedVal: Decimal;
-        SavedValBase: Decimal;
+        L_WhseActivLine: Record "Warehouse Activity Line";
+        L_WhseActivHeader: Record "Warehouse Activity Header";
     begin
-        L_SalesLine.SetRange("Document Type", L_SalesLine."Document Type"::Order);
-        L_SalesLine.SetRange("Document No.", SalesOrderNo);
-        L_SalesLine.SetRange(Type, L_SalesLine.Type::Item);
-        if L_SalesLine.FindSet(true) then
+        L_WhseActivLine.SetRange("Activity Type", L_WhseActivLine."Activity Type"::"Invt. Pick");
+        L_WhseActivLine.SetRange("Source Type", Database::"Sales Line");
+        L_WhseActivLine.SetRange("Source Subtype", SourceSubtype);
+        L_WhseActivLine.SetRange("Source No.", SalesOrderNo);
+        L_WhseActivLine.SetRange("Source Line No.", LineNo);
+        if L_WhseActivLine.FindSet() then
             repeat
-                SavedVal := 0;
-                SavedValBase := 0;
-                if SavedQty.ContainsKey(L_SalesLine."Line No.") then
-                    SavedQty.Get(L_SalesLine."Line No.", SavedVal);
-                if SavedQtyBase.ContainsKey(L_SalesLine."Line No.") then
-                    SavedQtyBase.Get(L_SalesLine."Line No.", SavedValBase);
-                L_SalesLine."Qty. to Ship" := SavedVal;
-                L_SalesLine."Qty. to Ship (Base)" := SavedValBase;
-                L_SalesLine.Modify(false);
-            until L_SalesLine.Next() = 0;
+                if L_WhseActivHeader.Get(L_WhseActivHeader.Type::"Invt. Pick", L_WhseActivLine."No.") then
+                    if L_WhseActivHeader."Tote No. NDPP" = ToteNo then
+                        exit(true);
+            until L_WhseActivLine.Next() = 0;
+        exit(false);
+    end;
+
+    local procedure AlreadyPickedQtyBase(SalesOrderNo: Code[20]; SourceSubtype: Integer; LineNo: Integer): Decimal
+    var
+        L_WhseActivLine: Record "Warehouse Activity Line";
+    begin
+        // Total quantity for this sales line already sitting on open inventory
+        // picks (any tote), so a later tote cannot pick more than what is left.
+        L_WhseActivLine.SetRange("Activity Type", L_WhseActivLine."Activity Type"::"Invt. Pick");
+        L_WhseActivLine.SetRange("Source Type", Database::"Sales Line");
+        L_WhseActivLine.SetRange("Source Subtype", SourceSubtype);
+        L_WhseActivLine.SetRange("Source No.", SalesOrderNo);
+        L_WhseActivLine.SetRange("Source Line No.", LineNo);
+        L_WhseActivLine.CalcSums("Qty. Outstanding (Base)");
+        exit(L_WhseActivLine."Qty. Outstanding (Base)");
+    end;
+
+    local procedure LimitTrackingToToteQty(_SalesLine: Record "Sales Line"; ToteQtyBase: Decimal; var TempOrigResEntry: Record "Reservation Entry" temporary)
+    var
+        ResEntry: Record "Reservation Entry";
+        RemBase: Decimal;
+        AllocBase: Decimal;
+        Sign: Integer;
+    begin
+        TempOrigResEntry.Reset();
+        TempOrigResEntry.DeleteAll();
+        RemBase := ToteQtyBase;
+
+        ResEntry.SetRange("Source Type", Database::"Sales Line");
+        ResEntry.SetRange("Source Subtype", _SalesLine."Document Type".AsInteger());
+        ResEntry.SetRange("Source ID", _SalesLine."Document No.");
+        ResEntry.SetRange("Source Ref. No.", _SalesLine."Line No.");
+        if ResEntry.FindSet() then
+            repeat
+                if ResEntry.TrackingExists() then begin
+                    // snapshot for restore
+                    TempOrigResEntry := ResEntry;
+                    TempOrigResEntry.Insert();
+
+                    Sign := 1;
+                    if ResEntry."Qty. to Handle (Base)" < 0 then
+                        Sign := -1;
+
+                    AllocBase := Abs(ResEntry."Qty. to Handle (Base)");
+                    if AllocBase > RemBase then
+                        AllocBase := RemBase;
+                    RemBase -= AllocBase;
+
+                    ResEntry."Qty. to Handle (Base)" := Sign * AllocBase;
+                    ResEntry.Modify();
+                end;
+            until ResEntry.Next() = 0;
+    end;
+
+    local procedure RestoreTracking(var TempOrigResEntry: Record "Reservation Entry" temporary)
+    var
+        ResEntry: Record "Reservation Entry";
+    begin
+        if TempOrigResEntry.FindSet() then
+            repeat
+                if ResEntry.Get(TempOrigResEntry."Entry No.", TempOrigResEntry.Positive) then begin
+                    ResEntry."Qty. to Handle (Base)" := TempOrigResEntry."Qty. to Handle (Base)";
+                    ResEntry.Modify();
+                end;
+            until TempOrigResEntry.Next() = 0;
+    end;
+
+    local procedure BuildToteActivLine(var NewWhseActivLine: Record "Warehouse Activity Line"; _SalesLine: Record "Sales Line"; _WhseActivHeader: Record "Warehouse Activity Header"; _SalesHeader: Record "Sales Header"; BinMandatory: Boolean)
+    begin
+        // Mirrors the line template built inside codeunit 7322
+        // CreatePickOrMoveFromSales, so RunCreatePickOrMoveLine behaves exactly
+        // as the standard pick creation would for this Sales Line.
+        NewWhseActivLine.Init();
+        NewWhseActivLine."Activity Type" := _WhseActivHeader.Type;
+        NewWhseActivLine."No." := _WhseActivHeader."No.";
+        if BinMandatory then
+            NewWhseActivLine."Action Type" := NewWhseActivLine."Action Type"::Take;
+        NewWhseActivLine.SetSource(Database::"Sales Line", _SalesLine."Document Type".AsInteger(), _SalesLine."Document No.", _SalesLine."Line No.", 0);
+        NewWhseActivLine."Location Code" := _SalesLine."Location Code";
+        NewWhseActivLine."Bin Code" := _SalesLine."Bin Code";
+        NewWhseActivLine."Item No." := _SalesLine."No.";
+        NewWhseActivLine."Variant Code" := _SalesLine."Variant Code";
+        NewWhseActivLine."Unit of Measure Code" := _SalesLine."Unit of Measure Code";
+        NewWhseActivLine."Qty. per Unit of Measure" := _SalesLine."Qty. per Unit of Measure";
+        NewWhseActivLine."Qty. Rounding Precision" := _SalesLine."Qty. Rounding Precision";
+        NewWhseActivLine."Qty. Rounding Precision (Base)" := _SalesLine."Qty. Rounding Precision (Base)";
+        NewWhseActivLine.Description := _SalesLine.Description;
+        NewWhseActivLine."Description 2" := _SalesLine."Description 2";
+        NewWhseActivLine."Due Date" := _SalesLine."Planned Shipment Date";
+        NewWhseActivLine."Shipping Advice" := _SalesHeader."Shipping Advice";
+        NewWhseActivLine."Shipping Agent Code" := _SalesLine."Shipping Agent Code";
+        NewWhseActivLine."Shipping Agent Service Code" := _SalesLine."Shipping Agent Service Code";
+        NewWhseActivLine."Shipment Method Code" := _SalesHeader."Shipment Method Code";
+        NewWhseActivLine."Destination Type" := NewWhseActivLine."Destination Type"::Customer;
+        NewWhseActivLine."Destination No." := _SalesHeader."Sell-to Customer No.";
+        NewWhseActivLine."Source Document" := NewWhseActivLine."Source Document"::"Sales Order";
     end;
 
     // ── END KNAPP TOTE PROCEDURES ─────────────────────────────────────────────
