@@ -154,14 +154,14 @@ codeunit 99951 Tasklet_Codeunits
         // Also include the manufacturer(s) on the item's Bar Code Item References
         // (e.g. the scanned 1154) so the dropdown can display them. These are not
         // necessarily valid — online validation rejects an invalid pick on confirm.
-        /*L_ItemRef.SetRange("Item No.", _ItemNo);
+        L_ItemRef.SetRange("Item No.", _ItemNo);
         L_ItemRef.SetRange("Reference Type", L_ItemRef."Reference Type"::"Bar Code");
         L_ItemRef.SetFilter(Manufacturer, '<>%1', '');
         if L_ItemRef.FindSet() then
             repeat
                 if not ListContainsValue(L_ListValues, L_ItemRef.Manufacturer) then
                     L_ListValues += ';' + L_ItemRef.Manufacturer;
-            until L_ItemRef.Next() = 0;*/
+            until L_ItemRef.Next() = 0;
 
         exit(DelChr(L_ListValues, '<', ';'));  // strip leading separators
     end;
