@@ -60,6 +60,7 @@ codeunit 99951 Tasklet_Codeunits
         if G_MfrCode <> '' then begin
             _ResponseElement.SetValue('values', '');
             _ResponseElement.SetValue('/values/ManufactureCode', G_MfrCode);
+            _ResponseElement.SetValue('/values/ItemNo', L_ItemNo);
         end;
 
         _IsHandled := true;
@@ -79,8 +80,11 @@ codeunit 99951 Tasklet_Codeunits
         if _DocumentType <> 'ValidateManufactureCode' then
             exit;
 
-        L_ItemNo := CopyStr(_RequestValues.GetValue('ItemNumber', false), 1, MaxStrLen(L_ItemNo));
         L_MfrCode := CopyStr(_RequestValues.GetValue('ManufactureCode', false), 1, MaxStrLen(L_MfrCode));
+
+        // Item No. comes from the hidden 'ItemNo' step, sent here via
+        // includeCollectedValues=true on the Manufacture Code step's online validation.
+        L_ItemNo := CopyStr(_RequestValues.GetValue('ItemNo', false), 1, MaxStrLen(L_ItemNo));
 
         if not ManufacturerExistsInTable(L_ItemNo, L_MfrCode) then
             Error(ManufacturerNotInTableErr, L_MfrCode, L_ItemNo);
@@ -117,6 +121,16 @@ codeunit 99951 Tasklet_Codeunits
         // response (/values/ManufactureCode).
         L_ItemNo := CopyStr(_BaseOrderLineElement.Get_ItemNumber(), 1, MaxStrLen(L_ItemNo));
         L_ListValues := BuildManufacturerCodeListValues(L_ItemNo);
+
+        // Hidden step carrying the line's Item No. SingleInstance state does NOT
+        // survive between the line-selection request and the online-validation
+        // request (separate device sessions), so we pass the Item No. as a
+        // collected step value — includeCollectedValues=true sends it to the
+        // ValidateManufactureCode handler.
+        _Steps.Create_TextStep(44, 'ItemNo');
+        _Steps.Set_defaultValue(L_ItemNo);
+        _Steps.Set_visible(false);
+        _Steps.Set_optional(true);
 
         if L_ListValues = '' then begin
             _Steps.Create_TextStep(45, 'ManufactureCode');
