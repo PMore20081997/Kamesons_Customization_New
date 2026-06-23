@@ -93,10 +93,11 @@ codeunit 99952 DecantScreenTasklet
 
                 // What the operator sees on each list row.
                 _LookupResponseElement.Set_DisplayLine1(BuildNewPackageLine(DecantDetails));
-                _LookupResponseElement.Set_DisplayLine2(DecantDetails."Item No.");
-                _LookupResponseElement.Set_DisplayLine3(DecantDetails.Description);
-                _LookupResponseElement.Set_DisplayLine4(BuildLotExpiryLine(DecantDetails));
-                _LookupResponseElement.Set_DisplayLine5(BuildBinLine(DecantDetails));
+                _LookupResponseElement.Set_DisplayLine2(BuildBinLine(DecantDetails));
+                _LookupResponseElement.Set_DisplayLine3(DecantDetails."Item No.");
+                _LookupResponseElement.Set_DisplayLine4(DecantDetails.Description);
+                _LookupResponseElement.Set_DisplayLine5(BuildLotExpiryLine(DecantDetails));
+
 
 
                 // Right-hand column on the LookupWithRegistrations list shows
