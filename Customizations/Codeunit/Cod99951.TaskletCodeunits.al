@@ -244,8 +244,8 @@ codeunit 99951 Tasklet_Codeunits
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"MOB WMS Toolbox", 'OnSaveRegistrationValue', '', true, true)]
     local procedure OnSaveRegistrationValue_ManufactureCode(_Path: Text; _Value: Text; var _MobileWMSRegistration: Record "MOB WMS Registration"; var _IsHandled: Boolean)
     var
-        L_ItemNo: Code[20];
-        L_MfrCode: Code[100];
+        // L_ItemNo: Code[20];
+        // L_MfrCode: Code[100];
     begin
         if not (_Path.ToUpper() = 'MANUFACTURECODE') then
             exit;
@@ -253,10 +253,10 @@ codeunit 99951 Tasklet_Codeunits
         if _Value = '' then
             Error(ManufactureCodeMandatoryErr);
 
-        L_ItemNo := _MobileWMSRegistration."Item No.";
-        L_MfrCode := CopyStr(_Value, 1, MaxStrLen(L_MfrCode));
-        if not ManufacturerExistsInTable(L_ItemNo, L_MfrCode) then
-            Error(ManufacturerNotInTableErr, L_MfrCode, L_ItemNo);
+        // L_ItemNo := _MobileWMSRegistration."Item No.";
+        // L_MfrCode := CopyStr(_Value, 1, MaxStrLen(L_MfrCode));
+        // if not ManufacturerExistsInTable(L_ItemNo, L_MfrCode) then
+        //     Error(ManufacturerNotInTableErr, L_MfrCode, L_ItemNo);
 
         _MobileWMSRegistration."Manufacturer Code" := CopyStr(_Value, 1, MaxStrLen(_MobileWMSRegistration."Manufacturer Code"));
         _IsHandled := true;

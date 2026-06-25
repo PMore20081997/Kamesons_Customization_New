@@ -15,20 +15,20 @@
 codeunit 99967 "Pallet Reclass Subs. NDPP"
 {
     // ---- Mandatory gate: every Put-Away Place line must carry a Pallet No. ----
-    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Whse.-Activity-Register", OnBeforeRegisterWhseActivityLines, '', false, false)]
-    local procedure OnBeforeRegisterWhseActivityLines(var WarehouseActivityLine: Record "Warehouse Activity Line")
-    var
-        CheckLine: Record "Warehouse Activity Line";
-    begin
-        CheckLine.CopyFilters(WarehouseActivityLine);
-        if WarehouseActivityLine."No." <> '' then
-            CheckLine.SetRange("No.", WarehouseActivityLine."No.");
-        CheckLine.SetRange("Activity Type", CheckLine."Activity Type"::"Put-away");
-        CheckLine.SetRange("Action Type", CheckLine."Action Type"::Place);
-        CheckLine.SetRange("Pallet No.", '');
-        if CheckLine.FindFirst() then
-            Error(PalletNoMissingErr, CheckLine."Line No.", CheckLine."Item No.");
-    end;
+    /* [EventSubscriber(ObjectType::Codeunit, Codeunit::"Whse.-Activity-Register", OnBeforeRegisterWhseActivityLines, '', false, false)]
+     local procedure OnBeforeRegisterWhseActivityLines(var WarehouseActivityLine: Record "Warehouse Activity Line")
+     var
+         CheckLine: Record "Warehouse Activity Line";
+     begin
+         CheckLine.CopyFilters(WarehouseActivityLine);
+         if WarehouseActivityLine."No." <> '' then
+             CheckLine.SetRange("No.", WarehouseActivityLine."No.");
+         CheckLine.SetRange("Activity Type", CheckLine."Activity Type"::"Put-away");
+         CheckLine.SetRange("Action Type", CheckLine."Action Type"::Place);
+         CheckLine.SetRange("Pallet No.", '');
+         if CheckLine.FindFirst() then
+             Error(PalletNoMissingErr, CheckLine."Line No.", CheckLine."Item No.");
+     end;*/
 
     // ---- Auto trigger: reclassify Package No. -> Pallet No. after registration. ----
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Whse.-Activity-Register", OnAfterRegisterWhseActivity, '', false, false)]
