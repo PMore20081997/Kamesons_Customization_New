@@ -77,6 +77,9 @@ codeunit 99952 DecantScreenTasklet
         if PackageFilter <> '' then
             DecantDetails.SetFilter("Package No.", PackageFilter);
 
+        // Only list lines that have a New Package No. assigned.
+        DecantDetails.SetFilter("New Package No.", '<>%1', '');
+
         if DecantDetails.FindSet() then
             repeat
                 _LookupResponseElement.Create();
