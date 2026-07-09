@@ -90,12 +90,16 @@ codeunit 99964 "Kam Reservation Subscribers"
     local procedure OnAfterCopyTrkgFromWhseJnlLine(var WarehouseEntry: Record "Warehouse Entry"; WarehouseJournalLine: Record "Warehouse Journal Line")
     begin
         WarehouseEntry."Manufacturer Code" := WarehouseJournalLine."Manufacturer Code";
+        // Standard Whse. Jnl.-Register Line does not carry Reason Code to the
+        // Warehouse Entry; copy it here (e.g. the Unplanned Count Reason Code step).
+        WarehouseEntry."Reason Code" := WarehouseJournalLine."Reason Code";
     end;
 
     [EventSubscriber(ObjectType::Table, Database::"Warehouse Entry", OnAfterCopyTrackingFromNewWhseJnlLine, '', false, false)]
     local procedure OnAfterCopyTrkgFromNewWhseJnlLine(var WarehouseEntry: Record "Warehouse Entry"; WarehouseJournalLine: Record "Warehouse Journal Line")
     begin
         WarehouseEntry."Manufacturer Code" := WarehouseJournalLine."Manufacturer Code";
+        WarehouseEntry."Reason Code" := WarehouseJournalLine."Reason Code";
     end;
 
     // Catch-all for pick line creation: fires just before the activity line is inserted.
