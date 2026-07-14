@@ -21,7 +21,13 @@
       "id": "a5727ce6-368c-49e2-84cb-1a6052f0551c",
       "name": "Tasklet Mobile WMS",
       "publisher": "Tasklet Factory",
-      "version": "5.66.280.282"
+      "version": "5.67.280.284"
+    },
+    {
+      "id": "5b6c6c41-8944-489c-8020-627e5ff808d3",
+      "name": "Knapp Integration",
+      "publisher": "Robosol",
+      "version": "24.0.0.1"
     }
   ],
   "screenshots": [],
