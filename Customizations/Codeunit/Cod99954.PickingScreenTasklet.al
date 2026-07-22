@@ -18,18 +18,15 @@ codeunit 99954 "Picking Screen Tasklet"
 {
     Access = Public;
 
-    // ---------- 1. Header configuration: Document No. ------------
+    // ---------- 1. Header configuration: Tote ID ------------
 
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"MOB WMS Reference Data", 'OnGetReferenceData_OnAddHeaderConfigurations', '', true, true)]
     local procedure OnAddHeaderConfigurations_PickingScreen(var _HeaderFields: Record "MOB HeaderField Element")
     begin
         _HeaderFields.InitConfigurationKey('PickingScreenHeader');
 
-        // Document No. — scan or type; mandatory (the screen lists that order's lines).
-        _HeaderFields.Create_TextField(1, 'DocumentNo', 'Document No:');
-        _HeaderFields.Set_optional(true);
-
-        _HeaderFields.Create_TextField(1, 'LineNo', 'Line No:');
+        // Tote ID — scan or type; filters the listed lines by Load Unit (Tote ID).
+        _HeaderFields.Create_TextField(1, 'ToteID', 'Tote ID:');
         _HeaderFields.Set_optional(true);
     end;
 
@@ -40,22 +37,18 @@ codeunit 99954 "Picking Screen Tasklet"
     var
         L_Item: Record Item;
         KnappOrderResponse: Record "Knapp Order Response";
-        DocumentNoFilter: Text;
-        LineNoFilter: Text;
+        ToteIDFilter: Text;
     begin
         if _IsHandled then
             exit;
         if _LookupType <> 'PickingScreen' then
             exit;
 
-        DocumentNoFilter := _RequestValues.GetValue('DocumentNo');
-        LineNoFilter := _RequestValues.GetValue('LineNo');
+        ToteIDFilter := _RequestValues.GetValue('ToteID');
 
-        // Blank Document No. -> no filter -> show all lines.
-        if DocumentNoFilter <> '' then
-            KnappOrderResponse.SetFilter("Document No.", DocumentNoFilter);
-        if LineNoFilter <> '' then
-            KnappOrderResponse.SetFilter("Line No.", LineNoFilter);
+        // Blank Tote ID -> no filter -> show all lines.
+        if ToteIDFilter <> '' then
+            KnappOrderResponse.SetFilter("Load Unit", ToteIDFilter);
         KnappOrderResponse.SetCurrentKey("Document No.", "Line No.");
 
         if KnappOrderResponse.FindSet() then
