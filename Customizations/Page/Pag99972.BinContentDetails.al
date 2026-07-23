@@ -56,6 +56,13 @@ page 99972 "Bin Content Details"
                     ApplicationArea = All;
                     ToolTip = 'Specifies the manufacturer code associated with the lot.';
                 }
+                field("Manufacturer Name"; Rec."Manufacturer Name")
+                {
+                    ApplicationArea = All;
+                    Caption = 'Manufacturer Name';
+                    Editable = false;
+                    ToolTip = 'Specifies the name of the manufacturer for the Manufacturer Code.';
+                }
                 field("Expiration Date"; Rec."Expiration Date")
                 {
                     ApplicationArea = All;
@@ -137,6 +144,7 @@ page 99972 "Bin Content Details"
             Rec."Lot No." := L_WarehouseEntryReceive.Lot_No_;
             Rec."Package No." := L_WarehouseEntryReceive.Package_No_;
             Rec."Manufacturer Code" := L_WarehouseEntryReceive.Manufacturer_Code;
+            Rec."Manufacturer Name" := CopyStr(G_TaskletCodeunits.GetManufacturerName(Rec."Manufacturer Code"), 1, MaxStrLen(Rec."Manufacturer Name"));
             Rec."Qty. (Base)" := L_WarehouseEntryReceive.Qty_Base;
             Rec."Expiration Date" := L_WarehouseEntryReceive.Expiration_Date;
             GetMinMaxQty(Rec."Location Code", Rec."Bin Code", Rec."Item No.", Rec."Variant Code", Rec.UOM, Min, Max);
@@ -162,4 +170,5 @@ page 99972 "Bin Content Details"
     var
         G_LastItemNo: Code[20];
         G_Loaded: Boolean;
+        G_TaskletCodeunits: Codeunit Tasklet_Codeunits;
 }

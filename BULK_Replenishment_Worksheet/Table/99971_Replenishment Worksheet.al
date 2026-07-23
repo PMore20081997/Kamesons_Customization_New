@@ -127,6 +127,12 @@ table 99971 "Replenishment Worksheet"
         {
             DataClassification = CustomerContent;
         }
+        field(31; "Manufacturer Name"; Text[100])
+        {
+            Caption = 'Manufacturer Name';
+            DataClassification = CustomerContent;
+            Editable = false;
+        }
     }
 
     keys

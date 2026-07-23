@@ -379,6 +379,7 @@ codeunit 99963 "Kam Replenishment Mgt."
         WhseItemTrackingLine."Expiration Date" := ExpirationDate;
         WhseItemTrackingLine."Package No." := PackageNo;
         WhseItemTrackingLine."Manufacturer Code" := ManufacturerCode;
+        WhseItemTrackingLine."Manufacturer Name" := MfrName(ManufacturerCode);
 
         WhseItemTrackingLine."Qty. per Unit of Measure" := WhseWkshLine."Qty. per Unit of Measure";
         WhseItemTrackingLine."Quantity (Base)" := QtyBase;
@@ -398,6 +399,15 @@ codeunit 99963 "Kam Replenishment Mgt."
             NextLineNo := WhseWkshLine."Line No." + 10000
         else
             NextLineNo := 10000;
+    end;
+
+    // Resolve the (global) Manufacturer Name for a code via the base Manufacturer
+    // table (5720), mirroring the helper in Kam Reservation Mgt.
+    local procedure MfrName(MfrCode: Code[100]): Text[100]
+    var
+        TaskletCodeunits: Codeunit Tasklet_Codeunits;
+    begin
+        exit(CopyStr(TaskletCodeunits.GetManufacturerName(MfrCode), 1, 100));
     end;
 
     [IntegrationEvent(false, false)]

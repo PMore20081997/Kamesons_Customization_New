@@ -37,6 +37,7 @@ codeunit 99971 "Replenishment Worksheet"
         G_ReqLine.Validate("Package No.", _DecantDetails."Package No.");
         G_ReqLine.Validate("Lot Expiration Date", _DecantDetails."Expiry Date");
         G_ReqLine.Validate("Manufacturer Code", _DecantDetails."Manufacturer Code");
+        G_ReqLine."Manufacturer Name" := CopyStr(G_TaskletCodeunits.GetManufacturerName(G_ReqLine."Manufacturer Code"), 1, MaxStrLen(G_ReqLine."Manufacturer Name"));
         G_ReqLine.Validate("Created By Repl.", true);
         G_ReqLine.Insert(true);
     end;
@@ -53,4 +54,5 @@ codeunit 99971 "Replenishment Worksheet"
     var
         G_ReqLine: Record "Requisition Line";
         G_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
+        G_TaskletCodeunits: Codeunit Tasklet_Codeunits;
 }

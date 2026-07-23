@@ -9,6 +9,13 @@ pageextension 99983 WhsePutAwaySubExt extends "Whse. Put-away Subform"
                 ApplicationArea = All;
                 ToolTip = 'Specifies the value of the Manufacturer Code field.', Comment = '%';
             }
+            field("Manufacturer Name"; Rec."Manufacturer Name")
+            {
+                ApplicationArea = All;
+                Caption = 'Manufacturer Name';
+                Editable = false;
+                ToolTip = 'Specifies the name of the manufacturer for the Manufacturer Code.';
+            }
             field("Pallet No."; Rec."Pallet No.")
             {
                 ApplicationArea = All;

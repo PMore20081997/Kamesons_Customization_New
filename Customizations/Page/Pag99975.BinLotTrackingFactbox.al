@@ -39,6 +39,13 @@ page 99975 "Bin Lot Tracking Factbox"
                     ApplicationArea = All;
                     ToolTip = 'Specifies the manufacturer code associated with the lot.';
                 }
+                field("Manufacturer Name"; Rec."Manufacturer Name")
+                {
+                    ApplicationArea = All;
+                    Caption = 'Manufacturer Name';
+                    Editable = false;
+                    ToolTip = 'Specifies the name of the manufacturer for the Manufacturer Code.';
+                }
             }
         }
     }
@@ -124,6 +131,7 @@ page 99975 "Bin Lot Tracking Factbox"
             Rec."Lot No." := Q.Lot_No_;
             Rec."Package No." := Q.Package_No_;
             Rec."Manufacturer Code" := Q.Manufacturer_Code;
+            Rec."Manufacturer Name" := CopyStr(G_TaskletCodeunits.GetManufacturerName(Rec."Manufacturer Code"), 1, MaxStrLen(Rec."Manufacturer Name"));
             Rec."Qty. (Base)" := Q.Qty_Base;
             Rec."Expiration Date" := Q.Expiration_Date;
             Rec.Insert();
@@ -136,4 +144,5 @@ page 99975 "Bin Lot Tracking Factbox"
         G_LastLocationCode: Code[10];
         G_LastBinCode: Code[20];
         G_Loaded: Boolean;
+        G_TaskletCodeunits: Codeunit Tasklet_Codeunits;
 }

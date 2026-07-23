@@ -19,14 +19,23 @@ pageextension 99984 WhseItemTrackingLinesExt extends "Whse. Item Tracking Lines"
                 ApplicationArea = All;
                 ToolTip = 'Specifies the value of the Manufacturer Code field.', Comment = '%';
             }
+            field("Manufacturer Name"; Rec."Manufacturer Name")
+            {
+                ApplicationArea = All;
+                Caption = 'Manufacturer Name';
+                Editable = false;
+                ToolTip = 'Specifies the name of the manufacturer for the Manufacturer Code.';
+            }
         }
     }
     trigger OnAfterGetRecord()
     begin
         if (Rec."Manufacturer Code" = '') and (Rec."Lot No." <> '') then
             Rec."Manufacturer Code" := G_KamReservationMgt.LookupManufacturerCodeByLot(Rec."Item No.", Rec."Variant Code", Rec."Lot No.");
+        Rec."Manufacturer Name" := CopyStr(G_TaskletCodeunits.GetManufacturerName(Rec."Manufacturer Code"), 1, MaxStrLen(Rec."Manufacturer Name"));
     end;
 
     var
         G_KamReservationMgt: Codeunit "Kam Reservation Mgt.";
+        G_TaskletCodeunits: Codeunit Tasklet_Codeunits;
 }

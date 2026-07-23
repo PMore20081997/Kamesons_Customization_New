@@ -93,6 +93,11 @@ page 99953 ReservationEntryTemp
                 {
                     ToolTip = 'Specifies the value of the Manufacturer Code field.', Comment = '%';
                 }
+                field("Manufacturer Name"; Rec."Manufacturer Name")
+                {
+                    Editable = false;
+                    ToolTip = 'Specifies the name of the manufacturer for the Manufacturer Code.';
+                }
                 field("New Expiration Date"; Rec."New Expiration Date")
                 {
                     ToolTip = 'Specifies the value of the New Expiration Date field.', Comment = '%';

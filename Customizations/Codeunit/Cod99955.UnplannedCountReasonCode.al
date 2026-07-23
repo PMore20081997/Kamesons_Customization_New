@@ -201,6 +201,7 @@ codeunit 99955 "Unplanned Count Reason Code"
         // Step value is the Manufacturer NAME; store the mapped Code.
         L_MfrCode := L_TaskletCodeunits.GetManufacturerCodeFromName(_ItemJnlLine."Item No.", _RequestValues.GetValue('ManufactureCode', false));
         _ItemJnlLine."Manufacturer Code" := CopyStr(L_MfrCode, 1, MaxStrLen(_ItemJnlLine."Manufacturer Code"));
+        _ItemJnlLine."Manufacturer Name" := CopyStr(L_TaskletCodeunits.GetManufacturerName(L_MfrCode), 1, MaxStrLen(_ItemJnlLine."Manufacturer Name"));
     end;
 
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"MOB WMS Adhoc Registr.", 'OnPostAdhocRegistrationOnUnplannedCount_OnAfterCreateWhseJnlLine', '', true, true)]

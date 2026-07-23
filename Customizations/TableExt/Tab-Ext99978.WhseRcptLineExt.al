@@ -11,5 +11,11 @@ tableextension 99978 WhseRcptLineExt extends "Warehouse Receipt Line"
             Caption = 'Manufacturer Code';
             DataClassification = CustomerContent;
         }
+        field(99972; "Manufacturer Name"; Text[100])
+        {
+            Caption = 'Manufacturer Name';
+            DataClassification = CustomerContent;
+            Editable = false;
+        }
     }
 }

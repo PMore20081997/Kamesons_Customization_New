@@ -390,6 +390,13 @@ page 99991 "Decant Screen"
                     ToolTip = 'Select the Manufacturer to determine Qty Per Tote.';
                     Editable = false;
                 }
+                field("Manufacturer Name"; Rec."Manufacturer Name")
+                {
+                    ApplicationArea = All;
+                    Caption = 'Manufacturer Name';
+                    Editable = false;
+                    ToolTip = 'Specifies the name of the manufacturer for the Manufacturer Code.';
+                }
                 field("Qty Per Tote"; Rec."Qty Per Tote")
                 {
                     ApplicationArea = All;

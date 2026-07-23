@@ -120,6 +120,13 @@ page 99973 "Package No. Availability"
                     ApplicationArea = All;
                     ToolTip = 'Specifies the manufacturer code associated with the lot.';
                 }
+                field("Manufacturer Name"; Rec."Manufacturer Name")
+                {
+                    ApplicationArea = All;
+                    Caption = 'Manufacturer Name';
+                    Editable = false;
+                    ToolTip = 'Specifies the name of the manufacturer for the Manufacturer Code.';
+                }
                 field("Expiration Date"; Rec."Expiration Date")
                 {
                     ApplicationArea = All;
@@ -212,6 +219,7 @@ page 99973 "Package No. Availability"
             Rec."Lot No." := L_WarehouseEntry.Lot_No_;
             Rec."Package No." := L_WarehouseEntry.Package_No_;
             Rec."Manufacturer Code" := L_WarehouseEntry.Manufacturer_Code;
+            Rec."Manufacturer Name" := CopyStr(G_TaskletCodeunits.GetManufacturerName(Rec."Manufacturer Code"), 1, MaxStrLen(Rec."Manufacturer Name"));
             Rec."Qty. (Base)" := L_WarehouseEntry.Qty_Base;
             Rec."Expiration Date" := L_WarehouseEntry.Expiration_Date;
             Rec."Available Qty. (Base)" := Rec."Qty. (Base)" - GetCommittedBaseQty(
@@ -259,4 +267,5 @@ page 99973 "Package No. Availability"
         G_ItemNoFilter: Code[20];
         G_PackageNoFilter: Code[50];
         G_LocationFilter: Code[10];
+        G_TaskletCodeunits: Codeunit Tasklet_Codeunits;
 }

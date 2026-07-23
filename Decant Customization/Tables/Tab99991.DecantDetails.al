@@ -132,6 +132,7 @@ table 99991 "Decant Details"
             trigger OnValidate()
             var
                 ItemManufacturer: Record "Item Manufacturer Table";
+                L_TaskletCodeunits: Codeunit Tasklet_Codeunits;
             begin
                 if "Manufacturer Code" <> '' then begin
                     if ItemManufacturer.Get("Item No.", "Manufacturer Code") then
@@ -147,6 +148,7 @@ table 99991 "Decant Details"
                     "Qty Per Tote" := 0;
                     "To Qty." := 0;
                 end;
+                "Manufacturer Name" := CopyStr(L_TaskletCodeunits.GetManufacturerName("Manufacturer Code"), 1, MaxStrLen("Manufacturer Name"));
             end;
         }
         field(22; "Qty Per Tote"; Decimal)
@@ -186,6 +188,12 @@ table 99991 "Decant Details"
         {
             DataClassification = CustomerContent;
             Caption = 'Posting Date';
+        }
+        field(27; "Manufacturer Name"; Text[100])
+        {
+            Caption = 'Manufacturer Name';
+            DataClassification = CustomerContent;
+            Editable = false;
         }
     }
     keys

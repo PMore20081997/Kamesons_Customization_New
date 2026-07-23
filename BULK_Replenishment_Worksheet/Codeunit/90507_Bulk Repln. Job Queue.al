@@ -84,6 +84,7 @@ codeunit 99972 "Bulk Repln. Job Queue"
             L_DecantDetails."Package No." := L_RepWksh."Package No.";
             L_DecantDetails."Expiry Date" := L_RepWksh."Expiration Date";
             L_DecantDetails."Manufacturer Code" := CopyStr(L_RepWksh."Manufacturer Code", 1, MaxStrLen(L_DecantDetails."Manufacturer Code"));
+            L_DecantDetails."Manufacturer Name" := CopyStr(L_RepWksh."Manufacturer Name", 1, MaxStrLen(L_DecantDetails."Manufacturer Name"));
             L_DecantDetails."To Qty." := L_RepWksh."Qty to Move";
             L_DecantDetails."Available Qty. to Take" := L_RepWksh."Available Qty";
             L_DecantDetails."Posting Date" := WorkDate();

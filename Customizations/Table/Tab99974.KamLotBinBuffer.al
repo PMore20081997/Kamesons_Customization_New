@@ -72,6 +72,12 @@ table 99974 "Kam Lot Bin Buffer"
             Caption = 'Available Qty. (Base)';
             DecimalPlaces = 0 : 5;
         }
+        field(16; "Manufacturer Name"; Text[100])
+        {
+            Caption = 'Manufacturer Name';
+            DataClassification = CustomerContent;
+            Editable = false;
+        }
     }
 
     keys

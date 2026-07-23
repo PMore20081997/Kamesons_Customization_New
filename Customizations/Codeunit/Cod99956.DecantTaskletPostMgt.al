@@ -170,6 +170,7 @@ codeunit 99956 "Decant Tasklet Post Mgt."
     local procedure CreateReclassJournalLine(var DecantDetails: Record "Decant Details"; ReclassTemplateName: Code[10]; ReclassBatchName: Code[10]; DocNo: Code[20]; LineNo: Integer)
     var
         ItemJnlLine: Record "Item Journal Line";
+        L_TaskletCodeunits: Codeunit Tasklet_Codeunits;
     begin
         ItemJnlLine.Init();
         ItemJnlLine."Journal Template Name" := ReclassTemplateName;
@@ -186,6 +187,7 @@ codeunit 99956 "Decant Tasklet Post Mgt."
         ItemJnlLine."Bin Code" := DecantDetails."From Bin Code";
         ItemJnlLine."New Bin Code" := DecantDetails."To Bin Code";
         ItemJnlLine."Manufacturer Code" := DecantDetails."Manufacturer Code";
+        ItemJnlLine."Manufacturer Name" := CopyStr(L_TaskletCodeunits.GetManufacturerName(ItemJnlLine."Manufacturer Code"), 1, MaxStrLen(ItemJnlLine."Manufacturer Name"));
         ItemJnlLine.Validate(Quantity, DecantDetails."To Qty.");
         if DecantDetails."Unit of Measure Code" <> '' then
             ItemJnlLine.Validate("Unit of Measure Code", DecantDetails."Unit of Measure Code");
@@ -206,6 +208,7 @@ codeunit 99956 "Decant Tasklet Post Mgt."
         TempReservEntry: Record "Reservation Entry";
         ReservEntry: Record "Reservation Entry";
         CreateReservEntry: Codeunit "Create Reserv. Entry";
+        L_TaskletCodeunits: Codeunit Tasklet_Codeunits;
         ReservStatus: Enum "Reservation Status";
     begin
         TempReservEntry.Init();
@@ -247,6 +250,7 @@ codeunit 99956 "Decant Tasklet Post Mgt."
             ReservEntry."Package No." := OldPackageNo;
             ReservEntry."New Package No." := NewPackageNo;
             ReservEntry."Manufacturer Code" := ManufacturerCode;
+            ReservEntry."Manufacturer Name" := CopyStr(L_TaskletCodeunits.GetManufacturerName(ManufacturerCode), 1, MaxStrLen(ReservEntry."Manufacturer Name"));
             if ExpirationDate <> 0D then
                 ReservEntry."New Expiration Date" := ExpirationDate;
             ReservEntry.Modify();

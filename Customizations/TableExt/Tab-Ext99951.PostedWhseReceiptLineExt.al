@@ -11,5 +11,11 @@ tableextension 99951 "Posted_Whse._Receipt_Line_Ext" extends "Posted Whse. Recei
             Caption = 'Manufacturer Code';
             DataClassification = CustomerContent;
         }
+        field(99972; "Manufacturer Name"; Text[100])
+        {
+            Caption = 'Manufacturer Name';
+            DataClassification = CustomerContent;
+            Editable = false;
+        }
     }
 }

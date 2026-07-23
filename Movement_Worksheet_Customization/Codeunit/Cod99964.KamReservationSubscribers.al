@@ -23,6 +23,15 @@ codeunit 99964 "Kam Reservation Subscribers"
 
     var
         ReservationMgt: Codeunit "Kam Reservation Mgt.";
+        TaskletCodeunits: Codeunit Tasklet_Codeunits;
+
+    // Resolve the (global) Manufacturer Name for a code via the base Manufacturer
+    // table (5720). Centralised here so every subscriber that stamps a
+    // Manufacturer Code also stamps the matching Name consistently.
+    local procedure MfrName(MfrCode: Code[100]): Text[100]
+    begin
+        exit(CopyStr(TaskletCodeunits.GetManufacturerName(MfrCode), 1, 100));
+    end;
 
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Carry Out Action", OnInsertTransHeaderOnBeforeTransHeaderModify, '', false, false)]
     local procedure OnInsertTransHeader(var TransHeader: Record "Transfer Header")
@@ -41,6 +50,7 @@ codeunit 99964 "Kam Reservation Subscribers"
     begin
         ReservationEntry."Package No." := FromReservationEntry."Package No.";
         ReservationEntry."Manufacturer Code" := FromReservationEntry."Manufacturer Code";
+        ReservationEntry."Manufacturer Name" := MfrName(ReservationEntry."Manufacturer Code");
     end;
 
     /* // Fallback for Reservation Entries created when Item Tracking is assigned
@@ -72,6 +82,7 @@ codeunit 99964 "Kam Reservation Subscribers"
     local procedure OnAfterCopyTrkgFromWhseItemTrkgLine(var WarehouseActivityLine: Record "Warehouse Activity Line"; WhseItemTrackingLine: Record "Whse. Item Tracking Line")
     begin
         WarehouseActivityLine."Manufacturer Code" := WhseItemTrackingLine."Manufacturer Code";
+        WarehouseActivityLine."Manufacturer Name" := MfrName(WarehouseActivityLine."Manufacturer Code");
     end;
 
     [EventSubscriber(ObjectType::Table, Database::"Warehouse Activity Line", OnAfterCopyTrackingFromSpec, '', false, false)]
@@ -90,6 +101,7 @@ codeunit 99964 "Kam Reservation Subscribers"
     local procedure OnAfterCopyTrkgFromWhseJnlLine(var WarehouseEntry: Record "Warehouse Entry"; WarehouseJournalLine: Record "Warehouse Journal Line")
     begin
         WarehouseEntry."Manufacturer Code" := WarehouseJournalLine."Manufacturer Code";
+        WarehouseEntry."Manufacturer Name" := MfrName(WarehouseEntry."Manufacturer Code");
         // Standard Whse. Jnl.-Register Line does not carry Reason Code to the
         // Warehouse Entry; copy it here (e.g. the Unplanned Count Reason Code step).
         WarehouseEntry."Reason Code" := WarehouseJournalLine."Reason Code";
@@ -99,6 +111,7 @@ codeunit 99964 "Kam Reservation Subscribers"
     local procedure OnAfterCopyTrkgFromNewWhseJnlLine(var WarehouseEntry: Record "Warehouse Entry"; WarehouseJournalLine: Record "Warehouse Journal Line")
     begin
         WarehouseEntry."Manufacturer Code" := WarehouseJournalLine."Manufacturer Code";
+        WarehouseEntry."Manufacturer Name" := MfrName(WarehouseEntry."Manufacturer Code");
         WarehouseEntry."Reason Code" := WarehouseJournalLine."Reason Code";
     end;
 
@@ -120,6 +133,7 @@ codeunit 99964 "Kam Reservation Subscribers"
         Rec."Manufacturer Code" := ReservationMgt.LookupManufacturerCodeByLot(Rec."Item No.", Rec."Variant Code", Rec."Lot No.");
         if Rec."Manufacturer Code" = '' then
             Rec."Manufacturer Code" := ReservationMgt.LookupManufacturerCodeFromILE(Rec."Item No.", Rec."Variant Code", Rec."Lot No.");
+        Rec."Manufacturer Name" := MfrName(Rec."Manufacturer Code");
     end;
 
     // Fallback for Warehouse Entries created during Warehouse Shipment posting.
@@ -140,6 +154,7 @@ codeunit 99964 "Kam Reservation Subscribers"
         Rec."Manufacturer Code" := ReservationMgt.LookupManufacturerCodeByLot(Rec."Item No.", Rec."Variant Code", Rec."Lot No.");
         if Rec."Manufacturer Code" = '' then
             Rec."Manufacturer Code" := ReservationMgt.LookupManufacturerCodeFromILE(Rec."Item No.", Rec."Variant Code", Rec."Lot No.");
+        Rec."Manufacturer Name" := MfrName(Rec."Manufacturer Code");
     end;
 
     // Fallback for outbound Item Ledger Entries: fires before the ILE is written.
@@ -158,5 +173,6 @@ codeunit 99964 "Kam Reservation Subscribers"
         Rec."Manufacturer Code" := ReservationMgt.LookupManufacturerCodeFromILE(Rec."Item No.", Rec."Variant Code", Rec."Lot No.");
         if Rec."Manufacturer Code" = '' then
             Rec."Manufacturer Code" := ReservationMgt.LookupManufacturerCodeByLot(Rec."Item No.", Rec."Variant Code", Rec."Lot No.");
+        Rec."Manufacturer Name" := MfrName(Rec."Manufacturer Code");
     end;
 }

@@ -27,10 +27,16 @@ tableextension 99972 Req_Line_Ext extends "Requisition Line"
             Caption = 'Created By Repl.';
             DataClassification = CustomerContent;
         }
-         field(99976; "Manufacturer Code"; Code[100])
+        field(99976; "Manufacturer Code"; Code[100])
         {
             Caption = 'Manufacturer Code';
             DataClassification = CustomerContent;
+        }
+        field(99977; "Manufacturer Name"; Text[100])
+        {
+            Caption = 'Manufacturer Name';
+            DataClassification = CustomerContent;
+            Editable = false;
         }
     }
 }

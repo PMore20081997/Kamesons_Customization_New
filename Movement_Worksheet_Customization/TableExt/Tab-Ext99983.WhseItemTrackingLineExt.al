@@ -11,5 +11,11 @@ tableextension 99983 Whse_Item_Tracking_Line_Ext extends "Whse. Item Tracking Li
             Caption = 'Manufacturer Code';
             DataClassification = CustomerContent;
         }
+        field(99972; "Manufacturer Name"; Text[100])
+        {
+            Caption = 'Manufacturer Name';
+            DataClassification = CustomerContent;
+            Editable = false;
+        }
     }
 }

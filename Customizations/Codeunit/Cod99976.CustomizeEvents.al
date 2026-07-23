@@ -24,8 +24,11 @@ codeunit 99976 Customize_Events
     //New++
     [EventSubscriber(ObjectType::Table, Database::"Warehouse Activity Line", OnAfterCopyTrackingFromPostedWhseRcptLine, '', false, false)]
     local procedure OnAfterCopyTrackingFromPostedWhseRcptLine(PostedWhseRcptLine: Record "Posted Whse. Receipt Line"; var WarehouseActivityLine: Record "Warehouse Activity Line")
+    var
+        L_TaskletCodeunits: Codeunit Tasklet_Codeunits;
     begin
         WarehouseActivityLine."Manufacturer Code" := PostedWhseRcptLine."Manufacturer Code";
+        WarehouseActivityLine."Manufacturer Name" := CopyStr(L_TaskletCodeunits.GetManufacturerName(PostedWhseRcptLine."Manufacturer Code"), 1, MaxStrLen(WarehouseActivityLine."Manufacturer Name"));
     end;
 
     [EventSubscriber(ObjectType::Table, Database::"Whse. Item Entry Relation", OnAfterInitFromTrackingSpec, '', false, false)]
@@ -36,8 +39,11 @@ codeunit 99976 Customize_Events
 
     [EventSubscriber(ObjectType::Table, Database::"Posted Whse. Receipt Line", OnAfterCopyTrackingFromWhseItemEntryRelation, '', false, false)]
     local procedure OnAfterCopyTrackingFromWhseItemEntryRelation(var PostedWhseReceiptLine: Record "Posted Whse. Receipt Line"; WhseItemEntryRelation: Record "Whse. Item Entry Relation")
+    var
+        L_TaskletCodeunits: Codeunit Tasklet_Codeunits;
     begin
         PostedWhseReceiptLine."Manufacturer Code" := WhseItemEntryRelation."Manufacturer Code";
+        PostedWhseReceiptLine."Manufacturer Name" := CopyStr(L_TaskletCodeunits.GetManufacturerName(WhseItemEntryRelation."Manufacturer Code"), 1, MaxStrLen(PostedWhseReceiptLine."Manufacturer Name"));
     end;
     //New--
 
@@ -76,6 +82,7 @@ codeunit 99976 Customize_Events
     var
         L_WhseRcptLine: Record "Warehouse Receipt Line";
         L_PurchLine: Record "Purchase Line";
+        L_TaskletCodeunits: Codeunit Tasklet_Codeunits;
     begin
         if Rec."Lot No." = '' then
             exit;
@@ -85,8 +92,10 @@ codeunit 99976 Customize_Events
             exit;
         if L_WhseRcptLine."Source Document" <> L_WhseRcptLine."Source Document"::"Purchase Order" then
             exit;
-        if L_PurchLine.Get(L_PurchLine."Document Type"::Order, L_WhseRcptLine."Source No.", L_WhseRcptLine."Source Line No.") then
+        if L_PurchLine.Get(L_PurchLine."Document Type"::Order, L_WhseRcptLine."Source No.", L_WhseRcptLine."Source Line No.") then begin
             Rec."Manufacturer Code" := L_PurchLine."Manufacturer Code";
+            Rec."Manufacturer Name" := CopyStr(L_TaskletCodeunits.GetManufacturerName(Rec."Manufacturer Code"), 1, MaxStrLen(Rec."Manufacturer Name"));
+        end;
     end;
 
     // Flow Dispensary / Retail flags from the selected Ship-to Address to the Sales Header.

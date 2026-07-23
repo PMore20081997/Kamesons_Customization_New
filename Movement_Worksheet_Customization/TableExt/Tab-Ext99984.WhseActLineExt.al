@@ -27,5 +27,11 @@ tableextension 99984 WhseActLineExt extends "Warehouse Activity Line"
             Caption = 'Pallet No.';
             DataClassification = CustomerContent;
         }
+        field(99974; "Manufacturer Name"; Text[100])
+        {
+            Caption = 'Manufacturer Name';
+            DataClassification = CustomerContent;
+            Editable = false;
+        }
     }
 }

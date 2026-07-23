@@ -82,6 +82,7 @@ Report 99971 "Cal _Bin Replenishment New"
         LocationCode: Code[10];
         NextLineNo: Integer;
         G_ReplenishmentWorksheet: Record "Replenishment Worksheet";
+        G_TaskletCodeunits: Codeunit Tasklet_Codeunits;
 
     procedure InitializeRequest(WhseWkshTemplateName2: Code[10]; WhseWkshName2: Code[10]; LocationCode2: Code[10]; HideDialog2: Boolean)
     begin
@@ -229,6 +230,7 @@ Report 99971 "Cal _Bin Replenishment New"
                                 if L_Item.Get(L_SourceQ.Item_No_) then
                                     G_ReplenishmentWorksheet.Description := L_Item.Description;
                                 G_ReplenishmentWorksheet."Manufacturer Code" := L_SourceQ.Manufacturer_Code;
+                                G_ReplenishmentWorksheet."Manufacturer Name" := CopyStr(G_TaskletCodeunits.GetManufacturerName(G_ReplenishmentWorksheet."Manufacturer Code"), 1, MaxStrLen(G_ReplenishmentWorksheet."Manufacturer Name"));
                                 G_ReplenishmentWorksheet."Variant Code" := L_SourceQ.Variant_Code;
                                 G_ReplenishmentWorksheet."Unit of Measure Code" := L_SourceQ.Unit_of_Measure_Code;
                                 G_ReplenishmentWorksheet."From Location Code" := L_SourceQ.Location_Code;

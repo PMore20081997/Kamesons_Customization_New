@@ -332,6 +332,7 @@ codeunit 99951 Tasklet_Codeunits
     // L_MfrCode: Code[100];
     begin
         _TempReservEntry."Manufacturer Code" := CopyStr(_MobRegistration."Manufacturer Code", 1, MaxStrLen(_TempReservEntry."Manufacturer Code"));
+        _TempReservEntry."Manufacturer Name" := CopyStr(GetManufacturerName(_MobRegistration."Manufacturer Code"), 1, MaxStrLen(_TempReservEntry."Manufacturer Name"));
     end;
 
     var

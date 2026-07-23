@@ -228,10 +228,13 @@ codeunit 99957 "Planned Count Manufacture"
 
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"MOB WMS Count", 'OnPostCountOrder_OnHandleRegistrationForItemJournalLine', '', true, true)]
     local procedure OnHandleRegistration_ItemJnlLine_PlannedCount(var _Registration: Record "MOB WMS Registration"; var _ItemJnlLine: Record "Item Journal Line")
+    var
+        L_TaskletCodeunits: Codeunit Tasklet_Codeunits;
     begin
         if _Registration."Manufacturer Code" = '' then
             exit;
         _ItemJnlLine."Manufacturer Code" := CopyStr(_Registration."Manufacturer Code", 1, MaxStrLen(_ItemJnlLine."Manufacturer Code"));
+        _ItemJnlLine."Manufacturer Name" := CopyStr(L_TaskletCodeunits.GetManufacturerName(_Registration."Manufacturer Code"), 1, MaxStrLen(_ItemJnlLine."Manufacturer Name"));
     end;
 
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"MOB WMS Count", 'OnPostCountOrder_OnHandleRegistrationForWarehouseJournalLine', '', true, true)]

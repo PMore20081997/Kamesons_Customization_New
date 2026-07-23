@@ -60,6 +60,7 @@ codeunit 99965 "Kam Reservation Mgt."
         TempReservEntry."Lot No." := ReqLine."Lot No.";
         TempReservEntry."Package No." := ReqLine."Package No.";
         TempReservEntry."Manufacturer Code" := ReqLine."Manufacturer Code";
+        TempReservEntry."Manufacturer Name" := MfrName(TempReservEntry."Manufacturer Code");
         if ReqLine."Lot Expiration Date" <> 0D then
             TempReservEntry."Expiration Date" := ReqLine."Lot Expiration Date";
 
@@ -77,6 +78,7 @@ codeunit 99965 "Kam Reservation Mgt."
         TempReservEntry."Lot No." := ReqLine."Lot No.";
         TempReservEntry."Package No." := ReqLine."Package No.";
         TempReservEntry."Manufacturer Code" := ReqLine."Manufacturer Code";
+        TempReservEntry."Manufacturer Name" := MfrName(TempReservEntry."Manufacturer Code");
         if ReqLine."Lot Expiration Date" <> 0D then
             TempReservEntry."Expiration Date" := ReqLine."Lot Expiration Date";
 
@@ -111,6 +113,7 @@ codeunit 99965 "Kam Reservation Mgt."
         WhseItemTrk.SetFilter("Manufacturer Code", '<>%1', '');
         if WhseItemTrk.FindFirst() then begin
             WhseActLine."Manufacturer Code" := WhseItemTrk."Manufacturer Code";
+            WhseActLine."Manufacturer Name" := MfrName(WhseActLine."Manufacturer Code");
             exit;
         end;
         // Whse. Item Tracking Lines are purged after put-away registration.
@@ -120,6 +123,16 @@ codeunit 99965 "Kam Reservation Mgt."
         if WhseActLine."Manufacturer Code" = '' then
             WhseActLine."Manufacturer Code" :=
                 LookupManufacturerCodeFromILE(TrackingSpec."Item No.", TrackingSpec."Variant Code", TrackingSpec."Lot No.");
+        WhseActLine."Manufacturer Name" := MfrName(WhseActLine."Manufacturer Code");
+    end;
+
+    // Resolve the (global) Manufacturer Name for a code via the base Manufacturer
+    // table (5720), mirroring the helper in Kam Reservation Subscribers.
+    local procedure MfrName(MfrCode: Code[100]): Text[100]
+    var
+        TaskletCodeunits: Codeunit Tasklet_Codeunits;
+    begin
+        exit(CopyStr(TaskletCodeunits.GetManufacturerName(MfrCode), 1, 100));
     end;
 
     procedure LookupManufacturerCodeByLot(ItemNo: Code[20]; VariantCode: Code[10]; LotNo: Code[50]): Code[10]

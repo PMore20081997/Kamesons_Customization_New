@@ -219,6 +219,7 @@ codeunit 99991 "Decant Reclass Mgt."
     var
         SourceQuery: Query WarehouseEntryReceive;
         ItemTrackingMgt: Codeunit "Item Tracking Management";
+        L_TaskletCodeunits: Codeunit Tasklet_Codeunits;
         ItemTrackingSetup: Record "Item Tracking Setup";
         EntriesExist: Boolean;
         LineNo: Integer;
@@ -253,6 +254,7 @@ codeunit 99991 "Decant Reclass Mgt."
             TempSource."Lot No." := SourceQuery.Lot_No_;
             TempSource."Package No." := SourceQuery.Package_No_;
             TempSource."Manufacturer Code" := SourceQuery.Manufacturer_Code;
+            TempSource."Manufacturer Name" := CopyStr(L_TaskletCodeunits.GetManufacturerName(TempSource."Manufacturer Code"), 1, MaxStrLen(TempSource."Manufacturer Name"));
             TempSource."Unit of Measure Code" := SourceQuery.Unit_of_Measure_Code;
             // Transient overloads on the temp record:
             //   "Available Qty. to Take" holds the remaining BASE qty as we
@@ -383,6 +385,7 @@ codeunit 99991 "Decant Reclass Mgt."
         SourceQtyPerUoM: Decimal)
     var
         Item: Record Item;
+        L_TaskletCodeunits: Codeunit Tasklet_Codeunits;
     begin
         DecantDetails.Init();
         DecantDetails."Journal Template Name" := TemplateName;
@@ -400,6 +403,7 @@ codeunit 99991 "Decant Reclass Mgt."
         DecantDetails."To Zone Code" := DestZone;
         DecantDetails."To Bin Code" := BinContent."Bin Code";
         DecantDetails."Manufacturer Code" := TempSource."Manufacturer Code";
+        DecantDetails."Manufacturer Name" := CopyStr(L_TaskletCodeunits.GetManufacturerName(DecantDetails."Manufacturer Code"), 1, MaxStrLen(DecantDetails."Manufacturer Name"));
         DecantDetails."Qty Per Tote" := QtyPerTote;
         DecantDetails."To Qty." := ToteQty / SourceQtyPerUoM;
         DecantDetails."New Package No." := '';
@@ -451,6 +455,8 @@ codeunit 99991 "Decant Reclass Mgt."
         ItemJnlBatch: Record "Item Journal Batch";
         DocNo: Code[20];
         LineNo: Integer)
+    var
+        L_TaskletCodeunits: Codeunit Tasklet_Codeunits;
     begin
         ItemJnlLine.Init();
         ItemJnlLine."Journal Template Name" := ItemJnlBatch."Journal Template Name";
@@ -473,6 +479,7 @@ codeunit 99991 "Decant Reclass Mgt."
         ItemJnlLine."New Bin Code" := DecantDetails."To Bin Code";
 
         ItemJnlLine."Manufacturer Code" := DecantDetails."Manufacturer Code";
+        ItemJnlLine."Manufacturer Name" := CopyStr(L_TaskletCodeunits.GetManufacturerName(ItemJnlLine."Manufacturer Code"), 1, MaxStrLen(ItemJnlLine."Manufacturer Name"));
         ItemJnlLine.Validate(Quantity, DecantDetails."To Qty.");
         if DecantDetails."Unit of Measure Code" <> '' then
             ItemJnlLine.Validate("Unit of Measure Code", DecantDetails."Unit of Measure Code");
@@ -487,6 +494,7 @@ codeunit 99991 "Decant Reclass Mgt."
         TempReservEntry: Record "Reservation Entry";
         ReservEntry: Record "Reservation Entry";
         CreateReservEntry: Codeunit "Create Reserv. Entry";
+        L_TaskletCodeunits: Codeunit Tasklet_Codeunits;
         ReservStatus: Enum "Reservation Status";
     begin
         TempReservEntry.Init();
@@ -528,6 +536,7 @@ codeunit 99991 "Decant Reclass Mgt."
             ReservEntry."Package No." := DecantDetails."Package No.";
             ReservEntry."New Package No." := DecantDetails."New Package No.";
             ReservEntry."Manufacturer Code" := DecantDetails."Manufacturer Code";
+            ReservEntry."Manufacturer Name" := CopyStr(L_TaskletCodeunits.GetManufacturerName(ReservEntry."Manufacturer Code"), 1, MaxStrLen(ReservEntry."Manufacturer Name"));
             if DecantDetails."Expiry Date" <> 0D then
                 ReservEntry."New Expiration Date" := DecantDetails."Expiry Date";
             ReservEntry.Modify();
