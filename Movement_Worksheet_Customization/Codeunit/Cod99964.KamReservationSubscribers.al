@@ -95,6 +95,7 @@ codeunit 99964 "Kam Reservation Subscribers"
     local procedure OnAfterCopyTrkgFromWhseActLine(var WarehouseJournalLine: Record "Warehouse Journal Line"; WarehouseActivityLine: Record "Warehouse Activity Line")
     begin
         WarehouseJournalLine."Manufacturer Code" := WarehouseActivityLine."Manufacturer Code";
+        WarehouseJournalLine."Manufacturer Name" := MfrName(WarehouseJournalLine."Manufacturer Code");
     end;
 
     [EventSubscriber(ObjectType::Table, Database::"Warehouse Entry", OnAfterCopyTrackingFromWhseJnlLine, '', false, false)]
