@@ -172,6 +172,7 @@ codeunit 99966 "Pallet Reclass Mgt. NDPP"
         ReservEntry: Record "Reservation Entry";
         CreateReservEntry: Codeunit "Create Reserv. Entry";
         ReservStatus: Enum "Reservation Status";
+        itemjou: Record 83;
     begin
         TempReservEntry.Init();
         TempReservEntry."Lot No." := RegLine."Lot No.";

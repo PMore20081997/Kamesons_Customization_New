@@ -11,6 +11,10 @@ using Microsoft.Inventory.Item.Catalog;
 using Microsoft.Sales.Document;
 using Microsoft.Sales.Customer;
 using Microsoft.Inventory.Item;
+using Microsoft.Sales.Setup;
+using Microsoft.Finance.Dimension;
+using Microsoft.Finance.Currency;
+using Microsoft.Inventory.Location;
 
 codeunit 99976 Customize_Events
 {
@@ -117,6 +121,128 @@ codeunit 99976 Customize_Events
         end;
     end;
 
+    // Flow "Group Branches" from the selected Customer onto the Sales Header,
+    // so sales lines can apply Hub-based pricing — see
+    // SalesLine_OnAfterValidateNo_ApplyHubPricing below.
+    [EventSubscriber(ObjectType::Table, Database::"Sales Header", OnAfterValidateEvent, 'Sell-to Customer No.', false, false)]
+    local procedure SalesHeader_OnAfterValidateSellToCustomerNo_FlowGroupBranches(var Rec: Record "Sales Header")
+    var
+        L_Customer: Record Customer;
+    begin
+        if Rec."Sell-to Customer No." = '' then begin
+            Rec."Group Branches" := false;
+            exit;
+        end;
+        Rec."Group Branches" := L_Customer.Get(Rec."Sell-to Customer No.") and L_Customer."Group Branches";
+    end;
+
+    // Hub-based pricing on Order / Quote sales lines, in priority order:
+    //   1. Customer flagged "Group Branches" AND the line's Location is NOT a
+    //      Hub (Location."Hub" = FALSE) -> Unit Price = Unit Cost (LCY),
+    //      converted to the document currency. Applies to ANY such line,
+    //      independent of the "BRANCHES" dimension.
+    //   2. Otherwise, only when the order carries a value on the "BRANCHES"
+    //      dimension:
+    //        a. Location is a Hub (Location."Hub" = TRUE) -> Unit Price =
+    //           Unit Cost (LCY) + the configurable margin % from Sales &
+    //           Receivables Setup, converted to the document currency.
+    //        b. Location is NOT a Hub                     -> Unit Price = 0.
+    //   3. None of the above -> standard pricing is left untouched.
+    // Fires after the item ("No.") validation has applied the normal price.
+    [EventSubscriber(ObjectType::Table, Database::"Sales Line", OnAfterValidateEvent, 'No.', false, false)]
+    local procedure SalesLine_OnAfterValidateNo_ApplyHubPricing(var Rec: Record "Sales Line")
+    var
+        L_SalesHeader: Record "Sales Header";
+        L_Location: Record Location;
+        L_IsHubLocation: Boolean;
+    begin
+        if Rec.Type <> Rec.Type::Item then
+            exit;
+        if Rec."No." = '' then
+            exit;
+        if not (Rec."Document Type" in [Rec."Document Type"::Order, Rec."Document Type"::Quote]) then
+            exit;
+        if Rec."Sell-to Customer No." = '' then
+            exit;
+        if not L_SalesHeader.Get(Rec."Document Type", Rec."Document No.") then
+            exit;
+
+        L_IsHubLocation := (Rec."Location Code" <> '') and L_Location.Get(Rec."Location Code") and L_Location.Hub;
+
+        // Rule 1 — Group Branches customer at a non-Hub location: cost price,
+        // unconditional on the Branches dimension.
+        if L_SalesHeader."Group Branches" and not L_IsHubLocation then begin
+            Rec.Validate("Unit Price", CalcConvertedCostPrice(Rec, L_SalesHeader, 0));
+            exit;
+        end;
+
+        // Rules 2a/2b only apply when the order carries a Branches dimension value.
+        if not HasBranchesDimension(L_SalesHeader) then
+            exit;
+
+        if L_IsHubLocation then
+            Rec.Validate("Unit Price", CalcConvertedCostPrice(Rec, L_SalesHeader, GetHubSalesMarginPct()))
+        else
+            Rec.Validate("Unit Price", 0);
+    end;
+
+    /// <summary>
+    /// TRUE when the sales header's Dimension Set ID carries a non-blank value
+    /// on the "BRANCHES" dimension.
+    /// </summary>
+    local procedure HasBranchesDimension(SalesHeader: Record "Sales Header"): Boolean
+    var
+        L_DimSetEntry: Record "Dimension Set Entry";
+    begin
+        if SalesHeader."Dimension Set ID" = 0 then
+            exit(false);
+        exit(L_DimSetEntry.Get(SalesHeader."Dimension Set ID", BranchesDimensionCodeTok) and (L_DimSetEntry."Dimension Value Code" <> ''));
+    end;
+
+    local procedure GetHubSalesMarginPct(): Decimal
+    var
+        L_SalesSetup: Record "Sales & Receivables Setup";
+    begin
+        L_SalesSetup.Get();
+        exit(L_SalesSetup."Hub Sales Margin %");
+    end;
+
+    /// <summary>
+    /// Unit Cost (LCY) plus MarginPct (0 for an exact cost price), converted
+    /// from LCY to the sales document's currency using the Currency Factor
+    /// already stored on the header (set when its Currency Code / Posting Date
+    /// were resolved) — no re-lookup of the exchange rate here. Rounds to the
+    /// currency's (or, for LCY, General Ledger Setup's) Unit-Amount Rounding
+    /// Precision, matching the precision a Unit Price field is expected to carry.
+    /// </summary>
+    local procedure CalcConvertedCostPrice(SalesLine: Record "Sales Line"; SalesHeader: Record "Sales Header"; MarginPct: Decimal): Decimal
+    var
+        L_Currency: Record Currency;
+        L_UnitPriceLCY: Decimal;
+        L_UnitPriceFCY: Decimal;
+    begin
+        L_UnitPriceLCY := SalesLine."Unit Cost (LCY)" * (1 + (MarginPct / 100));
+
+        if SalesHeader."Currency Code" = '' then begin
+            L_Currency.InitRoundingPrecision();
+            exit(Round(L_UnitPriceLCY, L_Currency."Unit-Amount Rounding Precision"));
+        end;
+
+        L_Currency.Get(SalesHeader."Currency Code");
+        // Standard BC convention: "Currency Factor" converts FCY -> LCY by
+        // division (AmountLCY = AmountFCY / Factor); the inverse LCY -> FCY is
+        // therefore multiplication. A blank/zero factor (header currency not
+        // yet resolved) is treated as 1:1 defensively.
+        if SalesHeader."Currency Factor" = 0 then
+            L_UnitPriceFCY := L_UnitPriceLCY
+        else
+            L_UnitPriceFCY := L_UnitPriceLCY * SalesHeader."Currency Factor";
+        exit(Round(L_UnitPriceFCY, L_Currency."Unit-Amount Rounding Precision"));
+    end;
+
+
+
+
 
 
 
@@ -222,4 +348,5 @@ codeunit 99976 Customize_Events
 
     var
         G_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
+        BranchesDimensionCodeTok: Label 'BRANCHES', Locked = true;
 }

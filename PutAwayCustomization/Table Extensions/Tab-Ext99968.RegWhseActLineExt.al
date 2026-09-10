@@ -11,10 +11,18 @@
 /// copies it automatically when the registered line is created — no explicit
 /// copy subscriber is needed.
 ///
-/// "Pallet Reclass Posted" is the idempotency / guard flag. Mirrors the standard
-/// "don't re-create a put-away once it's created/registered" behaviour: once a
-/// line is reclassified it is excluded from re-processing, and a whole-document
-/// manual re-run errors out (see codeunit "Pallet Reclass Mgt. NDPP").
+/// "Pallet Reclass Posted" is the idempotency / guard flag. It exists ONLY on
+/// the registered line (no matching source field), so it MUST use a field
+/// number that is free on "Warehouse Activity Line" too — TransferFields
+/// matches by field number across the two tables and errors on a type
+/// mismatch if the same number is already used by an unrelated field on the
+/// source (e.g. 99974 there is "Manufacturer Name", a Text field). 99975 is
+/// free on both tables as of this writing — verify before reusing.
+///
+/// Mirrors the standard "don't re-create a put-away once it's
+/// created/registered" behaviour: once a line is reclassified it is excluded
+/// from re-processing, and a whole-document manual re-run errors out (see
+/// codeunit "Pallet Reclass Mgt. NDPP").
 /// </summary>
 tableextension 99968 RegWhseActLineExt extends "Registered Whse. Activity Line"
 {
@@ -26,7 +34,7 @@ tableextension 99968 RegWhseActLineExt extends "Registered Whse. Activity Line"
             DataClassification = CustomerContent;
             Editable = false;
         }
-        field(99974; "Pallet Reclass Posted"; Boolean)
+        field(99975; "Pallet Reclass Posted"; Boolean)
         {
             Caption = 'Pallet Reclass Posted';
             DataClassification = CustomerContent;

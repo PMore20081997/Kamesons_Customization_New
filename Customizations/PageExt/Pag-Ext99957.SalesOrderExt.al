@@ -14,6 +14,12 @@ pageextension 99957 Sales_Order_Ext extends "Sales Order"
                 ApplicationArea = All;
                 ToolTip = 'Specifies the value of the Special Order field.', Comment = '%';
             }
+            field("Group Branches"; Rec."Group Branches")
+            {
+                ApplicationArea = All;
+                Editable = false;
+                ToolTip = 'Specifies that the customer is flagged as Group Branches: at a non-Hub location, item lines price at cost, with no markup. Set on the customer card.';
+            }
         }
         addlast("Shipping and Billing")
         {
@@ -70,7 +76,11 @@ pageextension 99957 Sales_Order_Ext extends "Sales Order"
                     L_WhseRequest.SetRange("Document Status", L_WhseRequest."Document Status"::Released);
 
                     L_CreateInvtPick.SetTableView(L_WhseRequest);
-                    L_CreateInvtPick.InitializeRequest(false, true, false, false, false);
+                    // ShowError = TRUE: when run interactively for a single
+                    // order, surface the reason nothing is created (order not
+                    // released / shipping advice Complete not available / no
+                    // stock) instead of skipping silently.
+                    L_CreateInvtPick.InitializeRequest(false, true, false, false, true);
                     L_CreateInvtPick.UseRequestPage(false);
                     L_CreateInvtPick.RunModal();
                 end;

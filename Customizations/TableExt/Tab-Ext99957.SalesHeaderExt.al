@@ -29,5 +29,13 @@ tableextension 99957 SalesHeaderExt extends "Sales Header"
             Caption = 'Invt. Pick Error';
             DataClassification = CustomerContent;
         }
+        // Mirrors Customer."Group Branches" — flowed in on Sell-to Customer No.
+        // validate (see Cod99976). At a non-Hub location this forces sales
+        // lines to price at cost; see Cod99976 SalesLine_OnAfterValidateNo_ApplyHubPricing.
+        field(99974; "Group Branches"; Boolean)
+        {
+            Caption = 'Group Branches';
+            DataClassification = CustomerContent;
+        }
     }
 }

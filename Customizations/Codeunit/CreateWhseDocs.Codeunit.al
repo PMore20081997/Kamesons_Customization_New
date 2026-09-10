@@ -126,7 +126,7 @@ codeunit 99999 "Create Whse. Docs"
     local procedure TryCreate(var SH: Record "Sales Header")
     var
         L_WhseRequest: Record "Warehouse Request";
-        L_CreateInvtPutAwayPickMvmt: Report "Create Invt Put-away/Pick/Mvmt";
+        L_CreateInvtPick: Report "Create Invt. Pick";
     begin
         // Filter the Released Whse Request created when the Sales Order was
         // released. Use Source No. = SH."No." for an unambiguous match.
@@ -135,12 +135,17 @@ codeunit 99999 "Create Whse. Docs"
         L_WhseRequest.SetRange("Source No.", SH."No.");
         L_WhseRequest.SetRange("Document Status", L_WhseRequest."Document Status"::Released);
 
-        L_CreateInvtPutAwayPickMvmt.SetTableView(L_WhseRequest);
+        // Run the CUSTOM Create Invt. Pick report (99956), not the standard
+        // "Create Invt Put-away/Pick/Mvmt" (7323): only the custom report
+        // contains the Knapp Order Response / Load-Unit split logic, and its
+        // OnPreReport comment marks it as the job-queue entry point. The
+        // standard report bypasses the Knapp logic entirely.
+        L_CreateInvtPick.SetTableView(L_WhseRequest);
         // (PutAway, Pick, Movement, PrintDoc, ShowError)
-        L_CreateInvtPutAwayPickMvmt.InitializeRequest(false, true, false, false, false);
-        L_CreateInvtPutAwayPickMvmt.SuppressMessages(true);
-        L_CreateInvtPutAwayPickMvmt.UseRequestPage(false);
-        L_CreateInvtPutAwayPickMvmt.RunModal();
+        L_CreateInvtPick.InitializeRequest(false, true, false, false, false);
+        L_CreateInvtPick.SuppressMessages(true);
+        L_CreateInvtPick.UseRequestPage(false);
+        L_CreateInvtPick.RunModal();
     end;
 
     // Mirrors NeedsWhseReceipt in Cod99951 but for the outbound Inventory Pick

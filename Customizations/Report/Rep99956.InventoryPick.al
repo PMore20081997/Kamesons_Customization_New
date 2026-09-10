@@ -59,18 +59,18 @@ report 99956 "Create Invt. Pick"
                     //  CurrReport.Skip();
                 end;
 
-                // ── KNAPP TOTE SECTION ──────────────────────────────────────────────────
-                // Sales Orders are always handled via tote information.
-                // With tote info  → create one Inventory Pick per tote, then exit.
-                // Without tote info → skip; no pick is created.
+                // ── KNAPP LOAD-UNIT SECTION ─────────────────────────────────────────────
+                // Sales Orders are always handled via the Knapp Order Response.
+                // With responses    → create one Inventory Pick per Load Unit, then exit.
+                // Without responses → skip; no pick is created.
                 if ("Warehouse Request"."Source Document" = "Warehouse Request"."Source Document"::"Sales Order") and CreatePick then begin
-                    if HasKnappToteInfo("Warehouse Request"."Source No.") then begin
+                    if HasKnappOrderResponse("Warehouse Request"."Source No.") then begin
                         CreateKnappTotePicksForOrder("Warehouse Request");
                         exit;
                     end else
                         CurrReport.Skip();
                 end;
-                // ── END KNAPP TOTE SECTION ───────────────────────────────────────────────
+                // ── END KNAPP LOAD-UNIT SECTION ──────────────────────────────────────────
 
 
 
@@ -516,17 +516,18 @@ report 99956 "Create Invt. Pick"
 
     // ── KNAPP TOTE PROCEDURES ────────────────────────────────────────────────
 
-    local procedure HasKnappToteInfo(SalesOrderNo: Code[20]): Boolean
+    local procedure HasKnappOrderResponse(SalesOrderNo: Code[20]): Boolean
     var
-        KnappToteInfo: Record "Knapp Tote Information";
+        KnappOrderResponse: Record "Knapp Order Response";
     begin
-        KnappToteInfo.SetRange("Sales Order No.", SalesOrderNo);
-        exit(not KnappToteInfo.IsEmpty());
+        KnappOrderResponse.SetRange("Document Type", KnappOrderResponse."Document Type"::Order);
+        KnappOrderResponse.SetRange("Document No.", SalesOrderNo);
+        exit(not KnappOrderResponse.IsEmpty());
     end;
 
     local procedure CreateKnappTotePicksForOrder(var WhseRequest: Record "Warehouse Request")
     var
-        KnappToteInfo: Record "Knapp Tote Information";
+        KnappOrderResponse: Record "Knapp Order Response";
         L_SalesLine: Record "Sales Line";
         L_SalesHeader: Record "Sales Header";
         L_Location: Record Location;
@@ -554,60 +555,62 @@ report 99956 "Create Invt. Pick"
         if not L_Location.Get(WhseRequest."Location Code") then
             Clear(L_Location);
 
-        // ── Collect distinct Tote Nos (sorted order from the key) ────────────
-        KnappToteInfo.SetRange("Sales Order No.", SalesOrderNo);
-        KnappToteInfo.SetCurrentKey("Sales Order No.", "Tote No.");
-        if KnappToteInfo.FindSet() then
+        // ── Collect distinct Load Units (the Knapp "tote") ───────────────────
+        KnappOrderResponse.SetRange("Document Type", KnappOrderResponse."Document Type"::Order);
+        KnappOrderResponse.SetRange("Document No.", SalesOrderNo);
+        if KnappOrderResponse.FindSet() then
             repeat
-                if not ToteList.Contains(KnappToteInfo."Tote No.") then
-                    ToteList.Add(KnappToteInfo."Tote No.");
-            until KnappToteInfo.Next() = 0;
+                ToteNo := KnappOrderResponse."Load Unit";
+                if not ToteList.Contains(ToteNo) then
+                    ToteList.Add(ToteNo);
+            until KnappOrderResponse.Next() = 0;
 
         if ToteList.Count = 0 then
             exit;
 
-        // ── One Inventory Pick per tote ──────────────────────────────────────
+        // ── One Inventory Pick per Load Unit ─────────────────────────────────
         //
         // The standard AutoCreatePickOrMove CANNOT be used to split a single
         // Sales Line across several picks: CreatePickOrMoveFromSales skips any
         // Sales Line that already has a warehouse activity line anywhere
         // (Warehouse Activity Line.ActivityExists, with no document filter).
-        // So once a line is on tote A's pick, tote B can never pick it again.
+        // So once a line is on Load Unit A's pick, B can never pick it again.
         //
-        // Instead we build one Warehouse Activity Header per tote ourselves and
-        // call the PUBLIC RunCreatePickOrMoveLine once per Knapp tote entry —
+        // Instead we build one Warehouse Activity Header per Load Unit ourselves
+        // and call the PUBLIC RunCreatePickOrMoveLine once per response entry —
         // that method does NOT call ActivityExists, so the same Sales Line can
-        // appear on several tote picks.
+        // appear on several Load-Unit picks.
         //
         // Quantity control: for item-tracked lines the codeunit picks the sum
         // of the line's item-tracking "Qty. to Handle (Base)" (the whole lot),
         // NOT the RemQtyToPickBase we pass. Nothing syncs that from Qty. to
         // Ship. So before each call we cap the line's reservation-entry
-        // Qty. to Handle to this tote entry's quantity, then restore it.
+        // Qty. to Handle to this response entry's quantity, then restore it.
         // ─────────────────────────────────────────────────────────────────────
         foreach ToteNo in ToteList do begin
 
-            // Per-LINE guard: a tote may need more than one pick over time — e.g.
-            // one line had no stock when the tote first arrived, got stock later.
-            // So we only skip the lines of this tote that are ALREADY picked for
-            // this tote; if at least one line still needs picking we (re)create a
-            // pick. Two picks for the same order + tote are allowed when the lines
-            // differ.
+            // Per-LINE guard: a Load Unit may need more than one pick over time —
+            // e.g. one line had no stock when it first arrived, got stock later.
+            // So we only skip the lines of this Load Unit that are ALREADY picked
+            // for it; if at least one line still needs picking we (re)create a
+            // pick. Two picks for the same order + Load Unit are allowed when the
+            // lines differ.
             NeedPick := false;
-            KnappToteInfo.Reset();
-            KnappToteInfo.SetRange("Sales Order No.", SalesOrderNo);
-            KnappToteInfo.SetRange("Tote No.", ToteNo);
-            if KnappToteInfo.FindSet() then
+            KnappOrderResponse.Reset();
+            KnappOrderResponse.SetRange("Document Type", KnappOrderResponse."Document Type"::Order);
+            KnappOrderResponse.SetRange("Document No.", SalesOrderNo);
+            KnappOrderResponse.SetRange("Load Unit", ToteNo);
+            if KnappOrderResponse.FindSet() then
                 repeat
-                    if (KnappToteInfo.Quantity > 0) and
-                       not HasExistingTotePickLine(SalesOrderNo, OrderSubtype, KnappToteInfo."Sales Order Line No.", ToteNo)
+                    if (KnappOrderResponse.Quantity > 0) and
+                       not HasExistingTotePickLine(SalesOrderNo, OrderSubtype, KnappOrderResponse."Line No.", ToteNo)
                     then
                         NeedPick := true;
-                until KnappToteInfo.Next() = 0;
+                until KnappOrderResponse.Next() = 0;
             if not NeedPick then
                 continue;
 
-            // Create the pick header for this tote (No. assigned from No. Series)
+            // Create the pick header for this Load Unit (No. assigned from No. Series)
             InitWhseActivHeader(L_SalesLine);
             WarehouseActivityHeader."No." := '';
             WarehouseActivityHeader.Insert(true);
@@ -622,7 +625,7 @@ report 99956 "Create Invt. Pick"
             WarehouseActivityHeader."Tote No. NDPP" := ToteNo;
             WarehouseActivityHeader.Modify();
 
-            // Fresh codeunit, pointed at this tote's header
+            // Fresh codeunit, pointed at this Load Unit's header
             Clear(LocalPickMovement);
             LocalPickMovement.SetInvtMovement(false);
             LocalPickMovement.SetReportGlobals(PrintDocument, ShowError, ReservedFromStock);
@@ -631,23 +634,24 @@ report 99956 "Create Invt. Pick"
             LocalPickMovement.SetWhseActivHeader(WarehouseActivityHeader);
             LocalPickMovement.FindNextLineNo();
 
-            // One pick line per tote entry, limited to the tote's quantity AND to
-            // the quantity still left on the sales line (outstanding minus what is
-            // already on other picks), so the picks never exceed the order qty.
-            KnappToteInfo.Reset();
-            KnappToteInfo.SetRange("Sales Order No.", SalesOrderNo);
-            KnappToteInfo.SetRange("Tote No.", ToteNo);
-            if KnappToteInfo.FindSet() then
+            // One pick line per response entry, limited to the entry's quantity AND
+            // to the quantity still left on the sales line (outstanding minus what
+            // is already on other picks), so the picks never exceed the order qty.
+            KnappOrderResponse.Reset();
+            KnappOrderResponse.SetRange("Document Type", KnappOrderResponse."Document Type"::Order);
+            KnappOrderResponse.SetRange("Document No.", SalesOrderNo);
+            KnappOrderResponse.SetRange("Load Unit", ToteNo);
+            if KnappOrderResponse.FindSet() then
                 repeat
-                    if (KnappToteInfo.Quantity > 0) and
-                       L_SalesLine.Get(L_SalesLine."Document Type"::Order, SalesOrderNo, KnappToteInfo."Sales Order Line No.") and
+                    if (KnappOrderResponse.Quantity > 0) and
+                       L_SalesLine.Get(L_SalesLine."Document Type"::Order, SalesOrderNo, KnappOrderResponse."Line No.") and
                        (L_SalesLine.Type = L_SalesLine.Type::Item) and
-                       not HasExistingTotePickLine(SalesOrderNo, OrderSubtype, KnappToteInfo."Sales Order Line No.", ToteNo)
+                       not HasExistingTotePickLine(SalesOrderNo, OrderSubtype, KnappOrderResponse."Line No.", ToteNo)
                     then begin
-                        AlreadyPickedBase := AlreadyPickedQtyBase(SalesOrderNo, OrderSubtype, KnappToteInfo."Sales Order Line No.");
+                        AlreadyPickedBase := AlreadyPickedQtyBase(SalesOrderNo, OrderSubtype, KnappOrderResponse."Line No.");
                         RemainingBase := L_SalesLine."Outstanding Qty. (Base)" - AlreadyPickedBase;
 
-                        RemQtyToPickBase := KnappToteInfo.Quantity * L_SalesLine."Qty. per Unit of Measure";
+                        RemQtyToPickBase := KnappOrderResponse.Quantity * L_SalesLine."Qty. per Unit of Measure";
                         if RemQtyToPickBase > RemainingBase then
                             RemQtyToPickBase := RemainingBase;
 
@@ -664,7 +668,7 @@ report 99956 "Create Invt. Pick"
                             RestoreTracking(TempOrigResEntry);
                         end;
                     end;
-                until KnappToteInfo.Next() = 0;
+                until KnappOrderResponse.Next() = 0;
 
             // Keep the pick only if lines were actually created
             L_WhseActivLineChk.Reset();
