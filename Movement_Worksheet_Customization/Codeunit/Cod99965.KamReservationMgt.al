@@ -93,10 +93,12 @@ codeunit 99965 "Kam Reservation Mgt."
             exit;
         if TempTrackingSpec."Manufacturer Code" <> '' then begin
             TrackingSpec."Manufacturer Code" := TempTrackingSpec."Manufacturer Code";
+            TrackingSpec."Manufacturer Name" := MfrName(TrackingSpec."Manufacturer Code");
             exit;
         end;
         TrackingSpec."Manufacturer Code" :=
             LookupManufacturerCodeByLot(TrackingSpec."Item No.", TrackingSpec."Variant Code", TrackingSpec."Lot No.");
+        TrackingSpec."Manufacturer Name" := MfrName(TrackingSpec."Manufacturer Code");
     end;
 
     procedure PopulateActivityLineMfgFromSpec(var WhseActLine: Record "Warehouse Activity Line"; TrackingSpec: Record "Tracking Specification")

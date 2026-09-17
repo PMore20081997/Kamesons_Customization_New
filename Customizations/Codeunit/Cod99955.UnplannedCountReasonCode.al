@@ -213,5 +213,6 @@ codeunit 99955 "Unplanned Count Reason Code"
         // Step value is the Manufacturer NAME; store the mapped Code.
         L_MfrCode := L_TaskletCodeunits.GetManufacturerCodeFromName(_WhseJnlLine."Item No.", _RequestValues.GetValue('ManufactureCode', false));
         _WhseJnlLine."Manufacturer Code" := CopyStr(L_MfrCode, 1, MaxStrLen(_WhseJnlLine."Manufacturer Code"));
+        _WhseJnlLine."Manufacturer Name" := CopyStr(L_TaskletCodeunits.GetManufacturerName(_WhseJnlLine."Manufacturer Code"), 1, MaxStrLen(_WhseJnlLine."Manufacturer Name"));
     end;
 }

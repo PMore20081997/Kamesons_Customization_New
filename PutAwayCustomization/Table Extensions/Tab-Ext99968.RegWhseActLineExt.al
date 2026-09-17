@@ -28,6 +28,11 @@ tableextension 99968 RegWhseActLineExt extends "Registered Whse. Activity Line"
 {
     fields
     {
+        field(99971; "Manufacturer Code"; Code[100])
+        {
+            Caption = 'Manufacturer Code';
+            DataClassification = CustomerContent;
+        }
         field(99973; "Pallet No."; Code[20])
         {
             Caption = 'Pallet No.';
@@ -37,6 +42,12 @@ tableextension 99968 RegWhseActLineExt extends "Registered Whse. Activity Line"
         field(99975; "Pallet Reclass Posted"; Boolean)
         {
             Caption = 'Pallet Reclass Posted';
+            DataClassification = CustomerContent;
+            Editable = false;
+        }
+        field(99975; "Manufacturer Name"; Text[100])
+        {
+            Caption = 'Manufacturer Name';
             DataClassification = CustomerContent;
             Editable = false;
         }
