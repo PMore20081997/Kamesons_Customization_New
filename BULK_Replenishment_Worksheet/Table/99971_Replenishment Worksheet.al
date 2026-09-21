@@ -1,6 +1,8 @@
 table 99971 "Replenishment Worksheet"
 {
     DataClassification = CustomerContent;
+    ObsoleteState = Pending;
+    ObsoleteReason = 'Superseded by table 99991 "Decant Details". Report 99971 now inserts replenishment lines directly into Decant Details, which is what page 99971 "Bulk Replan" and the Register action read.';
 
     fields
     {

@@ -39,15 +39,15 @@ tableextension 99968 RegWhseActLineExt extends "Registered Whse. Activity Line"
             DataClassification = CustomerContent;
             Editable = false;
         }
-        field(99975; "Pallet Reclass Posted"; Boolean)
-        {
-            Caption = 'Pallet Reclass Posted';
-            DataClassification = CustomerContent;
-            Editable = false;
-        }
         field(99975; "Manufacturer Name"; Text[100])
         {
             Caption = 'Manufacturer Name';
+            DataClassification = CustomerContent;
+            Editable = false;
+        }
+        field(99976; "Pallet Reclass Posted"; Boolean)
+        {
+            Caption = 'Pallet Reclass Posted';
             DataClassification = CustomerContent;
             Editable = false;
         }

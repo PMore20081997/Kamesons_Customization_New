@@ -63,6 +63,9 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         EarliestHighBayExpiry: Date;
         TargetType: Enum "Put-Away Target Zone NDPP";
         ScopeKey: Text;
+        MainShortfall: Decimal;
+        HighBayOlderQty: Decimal;
+        NetShortfall: Decimal;
     begin
         OnBeforeRoutePutAwayLine(WhseActivityLine, IsHandled);
         if IsHandled then
@@ -87,6 +90,10 @@ codeunit 99983 "Put-Away Mgt. NDPP"
             Clear(G_TargetedBins);
             //G_CurrentLineMainBin := '';
             G_ClaimScopeKey := ScopeKey;
+            // The net-shortfall cap is scoped to one (Doc No. | Item No.) run too —
+            // a cap computed for a previous item must never bound this one.
+            G_NetShortfallCap := 0;
+            G_NetShortfallScopeKey := '';
         end;
 
         if not GetCachedItem(WhseActivityLine."Item No.", Item) then
@@ -123,9 +130,32 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         //     to expire in HighBay. This trumps the Min-Qty bypass below —
         //     Main can stay below Min until the older HighBay stock catches
         //     up via decant.
+        //     QUANTITY-AWARE: the older HighBay lot only justifies diverting the
+        //     WHOLE incoming line if it can actually cover what Main still needs.
+        //     Where HighBay holds 60 older units but Main is 200 short, sending
+        //     everything to HighBay leaves the pick face 140 short until a second
+        //     decant cycle. So when HighBay's older qty falls short, the line is
+        //     allowed through to the decant face and capped at the NET shortfall
+        //     (shortfall − HighBay older qty) — HandleBinCapacity then splits the
+        //     remainder off to HighBay, preserving room for the older lot to land.
         EarliestHighBayExpiry := GetEarliestHighBayExpiry(WhseActivityLine."Item No.");
         if (EarliestHighBayExpiry <> 0D) and (EarliestHighBayExpiry < WhseActivityLine."Expiration Date") then begin
-            AssignTargetBin(WhseActivityLine, TargetType::HighBay);
+            MainShortfall := GetMainMinQtyShortfall(WhseActivityLine."Item No.", TargetType);
+            HighBayOlderQty := GetHighBayOlderQty(WhseActivityLine."Item No.", WhseActivityLine."Expiration Date");
+            NetShortfall := MainShortfall - HighBayOlderQty;
+
+            if NetShortfall <= 0 then begin
+                // Older HighBay stock covers Main's need — original behaviour.
+                AssignTargetBin(WhseActivityLine, TargetType::HighBay);
+                OnAfterRoutePutAwayLine(WhseActivityLine);
+                exit;
+            end;
+
+            // Older stock is not enough — top the face up with this line, capped
+            // at the net shortfall by HandleBinCapacity via G_NetShortfallCap.
+            G_NetShortfallCap := NetShortfall;
+            G_NetShortfallScopeKey := ScopeKey;
+            AssignTargetBin(WhseActivityLine, TargetType);
             OnAfterRoutePutAwayLine(WhseActivityLine);
             exit;
         end;
@@ -274,6 +304,124 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     end;
 
     /// <summary>
+    /// Returns Main's total replenishment SHORTFALL (base) for the item — "how
+    /// much does the decant face still need to fill every qualifying bin".
+    ///
+    /// Min triggers, Max targets: a bin counts only once its on-hand has fallen
+    /// BELOW its own Min Qty (the same gate SumMainWHEmptyTotes applies), and it
+    /// is then measured up to its Max Qty. See GetBinFillTarget.
+    ///
+    /// Deliberately summed PER BIN rather than on the aggregates: an overstocked
+    /// bin must not mask a starved sibling. With 4 Flowrack bins at Min 100 /
+    /// Max 500 where one holds 900 and three hold 0, the aggregate view sees
+    /// 900 >= 400 and reports no need; the per-bin view correctly reports 1500
+    /// (three empty bins, each filled to Max).
+    ///
+    /// Receive-side pipeline qty (posted + pending at the Receive decant bin)
+    /// is netted off the total, since that stock is already on its way to Main.
+    ///
+    /// Returns 0 for HighBay (not a decant face) and when no Min Qty is set up.
+    /// </summary>
+    /// <summary>
+    /// The base qty a qualifying bin should be filled UP TO — its Max Qty when
+    /// one is configured, otherwise its Min Qty.
+    ///
+    /// Min and Max play different roles here: Min decides WHETHER a bin takes
+    /// stock (the trigger gate, applied by the caller and mirrored in
+    /// SumMainWHEmptyTotes), Max decides HOW MUCH once it does. Filling only to
+    /// Min would leave the face sitting on the threshold and re-trigger
+    /// replenishment on the next pick.
+    ///
+    /// Falling back to Min when Max is 0 keeps bins with partial setup working
+    /// exactly as they did before this rule existed, rather than silently
+    /// contributing nothing.
+    /// </summary>
+    local procedure GetBinFillTarget(var MainBinContent: Record "Bin Content"; MinBaseQty: Decimal): Decimal
+    var
+        MaxBaseQty: Decimal;
+    begin
+        MaxBaseQty := MainBinContent."Max. Qty." * MainBinContent."Qty. per Unit of Measure";
+        if MaxBaseQty > MinBaseQty then
+            exit(MaxBaseQty);
+        exit(MinBaseQty);
+    end;
+
+    local procedure GetMainMinQtyShortfall(ItemNo: Code[20]; TargetType: Enum "Put-Away Target Zone NDPP"): Decimal
+    var
+        Bin: Record Bin;
+        MainBinContent: Record "Bin Content";
+        MainLocation: Code[20];
+        MinBaseQty: Decimal;
+        BinShortfall: Decimal;
+        TotalShortfall: Decimal;
+    begin
+        if TargetType = TargetType::HighBay then
+            exit(0);
+
+        MainLocation := G_KamWhseSetupLookup.GetMainLocation();
+
+        // Flowrack / Static: walk every flagged Main bin and sum the per-bin gap.
+        if TargetType in [TargetType::Flowrack, TargetType::"Static"] then begin
+            Bin.SetRange("Location Code", MainLocation);
+            case TargetType of
+                TargetType::Flowrack:
+                    Bin.SetRange(Flowrack, true);
+                TargetType::"Static":
+                    Bin.SetRange("Static", true);
+            end;
+            if not Bin.FindSet() then
+                exit(0);
+
+            repeat
+                MainBinContent.Reset();
+                MainBinContent.SetRange("Location Code", MainLocation);
+                MainBinContent.SetRange("Bin Code", Bin.Code);
+                MainBinContent.SetRange("Item No.", ItemNo);
+                if MainBinContent.FindFirst() then begin
+                    MinBaseQty := MainBinContent."Min. Qty." * MainBinContent."Qty. per Unit of Measure";
+                    if MinBaseQty > 0 then begin
+                        MainBinContent.CalcFields("Quantity (Base)");
+                        // Min is the TRIGGER, Max is the TARGET: a bin only takes
+                        // stock once it has dropped below Min (same gate as
+                        // SumMainWHEmptyTotes), but once it qualifies it is filled
+                        // all the way to Max — topping up only to Min would leave
+                        // the face barely above the threshold and re-trigger
+                        // replenishment on the next pick.
+                        if MainBinContent."Quantity (Base)" < MinBaseQty then begin
+                            BinShortfall := GetBinFillTarget(MainBinContent, MinBaseQty)
+                                            - MainBinContent."Quantity (Base)";
+                            if BinShortfall > 0 then
+                                TotalShortfall += BinShortfall;
+                        end;
+                    end;
+                end;
+            until Bin.Next() = 0;
+        end else begin
+            // BulkDecant: single Main bin per item. Same Min-trigger /
+            // Max-target rule as the Flowrack / Static branch above.
+            if not TryGetMainBinContent(ItemNo, TargetType, MainBinContent) then
+                exit(0);
+            MinBaseQty := MainBinContent."Min. Qty." * MainBinContent."Qty. per Unit of Measure";
+            if MinBaseQty <= 0 then
+                exit(0);
+            MainBinContent.CalcFields("Quantity (Base)");
+            if MainBinContent."Quantity (Base)" < MinBaseQty then
+                TotalShortfall := GetBinFillTarget(MainBinContent, MinBaseQty)
+                                  - MainBinContent."Quantity (Base)";
+        end;
+
+        if TotalShortfall <= 0 then
+            exit(0);
+
+        // Stock already staged / in-flight at Receive counts against the need.
+        TotalShortfall -= GetReceivePipelineQty(ItemNo, TargetType);
+        if TotalShortfall < 0 then
+            exit(0);
+
+        exit(TotalShortfall);
+    end;
+
+    /// <summary>
     /// After the Put-Away line is inserted, check whether it would exceed the
     /// Main-WH equivalent bin's Max Qty. If so, split it and send the overflow
     /// to HighBay.
@@ -306,6 +454,16 @@ codeunit 99983 "Put-Away Mgt. NDPP"
 
         SpaceLeftInDecant := ResolveSpaceLeft(WhseActivityLine, Item);
 
+        // Net-shortfall cap (set by the HighBay older-stock guard in
+        // RoutePutAwayLine when HighBay's older lot could NOT cover Main's need).
+        // Only ever TIGHTENS the space: the face takes just enough to close the
+        // gap the older lot leaves, so that older lot still has room to land on
+        // its own decant cycle. The cap is consumed across the lines of this
+        // (Doc No. | Item No.) scope — each line draws down what it uses.
+        if (G_NetShortfallCap > 0) and (G_NetShortfallScopeKey = WhseActivityLine."No." + '|' + WhseActivityLine."Item No.") then
+            if SpaceLeftInDecant > G_NetShortfallCap then
+                SpaceLeftInDecant := G_NetShortfallCap;
+
         // Decant bin already at/over capacity — push everything to High-Bay.
         if SpaceLeftInDecant <= 0 then begin
             AssignTargetBin(WhseActivityLine, "Put-Away Target Zone NDPP"::HighBay);
@@ -314,10 +472,13 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         end;
 
         // Decant bin can absorb the whole line — leave alone.
-        if WhseActivityLine."Qty. (Base)" <= SpaceLeftInDecant then
+        if WhseActivityLine."Qty. (Base)" <= SpaceLeftInDecant then begin
+            ConsumeNetShortfallCap(WhseActivityLine, WhseActivityLine."Qty. (Base)");
             exit;
+        end;
 
         // Split: keep `SpaceLeftInDecant` in the decant bin, send the rest to HighBay.
+        ConsumeNetShortfallCap(WhseActivityLine, SpaceLeftInDecant);
         WhseActivityLine.Validate("Qty. to Handle (Base)", SpaceLeftInDecant);
         WhseActivityLine.Modify();
 
@@ -328,6 +489,25 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         G_LineSpacing := false;
 
         OnAfterHandleBinCapacity(WhseActivityLine);
+    end;
+
+    /// <summary>
+    /// Draws UsedQty down from the active net-shortfall cap once a line has
+    /// taken its share of the decant face. Without this, every line of a
+    /// multi-line receipt for the same item would be granted the full cap and
+    /// the face would be oversubscribed. No-op when no cap is active or the
+    /// line belongs to a different (Doc No. | Item No.) scope.
+    /// </summary>
+    local procedure ConsumeNetShortfallCap(var WhseActivityLine: Record "Warehouse Activity Line"; UsedQty: Decimal)
+    begin
+        if G_NetShortfallCap <= 0 then
+            exit;
+        if G_NetShortfallScopeKey <> WhseActivityLine."No." + '|' + WhseActivityLine."Item No." then
+            exit;
+
+        G_NetShortfallCap -= UsedQty;
+        if G_NetShortfallCap < 0 then
+            G_NetShortfallCap := 0;
     end;
 
     /// <summary>
@@ -789,8 +969,25 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     end;
 
     /// <summary>
-    /// Returns the EARLIEST positive-qty Expiration Date in Receive HighBay
-    /// for the item. Used by the HighBay-older-stock guard in
+    /// The earliest Expiration Date that still counts as usable stock.
+    /// Anything expiring STRICTLY BEFORE this date is expired and must not
+    /// influence routing: it can never reach the pick face via decant, so
+    /// treating it as FEFO pipeline holds capacity open for stock that will
+    /// never fill it (US 40488 — expired HighBay lot starving Main).
+    ///
+    /// WorkDate (not Today) is the cutoff so backdated and test postings
+    /// behave predictably — it is the date BC itself posts against.
+    ///
+    /// Callers apply it as a '>=' filter on Expiration Date.
+    /// </summary>
+    local procedure GetUsableExpiryCutoff(): Date
+    begin
+        exit(WorkDate());
+    end;
+
+    /// <summary>
+    /// Returns the EARLIEST positive-qty, NON-EXPIRED Expiration Date in
+    /// Receive HighBay for the item. Used by the HighBay-older-stock guard in
     /// RoutePutAwayLine: if HighBay already holds a lot older than the
     /// incoming line's expiry, the incoming line is pushed to HighBay so the
     /// older HighBay batch can reach Main first via decant (FEFO).
@@ -810,13 +1007,62 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         WhseEntryQry.SetFilter(WhseEntryQry.Location_Code, '%1', G_KamWhseSetupLookup.GetReceiveLocation());
         WhseEntryQry.SetFilter(WhseEntryQry.Bin_Code, '%1', HighBayBin);
         WhseEntryQry.SetFilter(WhseEntryQry.Qty_Base, '>%1', 0);
-        WhseEntryQry.SetFilter(WhseEntryQry.Expiration_Date, '<>%1', 0D);
+        // Non-blank AND not already expired. Expired stock must not trip the
+        // older-stock guard — it cannot reach Main via decant, so diverting
+        // good incoming stock behind it starves the pick face indefinitely.
+        WhseEntryQry.SetFilter(WhseEntryQry.Expiration_Date, '>=%1', GetUsableExpiryCutoff());
         WhseEntryQry.TopNumberOfRows(1);
         WhseEntryQry.Open();
         if WhseEntryQry.Read() then
             EarliestExpiry := WhseEntryQry.Expiration_Date;
         WhseEntryQry.Close();
         exit(EarliestExpiry);
+    end;
+
+    /// <summary>
+    /// Returns the total positive HighBay qty (base) for the item whose
+    /// Expiration Date is STRICTLY OLDER than IncomingExpiry but NOT YET
+    /// EXPIRED — i.e. the stock genuinely queued ahead of the incoming line
+    /// under FEFO, which will reach Main via decant before it.
+    ///
+    /// Companion to GetEarliestHighBayExpiry: that one answers "is there older
+    /// stock?", this one answers "how much?". The older-stock guard in
+    /// RoutePutAwayLine needs both — older stock only justifies diverting the
+    /// whole incoming line if it is ALSO enough to cover Main's shortfall.
+    ///
+    /// Returns 0 when HighBay has no bin for the item or no older positive stock.
+    /// </summary>
+    local procedure GetHighBayOlderQty(ItemNo: Code[20]; IncomingExpiry: Date): Decimal
+    var
+        WhseEntryQry: Query "Whse Entry Lot Det Asc NDPP";
+        HighBayBin: Code[20];
+        TotalQty: Decimal;
+    begin
+        if IncomingExpiry = 0D then
+            exit(0);
+
+        HighBayBin := GetItemHighbayBinCode(G_KamWhseSetupLookup.GetReceiveLocation(), ItemNo);
+        if HighBayBin = '' then
+            exit(0);
+
+        WhseEntryQry.SetFilter(WhseEntryQry.Item_No_, '%1', ItemNo);
+        WhseEntryQry.SetFilter(WhseEntryQry.Location_Code, '%1', G_KamWhseSetupLookup.GetReceiveLocation());
+        WhseEntryQry.SetFilter(WhseEntryQry.Bin_Code, '%1', HighBayBin);
+        WhseEntryQry.SetFilter(WhseEntryQry.Qty_Base, '>%1', 0);
+        // Older than the incoming line, but still usable. Expired units cannot
+        // cover Main's shortfall, so counting them here would cap the top-up
+        // by a quantity that will never arrive.
+        //
+        // Both bounds go in ONE SetFilter: a second SetFilter on the same query
+        // column REPLACES the first rather than intersecting with it, which
+        // would silently drop the expiry floor.
+        WhseEntryQry.SetFilter(WhseEntryQry.Expiration_Date, '%1..%2', GetUsableExpiryCutoff(), IncomingExpiry - 1);
+        WhseEntryQry.Open();
+        while WhseEntryQry.Read() do
+            TotalQty += WhseEntryQry.Qty_Base;
+        WhseEntryQry.Close();
+
+        exit(TotalQty);
     end;
 
     /// <summary>
@@ -827,6 +1073,8 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     procedure ResetBatch()
     begin
         Clear(G_TargetedBins);
+        G_NetShortfallCap := 0;
+        G_NetShortfallScopeKey := '';
     end;
 
     local procedure IsBinClaimedThisBatch(ItemNo: Code[20]; BinCode: Code[20]): Boolean
@@ -1245,5 +1493,12 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         G_CachedItem: Record Item;
         G_TargetedBins: Dictionary of [Text, Boolean];
         G_ClaimScopeKey: Text;
+        // Net shortfall (Main Min-Qty gap MINUS older HighBay qty) that the
+        // decant face is allowed to absorb for the current (Doc No. | Item No.)
+        // scope. Set by the HighBay older-stock guard in RoutePutAwayLine,
+        // enforced in HandleBinCapacity, drawn down by ConsumeNetShortfallCap.
+        // 0 = no cap active (normal capacity rules apply unchanged).
+        G_NetShortfallCap: Decimal;
+        G_NetShortfallScopeKey: Text;
     //G_CurrentLineMainBin: Code[20];
 }

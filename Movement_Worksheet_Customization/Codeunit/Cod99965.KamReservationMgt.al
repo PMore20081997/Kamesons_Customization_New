@@ -21,7 +21,8 @@ codeunit 99965 "Kam Reservation Mgt."
         OnBeforeSetTransferAsDirect(TransHeader, IsHandled);
         if IsHandled then
             exit;
-        TransHeader."Direct Transfer" := true;
+        //TransHeader."Direct Transfer" := true;
+        TransHeader.Validate("Direct Transfer", true);
     end;
 
     procedure CreateLotReservationForTransferLine(var TransLine: Record "Transfer Line"; var ReqLine: Record "Requisition Line")

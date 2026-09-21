@@ -195,6 +195,13 @@ table 99991 "Decant Details"
             DataClassification = CustomerContent;
             Editable = false;
         }
+        field(28; "Item Barcode"; Code[50])
+        {
+            Caption = 'Item Barcode';
+            FieldClass = FlowField;
+            CalcFormula = lookup("Item Reference"."Reference No." where("Item No." = field("Item No."), Manufacturer = field("Manufacturer Code")));
+            Editable = false;
+        }
     }
     keys
     {

@@ -175,12 +175,6 @@ page 99971 "Bulk Replan"
                     ToolTip = 'Specifies the description of the item.';
                 }
                 // "To Location Code" = destination (main warehouse)
-                field("To Location Code"; Rec."To Location Code")
-                {
-                    ApplicationArea = All;
-                    Caption = 'Location Code';
-                    Editable = false;
-                }
                 field("Available Qty. to Take"; Rec."Available Qty. to Take")
                 {
                     ApplicationArea = All;
@@ -200,6 +194,12 @@ page 99971 "Bulk Replan"
                     ToolTip = 'Specifies the value of the From Bin Code field.', Comment = '%';
                     ApplicationArea = All;
                 }
+                field("To Location Code"; Rec."To Location Code")
+                {
+                    ApplicationArea = All;
+                    Caption = 'Location Code';
+                    Editable = false;
+                }
                 field("Lot No."; Rec."Lot No.")
                 {
                     ToolTip = 'Specifies the value of the Lot No. field.', Comment = '%';
@@ -210,6 +210,10 @@ page 99971 "Bulk Replan"
                     ToolTip = 'Specifies the expiration date.', Comment = '%';
                     Caption = 'Expiration Date';
                     ApplicationArea = All;
+                }
+                field("To Bin Code"; Rec."To Bin Code")
+                {
+                    ToolTip = 'Specifies the value of the To Bin Code field.', Comment = '%';
                 }
                 field("Package No."; Rec."Package No.")
                 {
@@ -265,13 +269,21 @@ page 99971 "Bulk Replan"
 
                 trigger OnAction()
                 var
-                    Location: Record Location;
                     ReplenishBinContent: Report "Cal _Bin Replenishment New";
                     L_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
                     L_Item: Record Item;
+                    L_DecantDetails: Record "Decant Details";
                 begin
+                    // Clear the batch's unprocessed Replenishment lines so repeated presses
+                    // recalculate rather than stack duplicates (matches the Job Queue path).
+                    L_DecantDetails.Reset();
+                    L_DecantDetails.SetRange("Entry Type", L_DecantDetails."Entry Type"::Replenishment);
+                    L_DecantDetails.SetRange("Journal Template Name", Rec."Journal Template Name");
+                    L_DecantDetails.SetRange("Journal Batch Name", Rec."Journal Batch Name");
+                    if not L_DecantDetails.IsEmpty() then
+                        L_DecantDetails.DeleteAll();
+
                     Commit();
-                    Location.Get(L_KamWhseSetupLookup.GetMainLocation());
                     ReplenishBinContent.InitializeRequest(Rec."Journal Template Name", Rec."Journal Batch Name", L_KamWhseSetupLookup.GetMainLocation(), false);
                     if ItemFilter <> '' then begin
                         L_Item.SetFilter("No.", ItemFilter);

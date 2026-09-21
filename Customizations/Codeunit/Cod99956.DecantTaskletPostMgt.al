@@ -62,6 +62,7 @@ codeunit 99956 "Decant Tasklet Post Mgt."
     procedure PostSingleDecantLine(TemplateName: Code[10]; BatchName: Code[10]; LineNo: Integer; NewToBinCode: Code[20]; NewPackageNo: Code[50])
     var
         DecantDetails: Record "Decant Details";
+        TempDecantDetails: Record "Decant Details" temporary;
         ReclassTemplateName: Code[10];
         ReclassBatchName: Code[10];
         DocNo: Code[20];
@@ -86,12 +87,27 @@ codeunit 99956 "Decant Tasklet Post Mgt."
         // "item tracking defined" error when deleting journal lines.
         DeleteReclassJournalLinesWithTracking(ReclassTemplateName, ReclassBatchName);
 
-        DocNo := DocNoPrefixTok + Format(WorkDate(), 0, '<Year4><Month,2><Day,2>');
+        DocNo := BuildUniqueDocNo();
         CreateReclassJournalLine(DecantDetails, ReclassTemplateName, ReclassBatchName, DocNo, 10000);
 
         PostReclassBatch(ReclassTemplateName, ReclassBatchName);
 
+        // Keep a copy of the row — the event below needs its values (Item No.,
+        // To Bin Code, New Package No.) but must not fire until the real row is
+        // gone, so a subscriber that commits cannot leave a posted line behind.
+        TempDecantDetails := DecantDetails;
+        TempDecantDetails.Insert();
+
         DecantDetails.Delete();
+
+        // Raised after the delete: subscribers (e.g. the KNAPP Document Queue
+        // writer) may commit, and by this point the decant is fully settled.
+        OnAfterPostSingleDecantLine(TempDecantDetails, ReclassTemplateName, ReclassBatchName, DocNo);
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnAfterPostSingleDecantLine(var DecantDetails: Record "Decant Details"; ReclassTemplateName: Code[10]; ReclassBatchName: Code[10]; DocNo: Code[20])
+    begin
     end;
 
     /// <summary>
@@ -132,6 +148,22 @@ codeunit 99956 "Decant Tasklet Post Mgt."
         DecantDetails.SetRange("Journal Template Name", TemplateName);
         DecantDetails.SetRange("Journal Batch Name", BatchName);
         DecantDetails.DeleteAll();
+    end;
+
+    /// <summary>
+    /// Builds a document number that is unique per posting: GENDEC-yyMMdd-hhmmss.
+    /// The time comes from Time (the real clock) rather than WorkDate, which
+    /// carries no time component. A 2-digit year is used so the whole thing fits
+    /// the Code[20] limit exactly — a 4-digit year would overflow to 22 chars and
+    /// be silently truncated, losing the seconds that make it unique.
+    /// </summary>
+    local procedure BuildUniqueDocNo(): Code[20]
+    begin
+        exit(CopyStr(
+            DocNoPrefixTok +
+            Format(WorkDate(), 0, '<Year,2><Month,2><Day,2>') + '-' +
+            Format(Time(), 0, '<Hours24,2><Minutes,2><Seconds,2>'),
+            1, 20));
     end;
 
     local procedure FindDecantLine(TemplateName: Code[10]; BatchName: Code[10]; LineNo: Integer; var DecantDetails: Record "Decant Details"): Boolean

@@ -421,6 +421,11 @@ page 99991 "Decant Screen"
                 {
                     ApplicationArea = All;
                 }
+                field("Item Barcode"; Rec."Item Barcode")
+                {
+                    ApplicationArea = All;
+                    ToolTip = 'Specifies the value of the Item Barcode field.', Comment = '%';
+                }
 
             }
         }

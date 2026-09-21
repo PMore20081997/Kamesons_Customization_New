@@ -81,7 +81,7 @@ Report 99971 "Cal _Bin Replenishment New"
         WhseWkshName: Code[10];
         LocationCode: Code[10];
         NextLineNo: Integer;
-        G_ReplenishmentWorksheet: Record "Replenishment Worksheet";
+        G_DecantDetails: Record "Decant Details";
         G_TaskletCodeunits: Codeunit Tasklet_Codeunits;
 
     procedure InitializeRequest(WhseWkshTemplateName2: Code[10]; WhseWkshName2: Code[10]; LocationCode2: Code[10]; HideDialog2: Boolean)
@@ -98,8 +98,8 @@ Report 99971 "Cal _Bin Replenishment New"
         L_SourceQ: Query WarehouseEntryReceive;
         L_Item: Record Item;
         L_BinContent: Record "Bin Content";
-        L_PendingRepl: Record "Replenishment Worksheet";
-        L_DupCheck: Record "Replenishment Worksheet";
+        L_PendingRepl: Record "Decant Details";
+        L_DupCheck: Record "Decant Details";
         L_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
         L_ReceiveLocation: Code[20];
         L_ReceiveBULKBin: Code[20];
@@ -190,14 +190,16 @@ Report 99971 "Cal _Bin Replenishment New"
                     while (L_RemQtyToReplenishBase > 0) and L_SourceQ.Read() do begin
                         // Skip if a worksheet line already exists for this exact source-lot/destination pair
                         L_DupCheck.Reset();
-                        L_DupCheck.SetRange("Template Name", WhseWkshTemplateName);
-                        L_DupCheck.SetRange("Batch Name", WhseWkshName);
+                        L_DupCheck.SetRange("Journal Template Name", WhseWkshTemplateName);
+                        L_DupCheck.SetRange("Journal Batch Name", WhseWkshName);
+                        L_DupCheck.SetRange("Entry Type", L_DupCheck."Entry Type"::Replenishment);
                         L_DupCheck.SetRange("Item No.", L_SourceQ.Item_No_);
-                        L_DupCheck.SetRange("From Location Code", L_SourceQ.Location_Code);
+                        // "Location Code" on Decant Details = source (Receive) location
+                        L_DupCheck.SetRange("Location Code", CopyStr(L_SourceQ.Location_Code, 1, MaxStrLen(L_DupCheck."Location Code")));
                         L_DupCheck.SetRange("From Bin Code", L_SourceQ.Bin_Code);
                         L_DupCheck.SetRange("Lot No.", L_SourceQ.Lot_No_);
-                        L_DupCheck.SetRange("Location Code", L_BinContent."Location Code");
-                        L_DupCheck.SetRange("Bin Code", L_BinContent."Bin Code");
+                        L_DupCheck.SetRange("To Location Code", CopyStr(L_BinContent."Location Code", 1, MaxStrLen(L_DupCheck."To Location Code")));
+                        L_DupCheck.SetRange("To Bin Code", L_BinContent."Bin Code");
                         if L_DupCheck.IsEmpty() then begin
                             // Subtract qty already allocated (base) from this source bin/lot in the worksheet
                             Clear(L_AlreadyAllocatedBase);
@@ -205,13 +207,14 @@ Report 99971 "Cal _Bin Replenishment New"
                             if L_SourceQtyPerUoM = 0 then
                                 L_SourceQtyPerUoM := 1;
                             L_PendingRepl.Reset();
+                            L_PendingRepl.SetRange("Entry Type", L_PendingRepl."Entry Type"::Replenishment);
                             L_PendingRepl.SetRange("Item No.", L_SourceQ.Item_No_);
-                            L_PendingRepl.SetRange("From Location Code", L_SourceQ.Location_Code);
+                            L_PendingRepl.SetRange("Location Code", CopyStr(L_SourceQ.Location_Code, 1, MaxStrLen(L_PendingRepl."Location Code")));
                             L_PendingRepl.SetRange("From Bin Code", L_SourceQ.Bin_Code);
                             L_PendingRepl.SetRange("Lot No.", L_SourceQ.Lot_No_);
                             if not L_PendingRepl.IsEmpty() then begin
-                                L_PendingRepl.CalcSums("Qty to Move");
-                                L_AlreadyAllocatedBase := L_PendingRepl."Qty to Move" * L_SourceQtyPerUoM;
+                                L_PendingRepl.CalcSums("To Qty.");
+                                L_AlreadyAllocatedBase := L_PendingRepl."To Qty." * L_SourceQtyPerUoM;
                             end;
 
                             L_AvailableSourceQtyBase := L_SourceQ.Qty_Base - L_AlreadyAllocatedBase;
@@ -221,33 +224,32 @@ Report 99971 "Cal _Bin Replenishment New"
                                 else
                                     L_QtyToTakeBase := L_AvailableSourceQtyBase;
 
-                                G_ReplenishmentWorksheet.Init();
-                                G_ReplenishmentWorksheet."Posting Date" := WorkDate();
-                                G_ReplenishmentWorksheet."Template Name" := WhseWkshTemplateName;
-                                G_ReplenishmentWorksheet."Batch Name" := WhseWkshName;
-                                G_ReplenishmentWorksheet."Line No." := NextLineNo;
-                                G_ReplenishmentWorksheet."Item No." := L_SourceQ.Item_No_;
+                                G_DecantDetails.Init();
+                                G_DecantDetails."Journal Template Name" := WhseWkshTemplateName;
+                                G_DecantDetails."Journal Batch Name" := WhseWkshName;
+                                G_DecantDetails."Line No." := NextLineNo;
+                                G_DecantDetails."Entry Type" := G_DecantDetails."Entry Type"::Replenishment;
+                                G_DecantDetails."Status" := G_DecantDetails."Status"::Accept;
+                                G_DecantDetails."Posting Date" := WorkDate();
+                                G_DecantDetails."Item No." := L_SourceQ.Item_No_;
                                 if L_Item.Get(L_SourceQ.Item_No_) then
-                                    G_ReplenishmentWorksheet.Description := L_Item.Description;
-                                G_ReplenishmentWorksheet."Manufacturer Code" := L_SourceQ.Manufacturer_Code;
-                                G_ReplenishmentWorksheet."Manufacturer Name" := CopyStr(G_TaskletCodeunits.GetManufacturerName(G_ReplenishmentWorksheet."Manufacturer Code"), 1, MaxStrLen(G_ReplenishmentWorksheet."Manufacturer Name"));
-                                G_ReplenishmentWorksheet."Variant Code" := L_SourceQ.Variant_Code;
-                                G_ReplenishmentWorksheet."Unit of Measure Code" := L_SourceQ.Unit_of_Measure_Code;
-                                G_ReplenishmentWorksheet."From Location Code" := L_SourceQ.Location_Code;
-                                G_ReplenishmentWorksheet."From Bin Code" := L_SourceQ.Bin_Code;
-                                G_ReplenishmentWorksheet."Location Code" := L_BinContent."Location Code";
-                                G_ReplenishmentWorksheet."Bin Code" := L_BinContent."Bin Code";
-                                G_ReplenishmentWorksheet."Lot No." := L_SourceQ.Lot_No_;
-                                G_ReplenishmentWorksheet."Package No." := L_SourceQ.Package_No_;
-                                G_ReplenishmentWorksheet."Expiration Date" := L_SourceQ.Expiration_Date;
-                                G_ReplenishmentWorksheet."Min. Qty." := L_BinContent."Min. Qty.";
-                                G_ReplenishmentWorksheet."Max. Qty." := L_BinContent."Max. Qty.";
-                                G_ReplenishmentWorksheet."System Quantity" := L_CurrentQtyBase / L_BinQtyPerUoM;
-                                G_ReplenishmentWorksheet."Available Qty" := L_AvailableSourceQtyBase / L_SourceQtyPerUoM;
-                                G_ReplenishmentWorksheet."Demand Quantity" := (L_MaxQtyBase - L_CurrentQtyBase) / L_BinQtyPerUoM;
-                                G_ReplenishmentWorksheet."Qty to Move" := L_QtyToTakeBase / L_SourceQtyPerUoM;
-                                G_ReplenishmentWorksheet.Action := G_ReplenishmentWorksheet.Action::Accept;
-                                G_ReplenishmentWorksheet.Insert();
+                                    G_DecantDetails.Description := L_Item.Description;
+                                G_DecantDetails."Manufacturer Code" := L_SourceQ.Manufacturer_Code;
+                                G_DecantDetails."Manufacturer Name" := CopyStr(G_TaskletCodeunits.GetManufacturerName(G_DecantDetails."Manufacturer Code"), 1, MaxStrLen(G_DecantDetails."Manufacturer Name"));
+                                G_DecantDetails."Variant Code" := L_SourceQ.Variant_Code;
+                                G_DecantDetails."Unit of Measure Code" := L_SourceQ.Unit_of_Measure_Code;
+                                // "Location Code" on Decant Details = source (Receive) location
+                                G_DecantDetails."Location Code" := CopyStr(L_SourceQ.Location_Code, 1, MaxStrLen(G_DecantDetails."Location Code"));
+                                G_DecantDetails."From Bin Code" := L_SourceQ.Bin_Code;
+                                // "To Location Code" on Decant Details = destination (MAIN warehouse)
+                                G_DecantDetails."To Location Code" := CopyStr(L_BinContent."Location Code", 1, MaxStrLen(G_DecantDetails."To Location Code"));
+                                G_DecantDetails."To Bin Code" := L_BinContent."Bin Code";
+                                G_DecantDetails."Lot No." := L_SourceQ.Lot_No_;
+                                G_DecantDetails."Package No." := CopyStr(L_SourceQ.Package_No_, 1, MaxStrLen(G_DecantDetails."Package No."));
+                                G_DecantDetails."Expiry Date" := L_SourceQ.Expiration_Date;
+                                G_DecantDetails."Available Qty. to Take" := L_AvailableSourceQtyBase / L_SourceQtyPerUoM;
+                                G_DecantDetails."To Qty." := L_QtyToTakeBase / L_SourceQtyPerUoM;
+                                G_DecantDetails.Insert();
 
                                 NextLineNo := NextLineNo + 10000;
                                 L_RemQtyToReplenishBase := L_RemQtyToReplenishBase - L_QtyToTakeBase;
@@ -261,13 +263,16 @@ Report 99971 "Cal _Bin Replenishment New"
 
     procedure SetWhseWorksheet(WhseWkshTemplateName2: Code[10]; WhseWkshName2: Code[10]; LocationCode2: Code[10])
     var
-        ReplenishmentWorksheet: Record "Replenishment Worksheet";
+        L_DecantDetails: Record "Decant Details";
     begin
-        ReplenishmentWorksheet.SetRange("Template Name", WhseWkshTemplateName2);
-        ReplenishmentWorksheet.SetRange("Batch Name", WhseWkshName2);
-        ReplenishmentWorksheet.SetRange("Location Code", LocationCode2);
-        if ReplenishmentWorksheet.FindLast() then
-            NextLineNo := ReplenishmentWorksheet."Line No." + 10000
+        // Line numbering continues within the template/batch. "Location Code" is NOT
+        // filtered here: on Decant Details it holds the SOURCE location, not LocationCode2
+        // (the destination), so filtering on it would restart numbering and risk collisions.
+        L_DecantDetails.SetRange("Journal Template Name", WhseWkshTemplateName2);
+        L_DecantDetails.SetRange("Journal Batch Name", WhseWkshName2);
+        L_DecantDetails.SetRange("Entry Type", L_DecantDetails."Entry Type"::Replenishment);
+        if L_DecantDetails.FindLast() then
+            NextLineNo := L_DecantDetails."Line No." + 10000
         else
             NextLineNo := 10000;
 
