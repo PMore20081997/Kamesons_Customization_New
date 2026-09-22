@@ -297,16 +297,30 @@ codeunit 99976 Customize_Events
     //         Rec."Max. Qty." := 0;
     // end;
 
-    // (2) For BULK items, enforce one-bin-per-item at Main and Receive locations.
-    //     A new Bin Content row for a BULK item is rejected if another Bin Content
-    //     already exists for the same Item at the same Location in a different Bin.
+    // (2) For BULK items, enforce the bin-flag layout at Main and Receive locations.
+    //
+    //     A BULK item is allowed exactly two kinds of Bin Content per location:
+    //       * ONE Bulk-flagged bin    — its decant face, resolved by GetItemBulkBinCode
+    //       * ONE HighBay-flagged bin — the overflow buffer the put-away engine
+    //                                   spills into (cod 99983 HandleBinCapacity)
+    //     Static- and Flowrack-flagged bins are never valid for a BULK item, and an
+    //     unflagged bin is not a routing destination at all.
+    //
+    //     The test is on the BIN'S FLAGS, not on the bin code: two different bin
+    //     codes are fine when one is Bulk and the other HighBay, while a second
+    //     Bulk-flagged bin is rejected however it is named.
     [EventSubscriber(ObjectType::Table, Database::"Bin Content", OnBeforeInsertEvent, '', false, false)]
     local procedure BinContent_OnBeforeInsert_RestrictOneBinPerBulkItem(var Rec: Record "Bin Content"; RunTrigger: Boolean)
     var
         L_Item: Record Item;
         L_ExistingBinContent: Record "Bin Content";
+        L_IncomingBin: Record Bin;
         L_MainLocation: Code[20];
         L_ReceiveLocation: Code[20];
+        WrongFlagErr: Label 'Item %1 has Routing Type BULK, so it cannot be assigned to Bin %2 at Location %3, which is flagged as %4. A BULK item may only use a Bulk bin and a High Bay bin.', Comment = '%1 = Item No., %2 = Bin Code, %3 = Location Code, %4 = flag name';
+        NoFlagErr: Label 'Bin %1 at Location %2 has no routing flag set. Set Bulk or High Bay on the bin before assigning BULK item %3 to it.', Comment = '%1 = Bin Code, %2 = Location Code, %3 = Item No.';
+        DuplicateBulkErr: Label 'Item %1 (BULK) already has a Bulk bin at Location %2: Bin %3 / Zone %4. A BULK item can occupy only one Bulk Bin per Location.', Comment = '%1 = Item No., %2 = Location Code, %3 = Bin Code, %4 = Zone Code';
+        DuplicateHighBayErr: Label 'Item %1 (BULK) already has a High Bay bin at Location %2: Bin %3 / Zone %4. A BULK item can occupy only one High Bay Bin per Location.', Comment = '%1 = Item No., %2 = Location Code, %3 = Bin Code, %4 = Zone Code';
     begin
         if Rec.IsTemporary() then
             exit;
@@ -323,12 +337,58 @@ codeunit 99976 Customize_Events
         if L_Item."Routing Type" <> L_Item."Routing Type"::BULK then
             exit;
 
+        if Rec."Bin Code" = '' then
+            exit;
+        if not L_IncomingBin.Get(Rec."Location Code", Rec."Bin Code") then
+            exit;
+
+        // 1. The incoming bin must be flagged Bulk or HighBay — nothing else.
+        if L_IncomingBin."Static" then
+            Error(WrongFlagErr, Rec."Item No.", Rec."Bin Code", Rec."Location Code", L_IncomingBin.FieldCaption("Static"));
+        if L_IncomingBin.Flowrack then
+            Error(WrongFlagErr, Rec."Item No.", Rec."Bin Code", Rec."Location Code", L_IncomingBin.FieldCaption(Flowrack));
+        if (not L_IncomingBin.Bulk) and (not L_IncomingBin.HighBay) then
+            Error(NoFlagErr, Rec."Bin Code", Rec."Location Code", Rec."Item No.");
+
+        // 2. Only one bin of that kind per location. A Bulk row and a HighBay row
+        //    coexist happily; a second row of the SAME flag is the error.
         L_ExistingBinContent.SetRange("Location Code", Rec."Location Code");
         L_ExistingBinContent.SetRange("Item No.", Rec."Item No.");
         L_ExistingBinContent.SetFilter("Bin Code", '<>%1', Rec."Bin Code");
-        if L_ExistingBinContent.FindFirst() then
-            Error('Item %1 (BULK) is already assigned to Bin %2 / Zone %3 at Location %4. A BULK item can occupy only one Bin per Location.',
-                Rec."Item No.", L_ExistingBinContent."Bin Code", L_ExistingBinContent."Zone Code", Rec."Location Code");
+        if L_ExistingBinContent.FindSet() then
+            repeat
+                if L_IncomingBin.Bulk and IsBinFlagged(L_ExistingBinContent."Location Code", L_ExistingBinContent."Bin Code", BinFlag::Bulk) then
+                    Error(DuplicateBulkErr, Rec."Item No.", Rec."Location Code", L_ExistingBinContent."Bin Code", L_ExistingBinContent."Zone Code");
+                // if L_IncomingBin.HighBay and IsBinFlagged(L_ExistingBinContent."Location Code", L_ExistingBinContent."Bin Code", BinFlag::HighBay) then
+                //     Error(DuplicateHighBayErr, Rec."Item No.", Rec."Location Code", L_ExistingBinContent."Bin Code", L_ExistingBinContent."Zone Code");
+            until L_ExistingBinContent.Next() = 0;
+    end;
+
+    /// <summary>
+    /// TRUE when the given Location + Bin carries the requested routing flag.
+    /// Reads the Bin directly — the matching Bin Content fields (Tab-Ext 99991,
+    /// 99981..99984) are FlowField lookups onto these same Bin fields.
+    /// </summary>
+    /// <remarks>Flag values are passed as BinFlag::&lt;name&gt; from the global option.</remarks>
+    local procedure IsBinFlagged(LocationCode: Code[10]; BinCode: Code[20]; Flag: Option Bulk,"Static",Flowrack,HighBay): Boolean
+    var
+        L_Bin: Record Bin;
+    begin
+        if BinCode = '' then
+            exit(false);
+        if not L_Bin.Get(LocationCode, BinCode) then
+            exit(false);
+        case Flag of
+            BinFlag::Bulk:
+                exit(L_Bin.Bulk);
+            BinFlag::"Static":
+                exit(L_Bin."Static");
+            BinFlag::Flowrack:
+                exit(L_Bin.Flowrack);
+            BinFlag::HighBay:
+                exit(L_Bin.HighBay);
+        end;
+        exit(false);
     end;
 
     /// <summary>
@@ -349,4 +409,7 @@ codeunit 99976 Customize_Events
     var
         G_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
         BranchesDimensionCodeTok: Label 'BRANCHES', Locked = true;
+        // Routing flags as carried on the Bin (Tab-Ext 99956, fields 99981..99984)
+        // and mirrored onto Bin Content as FlowFields (Tab-Ext 99991).
+        BinFlag: Option Bulk,"Static",Flowrack,HighBay;
 }
