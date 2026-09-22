@@ -91,12 +91,15 @@ codeunit 99963 "Kam Replenishment Mgt."
 
     /// <summary>
     /// Dispatcher entry point. Skips bins not in PICK BULK Location; routes to the
-    /// qty-based or tote-based processor based on Item.Routing Type.
+    /// qty-based or tote-based processor based on the BIN's routing flag.
+    ///
+    /// A bin carrying both Static and Flowrack (the shared decant face) is
+    /// treated as Static, matching the Put-Away fill order.
     /// </summary>
     procedure ProcessBinContent(var BinContent: Record "Bin Content")
     var
-        Item: Record Item;
         Bin: Record Bin;
+        RoutingType: Enum "Item Routing Type NDPP";
         ToBinCode: Code[20];
         IsHandled: Boolean;
     begin
@@ -107,44 +110,37 @@ codeunit 99963 "Kam Replenishment Mgt."
         if BinContent."Location Code" <> PickBulkLocation then
             exit;
 
-        Item.SetLoadFields("Routing Type");
-        if not Item.Get(BinContent."Item No.") then
-            exit;
-
-        // MAIN may have multiple bins of each routing type for the same item
-        // (e.g. several Flowrack bins, several Static bins). Match by the bin's
-        // Boolean flag on the Bin record, not by a single resolved Bin Code.
+        // The BIN decides the routing type, not the item. MAIN may hold several
+        // bins of each type for the same item, and one item may have bins of
+        // MORE than one type — each row is processed on its own bin's flag.
         if not Bin.Get(BinContent."Location Code", BinContent."Bin Code") then
             exit;
 
-        case Item."Routing Type" of
-            Item."Routing Type"::BULK:
+        case true of
+            Bin.Bulk:
                 begin
-                    if not Bin.Bulk then
-                        exit;
+                    RoutingType := RoutingType::BULK;
                     ToBinCode := BulkDecantBin;
                 end;
-            Item."Routing Type"::Flowrack:
+            Bin."Static":
                 begin
-                    if not Bin.Flowrack then
-                        exit;
-                    ToBinCode := GenDecantBin;
-                end;
-            Item."Routing Type"::"Static":
-                begin
-                    if not Bin."Static" then
-                        exit;
+                    RoutingType := RoutingType::"Static";
                     ToBinCode := StaticDecantBin;
                 end;
+            Bin.Flowrack:
+                begin
+                    RoutingType := RoutingType::Flowrack;
+                    ToBinCode := GenDecantBin;
+                end;
             else
-                exit;
+                exit; // Not a routing bin — nothing to replenish.
         end;
 
-        case Item."Routing Type" of
-            Item."Routing Type"::BULK,
-            Item."Routing Type"::"Static":
+        case RoutingType of
+            RoutingType::BULK,
+            RoutingType::"Static":
                 ProcessBulkItem(BinContent, ToBinCode);
-            Item."Routing Type"::Flowrack:
+            RoutingType::Flowrack:
                 begin
                     // Flowrack items can occupy multiple PICK BULK bins. Aggregate the need
                     // across all those bins and process the item once per run.

@@ -56,6 +56,7 @@ page 99971 "Bulk Replan"
                 var
                     L_ItemRef: Record "Item Reference";
                     L_Item: Record Item;
+                    L_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
                 begin
                     if G_ItemBarcode = '' then begin
                         ItemFilter := '';
@@ -78,12 +79,15 @@ page 99971 "Bulk Replan"
 
                     ItemFilter := L_ItemRef."Item No.";
                     if L_Item.Get(ItemFilter) then begin
-                        if L_Item."Routing Type" <> "Item Routing Type NDPP"::BULK then begin
+                        // BULK = the item holds Bin Content in a BULK-flagged
+                        // bin in MAIN. An item that also has a Static or
+                        // Flowrack face still qualifies for BULK replenishment.
+                        if not L_KamWhseSetupLookup.ItemHasRoutingType(L_Item."No.", "Item Routing Type NDPP"::BULK) then begin
                             ItemFilter := '';
                             ItemDescription := '';
                             ApplyItemFilter();
                             CurrPage.Update();
-                            Error('Item %1 has Routing Type %2. Only BULK items are allowed.', L_Item."No.", L_Item."Routing Type");
+                            Error('Item %1 has no BULK bin in the main warehouse. Only items with a BULK bin are allowed.', L_Item."No.");
                         end;
                         ItemDescription := L_Item.Description;
                     end else
@@ -103,9 +107,17 @@ page 99971 "Bulk Replan"
                 var
                     L_Item: Record Item;
                     L_ItemList: Page "Item List";
+                    L_ItemFilter: Text;
                 begin
+                    // Items with a BULK bin in MAIN. Routing types live in Bin
+                    // Content, so the list is built from the BULK bins' contents
+                    // rather than filtered on the item table.
+                    L_ItemFilter := GetBulkItemNoFilter();
+                    if L_ItemFilter = '' then
+                        Error('No items are assigned to a BULK bin in the main warehouse.');
+
                     L_Item.Reset();
-                    L_Item.SetFilter("Routing Type", '%1', "Item Routing Type NDPP"::BULK);
+                    L_Item.SetFilter("No.", L_ItemFilter);
                     L_ItemList.SetTableView(L_Item);
                     L_ItemList.LookupMode(true);
                     if L_ItemList.RunModal() = Action::LookupOK then begin
@@ -393,6 +405,50 @@ page 99971 "Bulk Replan"
             Rec.SetFilter("Item No.", ItemFilter)
         else
             Rec.SetRange("Item No.");
+    end;
+
+    /// <summary>
+    /// A '|'-separated filter of every item holding Bin Content in a
+    /// BULK-flagged bin in MAIN — the items this worksheet replenishes.
+    ///
+    /// Built by walking the BULK bins rather than filtering the item table:
+    /// routing types are derived from Bin Content, so there is no field on Item
+    /// to filter on. Returns '' when no BULK bin holds any item.
+    /// </summary>
+    local procedure GetBulkItemNoFilter(): Text
+    var
+        L_Bin: Record Bin;
+        L_BinContent: Record "Bin Content";
+        L_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
+        L_ItemNos: List of [Code[20]];
+        L_ItemNo: Code[20];
+        L_MainLocation: Code[20];
+        L_Filter: TextBuilder;
+    begin
+        L_MainLocation := L_KamWhseSetupLookup.GetMainLocation();
+
+        L_Bin.SetRange("Location Code", L_MainLocation);
+        L_Bin.SetRange(Bulk, true);
+        if L_Bin.FindSet() then
+            repeat
+                L_BinContent.Reset();
+                L_BinContent.SetRange("Location Code", L_MainLocation);
+                L_BinContent.SetRange("Bin Code", L_Bin.Code);
+                L_BinContent.SetLoadFields("Item No.");
+                if L_BinContent.FindSet() then
+                    repeat
+                        if not L_ItemNos.Contains(L_BinContent."Item No.") then
+                            L_ItemNos.Add(L_BinContent."Item No.");
+                    until L_BinContent.Next() = 0;
+            until L_Bin.Next() = 0;
+
+        foreach L_ItemNo in L_ItemNos do begin
+            if L_Filter.Length() > 0 then
+                L_Filter.Append('|');
+            L_Filter.Append(L_ItemNo);
+        end;
+
+        exit(L_Filter.ToText());
     end;
 
     local procedure CurrentJnlBatchNameOnAfterValidate()

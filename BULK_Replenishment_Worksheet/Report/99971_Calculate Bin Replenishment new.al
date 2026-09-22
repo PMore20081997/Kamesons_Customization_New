@@ -12,13 +12,19 @@ Report 99971 "Cal _Bin Replenishment New"
 
             trigger OnAfterGetRecord()
             begin
+                // BULK items are those holding Bin Content in a BULK-flagged bin
+                // in MAIN. Routing types are derived from Bin Content, so there
+                // is no field on Item to filter on in OnPreDataItem — each item
+                // is probed here instead. An item that also has a Static or
+                // Flowrack face still qualifies on its BULK bin.
+                if not KamWhseSetupLookup.ItemHasRoutingType("No.", "Item Routing Type NDPP"::BULK) then
+                    CurrReport.Skip();
+
                 FindEmptyTotesAndCreateRepWorksheet("No.", LocationCode);
             end;
 
             trigger OnPreDataItem()
             begin
-                Item.SetFilter("Routing Type", '%1', "Item Routing Type NDPP"::BULK);
-
                 SetWhseWorksheet(WhseWkshTemplateName, WhseWkshName, LocationCode);
             end;
         }
@@ -83,6 +89,7 @@ Report 99971 "Cal _Bin Replenishment New"
         NextLineNo: Integer;
         G_DecantDetails: Record "Decant Details";
         G_TaskletCodeunits: Codeunit Tasklet_Codeunits;
+        KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
 
     procedure InitializeRequest(WhseWkshTemplateName2: Code[10]; WhseWkshName2: Code[10]; LocationCode2: Code[10]; HideDialog2: Boolean)
     begin

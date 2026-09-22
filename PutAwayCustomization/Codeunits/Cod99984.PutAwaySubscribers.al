@@ -19,12 +19,7 @@ codeunit 99984 "Put-Away Subscribers NDPP"
 
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Create Put-away", OnBeforeWhseActivLineInsert, '', false, false)]
     local procedure OnBeforeWhseActivLineInsert(var WarehouseActivityLine: Record "Warehouse Activity Line")
-    var
-        i: Integer;
     begin
-        if WarehouseActivityLine."Item No." = 'W00018' then
-            clear(i);
-
         PutAwayMgt.RoutePutAwayLine(WarehouseActivityLine);
     end;
 
@@ -47,8 +42,10 @@ codeunit 99984 "Put-Away Subscribers NDPP"
         // Same system-wide event — only act when the split line belongs to OUR flow.
         if not IsPutAwayPlaceFromPO(NewWarehouseActivityLine) then
             exit;
-        // The new line came from a SplitLine() call — push the spillover to High-Bay.
-        PutAwayMgt.RoutePutAwayLineAsHighBay(NewWarehouseActivityLine);
+        // The new line came from a SplitLine() call — cascade the spillover to
+        // the next staging bin in the item's fill order (High Bay when none is
+        // left), rather than jumping straight to High Bay.
+        PutAwayMgt.RouteSplitLine(NewWarehouseActivityLine);
     end;
 
     [EventSubscriber(ObjectType::Table, Database::"Warehouse Activity Line", OnSplitLineOnBeforeRenumberAllLines, '', false, false)]

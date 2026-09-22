@@ -6,14 +6,11 @@ pageextension 99979 Item_Card_Ext extends "Item Card"
 {
     layout
     {
-        addlast(Item)
-        {
-            field("Routing Type"; Rec."Routing Type")
-            {
-                ApplicationArea = All;
-                ToolTip = 'Specifies how this item is routed during put-away. Flowrack = neither Bulk nor Static. Switching this value is blocked while stock for this item still sits in the previous type''s bin in the Main Warehouse.';
-            }
-        }
+        // "Routing Type" removed from the Item Card. An item's routing types are
+        // now derived from the Main-WH bins it holds Bin Content in, and an item
+        // may have several at once, so there is nothing single-valued to show
+        // here. Use the item's Bin Contents (Bulk / Static / Flowrack flags on
+        // the bin) to see and change how it is routed.
         addafter(VariantMandatoryDefaultNo)
         {
             field(DTCategory; Rec.DTCategory)

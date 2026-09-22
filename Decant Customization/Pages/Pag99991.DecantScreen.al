@@ -85,16 +85,19 @@ page 99991 "Decant Screen"
                     if not L_Item.Get(L_ItemRef."Item No.") then
                         Error('Item %1 not found.', L_ItemRef."Item No.");
 
-                    if not (L_Item."Routing Type" in
-                            [L_Item."Routing Type"::Flowrack, L_Item."Routing Type"::"Static"])
+                    // Decantable = has a Static or Flowrack face in MAIN. An item
+                    // that also has a BULK bin still qualifies — the decant
+                    // process fills its Static/Flowrack face only.
+                    if not (L_KamWhseSetupLookup.ItemHasRoutingType(L_Item."No.", "Item Routing Type NDPP"::"Static")
+                            or L_KamWhseSetupLookup.ItemHasRoutingType(L_Item."No.", "Item Routing Type NDPP"::Flowrack))
                     then begin
                         ItemFilter := '';
                         ItemDescription := '';
                         ManufacturerFilter := '';
                         QtyPerToteFilter := 0;
                         CurrPage.Update();
-                        Error('Item %1 has Routing Type %2. Decant Screen accepts only Flowrack or Static items.',
-                            L_Item."No.", Format(L_Item."Routing Type"));
+                        Error('Item %1 has no Static or Flowrack bin in the main warehouse. Decant Screen accepts only items with a Static or Flowrack face.',
+                            L_Item."No.");
                     end;
 
                     ItemFilter := L_ItemRef."Item No.";
@@ -164,15 +167,25 @@ page 99991 "Decant Screen"
                     if L_ItemNoList.Count = 0 then
                         Error('No items with available stock at Location %1.', CurrentLocationCode);
 
-                    foreach L_ItemNo in L_ItemNoList do begin
-                        if L_ItemFilter <> '' then
-                            L_ItemFilter += '|';
-                        L_ItemFilter += L_ItemNo;
-                    end;
+                    // Keep only items with a Static or Flowrack face in MAIN —
+                    // those are the ones the decant process can fill. Routing
+                    // types come from Bin Content, so this is a per-item probe
+                    // rather than a filter on the item table. An item that ALSO
+                    // has a BULK bin still qualifies on its decant face.
+                    foreach L_ItemNo in L_ItemNoList do
+                        if L_KamWhseSetupLookup.ItemHasRoutingType(L_ItemNo, "Item Routing Type NDPP"::"Static")
+                           or L_KamWhseSetupLookup.ItemHasRoutingType(L_ItemNo, "Item Routing Type NDPP"::Flowrack)
+                        then begin
+                            if L_ItemFilter <> '' then
+                                L_ItemFilter += '|';
+                            L_ItemFilter += L_ItemNo;
+                        end;
+
+                    if L_ItemFilter = '' then
+                        Error('No items with a Static or Flowrack face at Location %1.', CurrentLocationCode);
 
                     L_Item.Reset();
                     L_Item.SetFilter("No.", L_ItemFilter);
-                    L_Item.SetFilter("Routing Type", '<>%1', "Item Routing Type NDPP"::BULK);
                     L_ItemList.SetTableView(L_Item);
                     L_ItemList.LookupMode(true);
                     if L_ItemList.RunModal() = Action::LookupOK then begin

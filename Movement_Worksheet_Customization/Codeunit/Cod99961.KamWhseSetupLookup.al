@@ -36,6 +36,123 @@ codeunit 99961 "Kam Whse Setup Lookup"
         exit(WhseSetup."RECEIVE Warehouse");
     end;
 
+    // ---------- Item routing types (derived from Bin Content) ----------
+
+    /// <summary>
+    /// The routing types an item actually has, derived from the Main-WH bins it
+    /// holds Bin Content in. Replaces the former Item."Routing Type" field.
+    ///
+    /// An item may be several types at once (a BULK reserve pallet AND a
+    /// Flowrack pick face), which the single enum field could not represent —
+    /// it silently reported only the first, so the second type's capacity was
+    /// never considered.
+    ///
+    /// Returned in the configured Put-Away fill order (see GetRoutingPriority),
+    /// so callers that must pick ONE destination can simply take the first
+    /// entry with capacity. An item with no routing bins returns an empty list,
+    /// which callers treat as "unconfigured" and route to High Bay.
+    /// </summary>
+    procedure GetItemRoutingTypes(ItemNo: Code[20]): List of [Enum "Item Routing Type NDPP"]
+    begin
+        exit(GetItemRoutingTypesAtLocation(ItemNo, GetMainLocation()));
+    end;
+
+    procedure GetItemRoutingTypesAtLocation(ItemNo: Code[20]; LocationCode: Code[20]): List of [Enum "Item Routing Type NDPP"]
+    var
+        RoutingType: Enum "Item Routing Type NDPP";
+        Result: List of [Enum "Item Routing Type NDPP"];
+    begin
+        foreach RoutingType in GetRoutingPriority() do
+            if HasBinContentOfType(ItemNo, LocationCode, RoutingType) then
+                Result.Add(RoutingType);
+        exit(Result);
+    end;
+
+    /// <summary>
+    /// TRUE when the item holds Bin Content in at least one bin of the given
+    /// routing type at the location. Filters Bin first (indexed) and then probes
+    /// Bin Content, rather than filtering Bin Content's FlowField flags, which
+    /// have no index and would force a scan-plus-join per row.
+    /// </summary>
+    procedure HasBinContentOfType(ItemNo: Code[20]; LocationCode: Code[20]; RoutingType: Enum "Item Routing Type NDPP"): Boolean
+    var
+        Bin: Record Bin;
+        BinContent: Record "Bin Content";
+    begin
+        if ItemNo = '' then
+            exit(false);
+
+        Bin.SetRange("Location Code", LocationCode);
+        case RoutingType of
+            RoutingType::BULK:
+                Bin.SetRange(Bulk, true);
+            RoutingType::"Static":
+                Bin.SetRange("Static", true);
+            RoutingType::Flowrack:
+                Bin.SetRange(Flowrack, true);
+            else
+                exit(false);
+        end;
+        if not Bin.FindSet() then
+            exit(false);
+
+        repeat
+            BinContent.Reset();
+            BinContent.SetRange("Location Code", LocationCode);
+            BinContent.SetRange("Bin Code", Bin.Code);
+            BinContent.SetRange("Item No.", ItemNo);
+            if not BinContent.IsEmpty() then
+                exit(true);
+        until Bin.Next() = 0;
+
+        exit(false);
+    end;
+
+    /// <summary>
+    /// TRUE when the item has a Main-WH bin of the given routing type.
+    /// Convenience wrapper for the many callers that only need a yes/no on one
+    /// type and shouldn't have to resolve the Main location themselves.
+    /// </summary>
+    procedure ItemHasRoutingType(ItemNo: Code[20]; RoutingType: Enum "Item Routing Type NDPP"): Boolean
+    begin
+        exit(HasBinContentOfType(ItemNo, GetMainLocation(), RoutingType));
+    end;
+
+    /// <summary>
+    /// The Put-Away fill order, from Warehouse Setup. Falls back to
+    /// BULK → Static → Flowrack when setup is blank or misconfigured, so the
+    /// engine never depends on setup having been filled in.
+    ///
+    /// A type named twice in setup appears once here; a type omitted from setup
+    /// is appended, so the list always covers all three and never routes an
+    /// item's stock nowhere because of a setup slip.
+    /// </summary>
+    procedure GetRoutingPriority(): List of [Enum "Item Routing Type NDPP"]
+    var
+        WhseSetup: Record "Warehouse Setup";
+        RoutingType: Enum "Item Routing Type NDPP";
+        Result: List of [Enum "Item Routing Type NDPP"];
+    begin
+        if WhseSetup.Get() then begin
+            AddDistinct(Result, WhseSetup."Routing Priority 1");
+            AddDistinct(Result, WhseSetup."Routing Priority 2");
+            AddDistinct(Result, WhseSetup."Routing Priority 3");
+        end;
+
+        // Backfill anything setup didn't name, in the documented default order.
+        AddDistinct(Result, RoutingType::BULK);
+        AddDistinct(Result, RoutingType::"Static");
+        AddDistinct(Result, RoutingType::Flowrack);
+
+        exit(Result);
+    end;
+
+    local procedure AddDistinct(var Types: List of [Enum "Item Routing Type NDPP"]; RoutingType: Enum "Item Routing Type NDPP")
+    begin
+        if not Types.Contains(RoutingType) then
+            Types.Add(RoutingType);
+    end;
+
     // ---------- Bin finders (primary API) ----------
 
     /// <summary>Returns the Bin Code in the given location flagged as Bulk. Errors if not found.</summary>

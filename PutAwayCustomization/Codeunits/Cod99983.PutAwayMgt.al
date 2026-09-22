@@ -10,25 +10,44 @@ using Microsoft.Inventory.Item;
 ///
 /// PURPOSE
 ///   When stock is received at the Receive Location (PICK BULK), route the
-///   put-away line based on Item."Routing Type":
+///   put-away line to the Receive staging bins that serve the item's Main-WH
+///   pick faces:
 ///
-///     Routing Type = BULK                    -> Bulk bin
-///     Routing Type = Static or Flowrack      -> Flowrack (GEN DECANT) bin
-///     overflow / newer expiry / capacity hit -> HighBay bin
+///     BULK              -> Bulk (BULK DECANT) bin
+///     Static / Flowrack -> Flowrack (GEN DECANT) bin
+///     remainder         -> HighBay bin
 ///
-///   At put-away, Static and Flowrack items share the GEN DECANT bin and use
-///   the same Max-Qty rule against the Main-WH bin. The Static-vs-Flowrack
-///   split only matters during the decant phase (different capacity rules
-///   there) and is not a put-away concern.
+///   ROUTING TYPES ARE DERIVED FROM BIN CONTENT, not from a field on Item.
+///   An item's types are the Main-WH routing bins it holds Bin Content in, so
+///   ONE ITEM MAY BE SEVERAL TYPES AT ONCE (a BULK reserve pallet and a
+///   Flowrack pick face). The former Item."Routing Type" enum could hold only
+///   one value and silently reported the first, so the second type's capacity
+///   was never considered and stock went to HighBay while a valid pick face
+///   stood empty.
+///
+///   A receipt therefore yields ONE PLACE LINE PER STAGING BIN, in the fill
+///   order from Warehouse Setup ("Routing Priority 1..3", default
+///   BULK -> Static -> Flowrack), plus a HighBay line for any remainder:
+///
+///     120 units, BULK holds 50, GEN DECANT holds 30
+///       -> Place line 1:  50 -> BULK DECANT
+///       -> Place line 2:  30 -> GEN DECANT
+///       -> Place line 3:  40 -> HIGH BAY
+///
+///   At put-away, Static and Flowrack items share the GEN DECANT bin, so a
+///   dual Static+Flowrack item produces ONE line there whose capacity is the
+///   SUM of its Static Max-Qty space and its Flowrack tote space. The
+///   Static-vs-Flowrack split is resolved later, during the decant phase.
 ///
 ///   Routing booleans live on Bin (Bulk / Static / Flowrack / HighBay).
 ///
 /// HIGH-LEVEL RULES
 ///   1. Only triggers at the configured Receive Location.
 ///   2. Only acts on Put-Away Place lines from a Purchase Order source.
-///   3. Master-data gate: if NO Bin Content row exists in the Main WH target
-///      bin for this item, the entire line is routed to HighBay. Items
-///      without configured master data must not land on an unmanaged decant.
+///   3. Master-data gate: if the item holds NO Bin Content in any Main-WH
+///      routing bin, it has no routing type at all and the entire line goes to
+///      HighBay. Items without configured master data must not land on an
+///      unmanaged decant.
 ///   4. BULK Min-Qty top-up bypass: for BULK items, if on-hand qty across the
 ///      Main-WH and Receive BULK DECANT bins is below the Main-WH bin's Min
 ///      Qty, the line is routed to BULK DECANT regardless of expiry. The
@@ -36,9 +55,10 @@ using Microsoft.Inventory.Item;
 ///   5. Expiry check (when not bypassed): if incoming line's expiry is NEWER
 ///      than the latest existing expiry already in the target bin, the entire
 ///      line is sent to HighBay (the decant face must keep the freshest stock).
-///   6. If routing the line to the target bin would exceed the equivalent
-///      Main-Warehouse bin's Max Qty, the line is split: the spillover goes
-///      to HighBay.
+///   6. If routing the line to the target staging bin would exceed the
+///      capacity behind it, the line is split: the spillover CASCADES to the
+///      next staging bin in the item's fill order, splitting again as needed,
+///      and only the final remainder goes to HighBay.
 /// </summary>
 codeunit 99983 "Put-Away Mgt. NDPP"
 {
@@ -57,11 +77,11 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     /// </summary>
     procedure RoutePutAwayLine(var WhseActivityLine: Record "Warehouse Activity Line")
     var
-        Item: Record Item;
         IsHandled: Boolean;
         LastDecantExpiry: Date;
         EarliestHighBayExpiry: Date;
         TargetType: Enum "Put-Away Target Zone NDPP";
+        StagingTypes: List of [Enum "Put-Away Target Zone NDPP"];
         ScopeKey: Text;
         MainShortfall: Decimal;
         HighBayOlderQty: Decimal;
@@ -96,9 +116,6 @@ codeunit 99983 "Put-Away Mgt. NDPP"
             G_NetShortfallScopeKey := '';
         end;
 
-        if not GetCachedItem(WhseActivityLine."Item No.", Item) then
-            exit;
-
         // Already in the High-Bay bin — leave alone.
         if IsLineInHighBay(WhseActivityLine) then
             exit;
@@ -107,19 +124,22 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         // theoretically leave G_LineSpacing stuck at TRUE — reset on every entry.
         G_LineSpacing := false;
 
-        // 1. Decide initial target bin from item flags.
-        TargetType := DetermineTargetType(Item);
-
-        // 2. Master-data gate: if no Bin Content row exists in Main WH for this
-        //    item at any bin matching the routing type, treat as unconfigured
-        //    and route everything to HighBay. Prevents stock landing on a
-        //    decant face that has no Min / Max / Number of Totes set up.
-        //    For Flowrack / Static, "any" means across all flagged bins.
-        if not HasMainWHBinContent(WhseActivityLine."Item No.", Item."Routing Type") then begin
+        // 1. Decide the initial staging bin from the item's routing types, which
+        //    are derived from the Main-WH bins it holds Bin Content in. An item
+        //    may be several types at once; the first in fill order wins the
+        //    first Place line, and HandleBinCapacity spills the remainder to the
+        //    next staging bin (and finally High Bay).
+        //
+        // 2. Master-data gate: an empty list means the item has no routing bins
+        //    in Main WH at all — unconfigured. Route everything to HighBay
+        //    rather than onto a decant face with no Min / Max / Number of Totes.
+        StagingTypes := GetStagingTypesForItem(WhseActivityLine."Item No.");
+        if StagingTypes.Count() = 0 then begin
             AssignTargetBin(WhseActivityLine, TargetType::HighBay);
             OnAfterRoutePutAwayLine(WhseActivityLine);
             exit;
         end;
+        TargetType := StagingTypes.Get(1);
 
         // 3a. HighBay older-stock guard (FEFO trumps everything else):
         //     If Receive's HighBay already holds positive-qty stock for this
@@ -428,7 +448,6 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     /// </summary>
     procedure HandleBinCapacity(var WhseActivityLine: Record "Warehouse Activity Line")
     var
-        Item: Record Item;
         SplitLine: Record "Warehouse Activity Line";
         IsHandled: Boolean;
         SpaceLeftInDecant: Decimal;
@@ -440,9 +459,6 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         if not IsEligibleForRouting(WhseActivityLine) then
             exit;
 
-        if not GetCachedItem(WhseActivityLine."Item No.", Item) then
-            exit;
-
         // Defensive: don't trust prior state for the SplitLine signal.
         G_LineSpacing := false;
 
@@ -452,7 +468,10 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         if not IsLineInDecantBin(WhseActivityLine) then
             exit;
 
-        SpaceLeftInDecant := ResolveSpaceLeft(WhseActivityLine, Item);
+        // Capacity behind the staging bin this line currently targets — summed
+        // across every routing type staging there (GEN DECANT covers both the
+        // Static Max-Qty space and the Flowrack tote space).
+        SpaceLeftInDecant := ResolveSpaceLeftForStaging(WhseActivityLine, GetLineStagingType(WhseActivityLine));
 
         // Net-shortfall cap (set by the HighBay older-stock guard in
         // RoutePutAwayLine when HighBay's older lot could NOT cover Main's need).
@@ -464,9 +483,12 @@ codeunit 99983 "Put-Away Mgt. NDPP"
             if SpaceLeftInDecant > G_NetShortfallCap then
                 SpaceLeftInDecant := G_NetShortfallCap;
 
-        // Decant bin already at/over capacity — push everything to High-Bay.
+        // This staging bin is full — hand the whole line to the next staging bin
+        // in fill order, or to High Bay when none is left. Previously this went
+        // straight to High Bay, stranding stock there while a valid pick face
+        // of the item's OTHER routing type stood empty.
         if SpaceLeftInDecant <= 0 then begin
-            AssignTargetBin(WhseActivityLine, "Put-Away Target Zone NDPP"::HighBay);
+            AssignTargetBin(WhseActivityLine, GetNextStagingType(WhseActivityLine));
             WhseActivityLine.Modify();
             exit;
         end;
@@ -477,10 +499,16 @@ codeunit 99983 "Put-Away Mgt. NDPP"
             exit;
         end;
 
-        // Split: keep `SpaceLeftInDecant` in the decant bin, send the rest to HighBay.
+        // Split: keep `SpaceLeftInDecant` here, and let the spillover line be
+        // routed onward by OnBeforeInsertNewWhseActivLine -> RouteSplitLine,
+        // which cascades it to the next staging bin (and so on, until the
+        // remainder lands in High Bay).
         ConsumeNetShortfallCap(WhseActivityLine, SpaceLeftInDecant);
         WhseActivityLine.Validate("Qty. to Handle (Base)", SpaceLeftInDecant);
         WhseActivityLine.Modify();
+
+        G_SplitFromStagingType := GetLineStagingType(WhseActivityLine);
+        G_SplitFromItemNo := WhseActivityLine."Item No.";
 
         SplitLine.Copy(WhseActivityLine);
         G_LineSpacing := true;
@@ -488,7 +516,79 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         WhseActivityLine.Copy(SplitLine);
         G_LineSpacing := false;
 
+        Clear(G_SplitFromStagingType);
+        G_SplitFromItemNo := '';
+
         OnAfterHandleBinCapacity(WhseActivityLine);
+    end;
+
+    /// <summary>
+    /// The staging bin type the line currently sits in, inferred from its Bin's
+    /// routing flags. BULK DECANT and GEN DECANT are distinct staging bins;
+    /// Static and Flowrack both resolve to GEN DECANT (the Receive
+    /// Flowrack-flagged bin), matching RoutingTypeToStagingType.
+    /// </summary>
+    local procedure GetLineStagingType(var WhseActivityLine: Record "Warehouse Activity Line"): Enum "Put-Away Target Zone NDPP"
+    var
+        Bin: Record Bin;
+        TargetType: Enum "Put-Away Target Zone NDPP";
+    begin
+        if not Bin.Get(WhseActivityLine."Location Code", WhseActivityLine."Bin Code") then
+            exit(TargetType::HighBay);
+        if Bin.HighBay then
+            exit(TargetType::HighBay);
+        if Bin.Bulk then
+            exit(TargetType::BulkDecant);
+        // Receive's GEN DECANT bin carries the Flowrack flag (and may also carry
+        // Static — the two share it).
+        exit(TargetType::Flowrack);
+    end;
+
+    /// <summary>
+    /// The staging bin AFTER the one the line currently targets, in the item's
+    /// fill order. High Bay when the current bin is the item's last — so the
+    /// remainder always has somewhere to land.
+    /// </summary>
+    local procedure GetNextStagingType(var WhseActivityLine: Record "Warehouse Activity Line"): Enum "Put-Away Target Zone NDPP"
+    begin
+        exit(GetStagingTypeAfter(WhseActivityLine."Item No.", GetLineStagingType(WhseActivityLine)));
+    end;
+
+    local procedure GetStagingTypeAfter(ItemNo: Code[20]; CurrentStagingType: Enum "Put-Away Target Zone NDPP"): Enum "Put-Away Target Zone NDPP"
+    var
+        StagingTypes: List of [Enum "Put-Away Target Zone NDPP"];
+        TargetType: Enum "Put-Away Target Zone NDPP";
+        Idx: Integer;
+    begin
+        StagingTypes := GetStagingTypesForItem(ItemNo);
+        if not StagingTypes.Contains(CurrentStagingType) then
+            exit(TargetType::HighBay);
+
+        Idx := StagingTypes.IndexOf(CurrentStagingType);
+        if Idx >= StagingTypes.Count() then
+            exit(TargetType::HighBay); // Already the item's last staging bin.
+
+        exit(StagingTypes.Get(Idx + 1));
+    end;
+
+    /// <summary>
+    /// Routes a line created by SplitLine() inside HandleBinCapacity. The
+    /// spillover goes to the staging bin after the one it split from; when that
+    /// bin is also full, this line's own HandleBinCapacity pass splits it again,
+    /// cascading until the remainder reaches High Bay.
+    ///
+    /// Falls back to High Bay whenever the split context is absent (a split from
+    /// some other flow) or the item doesn't match — never leaves a line
+    /// unrouted.
+    /// </summary>
+    procedure RouteSplitLine(var WhseActivityLine: Record "Warehouse Activity Line")
+    var
+        TargetType: Enum "Put-Away Target Zone NDPP";
+    begin
+        if (G_SplitFromItemNo <> '') and (G_SplitFromItemNo = WhseActivityLine."Item No.") then
+            AssignTargetBin(WhseActivityLine, GetStagingTypeAfter(WhseActivityLine."Item No.", G_SplitFromStagingType))
+        else
+            AssignTargetBin(WhseActivityLine, TargetType::HighBay);
     end;
 
     /// <summary>
@@ -546,19 +646,92 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     /// the decant phase, where they have different capacity rules. Put-away
     /// just uses the Main-WH GEN DECANT bin's Max Qty for both.
     /// </summary>
-    local procedure DetermineTargetType(Item: Record Item): Enum "Put-Away Target Zone NDPP"
+    local procedure RoutingTypeToTargetType(RoutingType: Enum "Item Routing Type NDPP"): Enum "Put-Away Target Zone NDPP"
     var
         TargetType: Enum "Put-Away Target Zone NDPP";
     begin
-        case Item."Routing Type" of
-            Item."Routing Type"::BULK:
+        case RoutingType of
+            RoutingType::BULK:
                 exit(TargetType::BulkDecant);
-            Item."Routing Type"::"Static":
+            RoutingType::"Static":
                 exit(TargetType::"Static");
             else
                 // Flowrack (and any future non-BULK / non-Static routing).
                 exit(TargetType::Flowrack);
         end;
+    end;
+
+    /// <summary>
+    /// The item's routing types, in the configured fill order, restricted to
+    /// those with Bin Content in Main WH. Empty means "no routing bins set up"
+    /// — the caller routes the line to High Bay.
+    ///
+    /// Replaces the former single-valued Item."Routing Type": an item may be
+    /// BULK and Flowrack at once, and both faces must be considered.
+    /// </summary>
+    local procedure GetRoutingTypesForLine(ItemNo: Code[20]): List of [Enum "Item Routing Type NDPP"]
+    begin
+        exit(G_KamWhseSetupLookup.GetItemRoutingTypes(ItemNo));
+    end;
+
+    /// <summary>
+    /// The Receive-side staging bin an item's routing type puts away to.
+    ///
+    /// Static and Flowrack SHARE the GEN DECANT (Flowrack-flagged) bin at
+    /// Receive — the Static-vs-Flowrack split is resolved later, during decant.
+    /// So a dual Static+Flowrack item yields ONE Place line, whose capacity is
+    /// the SUM of its Static Max-Qty space and its Flowrack tote space (see
+    /// ResolveSpaceLeftForTypes). Only BULK has its own separate staging bin.
+    /// </summary>
+    local procedure RoutingTypeToStagingType(RoutingType: Enum "Item Routing Type NDPP"): Enum "Put-Away Target Zone NDPP"
+    var
+        TargetType: Enum "Put-Away Target Zone NDPP";
+    begin
+        if RoutingType = RoutingType::BULK then
+            exit(TargetType::BulkDecant);
+        // Static and Flowrack both stage at the Receive Flowrack bin (GEN DECANT).
+        exit(TargetType::Flowrack);
+    end;
+
+    /// <summary>
+    /// The Receive staging bins the item puts away to, in fill order.
+    /// A BULK+Static+Flowrack item yields two: BULK DECANT, then GEN DECANT
+    /// (Static and Flowrack share it). Each becomes at most one Place line.
+    /// </summary>
+    local procedure GetStagingTypesForItem(ItemNo: Code[20]): List of [Enum "Put-Away Target Zone NDPP"]
+    var
+        RoutingType: Enum "Item Routing Type NDPP";
+        StagingType: Enum "Put-Away Target Zone NDPP";
+        Result: List of [Enum "Put-Away Target Zone NDPP"];
+    begin
+        foreach RoutingType in GetRoutingTypesForLine(ItemNo) do begin
+            StagingType := RoutingTypeToStagingType(RoutingType);
+            if not Result.Contains(StagingType) then
+                Result.Add(StagingType);
+        end;
+        exit(Result);
+    end;
+
+    /// <summary>
+    /// Total capacity behind a Receive staging bin for this item, summed across
+    /// every routing type that stages there AND that the item actually has.
+    ///
+    /// GEN DECANT feeds both the Static and Flowrack Main faces, and their
+    /// capacity rules differ — Static by Max Qty, Flowrack by empty totes ×
+    /// qty-per-tote. For a dual Static+Flowrack item both faces genuinely have
+    /// room, so the staging line's capacity is their SUM. The old code took the
+    /// Static branch alone and never saw the Flowrack totes, sending stock to
+    /// High Bay while a valid pick face stood empty.
+    /// </summary>
+    local procedure ResolveSpaceLeftForStaging(var WhseActivityLine: Record "Warehouse Activity Line"; StagingType: Enum "Put-Away Target Zone NDPP"): Decimal
+    var
+        RoutingType: Enum "Item Routing Type NDPP";
+        Total: Decimal;
+    begin
+        foreach RoutingType in GetRoutingTypesForLine(WhseActivityLine."Item No.") do
+            if RoutingTypeToStagingType(RoutingType) = StagingType then
+                Total += ResolveSpaceLeftForRoutingType(WhseActivityLine, RoutingType);
+        exit(Total);
     end;
 
     /// <summary>
@@ -591,7 +764,7 @@ codeunit 99983 "Put-Away Mgt. NDPP"
 
 
 
-    local procedure ResolveSpaceLeft(var WhseActivityLine: Record "Warehouse Activity Line"; Item: Record Item): Decimal
+    local procedure ResolveSpaceLeftForRoutingType(var WhseActivityLine: Record "Warehouse Activity Line"; RoutingType: Enum "Item Routing Type NDPP"): Decimal
     var
         MainBinContent: Record "Bin Content";
         TargetType: Enum "Put-Away Target Zone NDPP";
@@ -602,11 +775,11 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     begin
         // Static: try Max Qty rule first (summed across all Main WH Static bins).
         // If no Max Qty is configured anywhere, fall through to empty-totes.
-        if Item."Routing Type" = Item."Routing Type"::"Static" then begin
-            MaxQtySpace := SumMainWHMaxQtySpaceLeft(WhseActivityLine."Item No.", Item."Routing Type");
+        if RoutingType = RoutingType::"Static" then begin
+            MaxQtySpace := SumMainWHMaxQtySpaceLeft(WhseActivityLine."Item No.", RoutingType);
             if MaxQtySpace > 0 then begin
                 MaxQtySpace := MaxQtySpace
-                               - GetReceiveDecantPendingForItem(WhseActivityLine."Item No.", Item."Routing Type")
+                               - GetReceiveDecantPendingForItem(WhseActivityLine."Item No.", RoutingType)
                                + GetCurrentLineSelfContribution(WhseActivityLine, "Put-Away Target Zone NDPP"::"Static");
                 if MaxQtySpace < 0 then
                     MaxQtySpace := 0;
@@ -614,12 +787,12 @@ codeunit 99983 "Put-Away Mgt. NDPP"
             end;
         end;
 
-        if Item."Routing Type" = Item."Routing Type"::Flowrack then begin
+        if RoutingType = RoutingType::Flowrack then begin
             QtyPerTote := KamToteMath.GetQtyPerTote(WhseActivityLine."Item No.", WhseActivityLine."Manufacturer Code");
             if QtyPerTote <= 0 then
                 exit(0);
 
-            EmptyTotes := SumMainWHEmptyTotes(WhseActivityLine."Item No.", Item."Routing Type")
+            EmptyTotes := SumMainWHEmptyTotes(WhseActivityLine."Item No.", RoutingType)
                           - CountPendingFlowrackTotes(WhseActivityLine)
                           - CountReceiveFlowrackTotes(WhseActivityLine."Item No.");
             if EmptyTotes < 0 then
@@ -628,7 +801,7 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         end;
 
         // BULK — Max Qty rule against the single Main WH BULK bin.
-        TargetType := DetermineTargetType(Item);
+        TargetType := RoutingTypeToTargetType(RoutingType);
         if not TryGetMainBinContent(WhseActivityLine."Item No.", TargetType, MainBinContent) then
             exit(0);
 
@@ -1210,48 +1383,6 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     /// Returns the Main-Warehouse Bin Content row that mirrors the put-away
     /// target type — used for the Max Qty cap. Returns FALSE if no match.
     /// </summary>
-    /// <summary>
-    /// TRUE when master data exists for this item in Main WH at any bin
-    /// matching the item's routing type.
-    ///   BULK              -> single Bulk-flagged bin must have a Bin Content row.
-    ///   Flowrack / Static -> ANY Flowrack/Static-flagged bin must have one.
-    /// Items without setup go to HighBay instead of an unmanaged decant bin.
-    /// </summary>
-    local procedure HasMainWHBinContent(ItemNo: Code[20]; RoutingType: Enum "Item Routing Type NDPP"): Boolean
-    var
-        Bin: Record Bin;
-        BinContent: Record "Bin Content";
-        MainLocation: Code[20];
-        Dummy: Record "Bin Content";
-    begin
-        if RoutingType = RoutingType::BULK then
-            exit(TryGetMainBinContent(ItemNo, "Put-Away Target Zone NDPP"::BulkDecant, Dummy));
-
-        MainLocation := G_KamWhseSetupLookup.GetMainLocation();
-        Bin.SetRange("Location Code", MainLocation);
-        case RoutingType of
-            RoutingType::Flowrack:
-                Bin.SetRange(Flowrack, true);
-            RoutingType::"Static":
-                Bin.SetRange("Static", true);
-            else
-                exit(false);
-        end;
-        if not Bin.FindSet() then
-            exit(false);
-
-        repeat
-            BinContent.Reset();
-            BinContent.SetRange("Location Code", MainLocation);
-            BinContent.SetRange("Bin Code", Bin.Code);
-            BinContent.SetRange("Item No.", ItemNo);
-            if not BinContent.IsEmpty() then
-                exit(true);
-        until Bin.Next() = 0;
-
-        exit(false);
-    end;
-
     local procedure TryGetMainBinContent(ItemNo: Code[20]; TargetType: Enum "Put-Away Target Zone NDPP"; var MainBinContent: Record "Bin Content"): Boolean
     var
         BinCode: Code[20];
@@ -1339,16 +1470,6 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         if WhseActivityLine."Bin Code" <> TargetBin then
             exit(0);
         exit(WhseActivityLine."Qty. Outstanding (Base)");
-    end;
-
-
-    /// <summary>
-    /// Forces a Put-Away line into the High-Bay bin — used for split-line
-    /// spillover from HandleBinCapacity.
-    /// </summary>
-    procedure RoutePutAwayLineAsHighBay(var WhseActivityLine: Record "Warehouse Activity Line")
-    begin
-        AssignTargetBin(WhseActivityLine, "Put-Away Target Zone NDPP"::HighBay);
     end;
 
 
@@ -1447,22 +1568,6 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         exit(Totes);
     end;
 
-    // Returns the Item record for ItemNo, reusing the cached copy when the same
-    // item appears on consecutive lines (e.g. multiple lot numbers, one line each).
-    // SingleInstance keeps G_CachedItem alive for the lifetime of the batch.
-    local procedure GetCachedItem(ItemNo: Code[20]; var Item: Record Item): Boolean
-    begin
-        if G_CachedItemNo = ItemNo then begin
-            Item := G_CachedItem;
-            exit(true);
-        end;
-        if not Item.Get(ItemNo) then
-            exit(false);
-        G_CachedItem := Item;
-        G_CachedItemNo := ItemNo;
-        exit(true);
-    end;
-
     // ---------- Integration events (extension points) ----------
 
     [IntegrationEvent(false, false)]
@@ -1489,10 +1594,14 @@ codeunit 99983 "Put-Away Mgt. NDPP"
         G_KamWhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
         KamToteMath: Codeunit "Kam Tote Math";
         G_LineSpacing: Boolean;
-        G_CachedItemNo: Code[20];
-        G_CachedItem: Record Item;
         G_TargetedBins: Dictionary of [Text, Boolean];
         G_ClaimScopeKey: Text;
+        // Staging bin (and item) a SplitLine() spillover came from, so
+        // RouteSplitLine can send that spillover to the NEXT staging bin in the
+        // item's fill order rather than always to High Bay. Set only for the
+        // duration of the SplitLine call inside HandleBinCapacity.
+        G_SplitFromStagingType: Enum "Put-Away Target Zone NDPP";
+        G_SplitFromItemNo: Code[20];
         // Net shortfall (Main Min-Qty gap MINUS older HighBay qty) that the
         // decant face is allowed to absorb for the current (Doc No. | Item No.)
         // scope. Set by the HighBay older-stock guard in RoutePutAwayLine,

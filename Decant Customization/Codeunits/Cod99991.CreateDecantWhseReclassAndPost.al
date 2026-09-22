@@ -43,7 +43,6 @@ codeunit 99991 "Decant Reclass Mgt."
         DecantDetails: Record "Decant Details";
         BinContent: Record "Bin Content";
         Bin: Record Bin;
-        Item: Record Item;
         TempSource: Record "Decant Details" temporary;
         WhseSetupLookup: Codeunit "Kam Whse Setup Lookup";
         ReceiveLocation: Code[10];
@@ -72,23 +71,25 @@ codeunit 99991 "Decant Reclass Mgt."
         ClearBuffer(TemplateName, BatchName);
 
         // FEFO source — read once into the temp buffer from BOTH the Flowrack
-        // and Static staging bins in RECEIVE. Items naturally segregate by
-        // routing type because each item's lots only live in its own source bin.
+        // and Static staging bins in RECEIVE. Stock is drawn from whichever
+        // staging bin holds it; the destination bin's own flag decides where it
+        // may land.
         LoadSourceBuffer(TempSource, ReceiveLocation, SourceFlowrackBin, SourceStaticBin, ItemFilter, ManufacturerFilter, QtyPerToteOverride);
 
         NextLineNo := 10000;
 
         // Iterate Bin Content rows at the destination location. We don't filter
         // by zone — bins are identified by their Boolean Flowrack/Static flags,
-        // which is checked per-row against the item's Routing Type below.
+        // checked per-row by IsDecantableBin below. The bin alone decides; an
+        // item that also has a BULK bin still gets its Flowrack face decanted.
         BinContent.SetRange("Location Code", DestLocationCode);
         if ItemFilter <> '' then
             BinContent.SetRange("Item No.", ItemFilter);
 
         if BinContent.FindSet() then
             repeat
-                if Item.Get(BinContent."Item No.") and Bin.Get(BinContent."Location Code", BinContent."Bin Code") then
-                    if BinFlagMatchesRoutingType(Bin, Item."Routing Type") then begin
+                if Bin.Get(BinContent."Location Code", BinContent."Bin Code") then
+                    if IsDecantableBin(Bin) then begin
                         if BinContent."Number of Totes in a Bin" <= 0 then
                             BinsSkippedNoToteConfig += 1
                         else
@@ -108,16 +109,18 @@ codeunit 99991 "Decant Reclass Mgt."
         LogTelemetry('CalculateDecant', ReceiveLocation, DestLocationCode, NextLineNo, StartTime);
     end;
 
-    local procedure BinFlagMatchesRoutingType(Bin: Record Bin; RoutingType: Enum "Item Routing Type NDPP"): Boolean
+    /// <summary>
+    /// TRUE for destination bins the decant process feeds — the Static and
+    /// Flowrack pick faces. BULK bins are replenished separately.
+    ///
+    /// The BIN decides this, not the item: an item may hold Bin Content in a
+    /// BULK bin AND a Flowrack bin, and its Flowrack face must still be
+    /// decanted. (Previously the item's single Routing Type had to agree with
+    /// the bin, so a BULK-typed item's Flowrack face was never filled.)
+    /// </summary>
+    local procedure IsDecantableBin(Bin: Record Bin): Boolean
     begin
-        case RoutingType of
-            RoutingType::Flowrack:
-                exit(Bin.Flowrack);
-            RoutingType::"Static":
-                exit(Bin."Static");
-            else
-                exit(false);  // BULK or other — not handled by Decant
-        end;
+        exit(Bin.Flowrack or Bin."Static");
     end;
 
     procedure RegisterDecant(TemplateName: Code[10]; BatchName: Code[10]; _LocationCode: Code[10])

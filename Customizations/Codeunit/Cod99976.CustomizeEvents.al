@@ -297,14 +297,19 @@ codeunit 99976 Customize_Events
     //         Rec."Max. Qty." := 0;
     // end;
 
-    // (2) For BULK items, enforce one-bin-per-item at Main and Receive locations.
-    //     A new Bin Content row for a BULK item is rejected if another Bin Content
-    //     already exists for the same Item at the same Location in a different Bin.
+    // (2) Enforce one BULK bin per item per location.
+    //
+    //     Counts only BULK-FLAGGED bins. Routing types are derived from Bin
+    //     Content, so an item may legitimately hold a BULK bin AND a
+    //     Static/Flowrack pick face at the same location — the old rule rejected
+    //     the second bin outright, and decided whether to apply itself by
+    //     reading the item's (now removed) Routing Type, which was circular.
     [EventSubscriber(ObjectType::Table, Database::"Bin Content", OnBeforeInsertEvent, '', false, false)]
     local procedure BinContent_OnBeforeInsert_RestrictOneBinPerBulkItem(var Rec: Record "Bin Content"; RunTrigger: Boolean)
     var
-        L_Item: Record Item;
+        L_Bin: Record Bin;
         L_ExistingBinContent: Record "Bin Content";
+        L_ExistingBin: Record Bin;
         L_MainLocation: Code[20];
         L_ReceiveLocation: Code[20];
     begin
@@ -318,17 +323,22 @@ codeunit 99976 Customize_Events
         if (Rec."Location Code" <> L_MainLocation) and (Rec."Location Code" <> L_ReceiveLocation) then
             exit;
 
-        if not L_Item.Get(Rec."Item No.") then
+        // Only a BULK bin can conflict.
+        if not L_Bin.Get(Rec."Location Code", Rec."Bin Code") then
             exit;
-        if L_Item."Routing Type" <> L_Item."Routing Type"::BULK then
+        if not L_Bin.Bulk then
             exit;
 
         L_ExistingBinContent.SetRange("Location Code", Rec."Location Code");
         L_ExistingBinContent.SetRange("Item No.", Rec."Item No.");
         L_ExistingBinContent.SetFilter("Bin Code", '<>%1', Rec."Bin Code");
-        if L_ExistingBinContent.FindFirst() then
-            Error('Item %1 (BULK) is already assigned to Bin %2 / Zone %3 at Location %4. A BULK item can occupy only one Bin per Location.',
-                Rec."Item No.", L_ExistingBinContent."Bin Code", L_ExistingBinContent."Zone Code", Rec."Location Code");
+        if L_ExistingBinContent.FindSet() then
+            repeat
+                if L_ExistingBin.Get(L_ExistingBinContent."Location Code", L_ExistingBinContent."Bin Code") then
+                    if L_ExistingBin.Bulk then
+                        Error('Item %1 is already assigned to BULK Bin %2 / Zone %3 at Location %4. An item can occupy only one BULK Bin per Location.',
+                            Rec."Item No.", L_ExistingBinContent."Bin Code", L_ExistingBinContent."Zone Code", Rec."Location Code");
+            until L_ExistingBinContent.Next() = 0;
     end;
 
     /// <summary>
