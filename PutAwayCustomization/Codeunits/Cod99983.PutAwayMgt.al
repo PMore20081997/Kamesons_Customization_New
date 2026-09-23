@@ -147,6 +147,7 @@ codeunit 99983 "Put-Away Mgt. NDPP"
             if NetShortfall <= 0 then begin
                 // Older HighBay stock covers Main's need — original behaviour.
                 AssignTargetBin(WhseActivityLine, TargetType::HighBay);
+                
                 OnAfterRoutePutAwayLine(WhseActivityLine);
                 exit;
             end;
@@ -862,11 +863,38 @@ codeunit 99983 "Put-Away Mgt. NDPP"
     var
         Bin: Record Bin;
     begin
+        // A HIGHBAY line carries a Zone Code but NO Bin Code (AssignTargetBin
+        // leaves the bin for the operator to choose on the floor), so the zone
+        // is checked first. The Bin Code test below still catches lines that
+        // already have a bin - registered lines, and lines a user has set by
+        // hand - so both shapes are recognised.
+        if WhseActivityLine."Zone Code" <> '' then
+            if IsHighBayZone(WhseActivityLine."Location Code", WhseActivityLine."Zone Code") then
+                exit(true);
+
         if WhseActivityLine."Bin Code" = '' then
             exit(false);
         if not Bin.Get(WhseActivityLine."Location Code", WhseActivityLine."Bin Code") then
             exit(false);
         exit(Bin.HighBay);
+    end;
+
+    /// <summary>
+    /// TRUE when a zone contains the location's HighBay-flagged bin. Used to
+    /// recognise a HighBay put-away line from its Zone Code alone, since those
+    /// lines are created without a Bin Code.
+    /// </summary>
+    local procedure IsHighBayZone(LocationCode: Code[10]; ZoneCode: Code[10]): Boolean
+    var
+        Bin: Record Bin;
+    begin
+        if ZoneCode = '' then
+            exit(false);
+
+        Bin.SetRange("Location Code", LocationCode);
+        Bin.SetRange("Zone Code", ZoneCode);
+        Bin.SetRange(HighBay, true);
+        exit(not Bin.IsEmpty());
     end;
 
     /// <summary>
@@ -919,6 +947,18 @@ codeunit 99983 "Put-Away Mgt. NDPP"
             exit;
 
         WhseActivityLine.Validate("Zone Code", Bin."Zone Code");
+
+        // HIGHBAY is a ZONE of many bins, not a single named face: which bin
+        // the pallet actually lands in is decided by the operator on the floor
+        // at put-away time. Validating a Bin Code here would pin the line to
+        // whichever HighBay bin happened to sort first, so the line is left
+        // with the Zone Code only and the bin is captured on registration.
+        //
+        // Flowrack / Static are single flagged faces, so those keep the Bin
+        // Code as before.
+        if TargetType = TargetType::HighBay then
+            exit;
+
         WhseActivityLine.Validate("Bin Code", Bin.Code);
     end;
 

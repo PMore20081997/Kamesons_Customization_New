@@ -49,6 +49,8 @@ codeunit 99991 "Decant Reclass Mgt."
         ReceiveLocation: Code[10];
         SourceFlowrackBin: Code[20];
         SourceStaticBin: Code[20];
+        // HIGHBAY bins are resolved inside LoadHighBayFallbackAllBins, which
+        // ranks them by earliest expiry, so no single bin code is held here.
         NextLineNo: Integer;
         BinsSkippedNoToteConfig: Integer;
         IsHandled: Boolean;
@@ -66,6 +68,8 @@ codeunit 99991 "Decant Reclass Mgt."
         ReceiveLocation := WhseSetupLookup.GetReceiveLocation();
         SourceFlowrackBin := WhseSetupLookup.GetFlowrackBin(ReceiveLocation);
         SourceStaticBin := WhseSetupLookup.GetStaticBin(ReceiveLocation);
+        // GetHighBayBin is no longer called here: it returns only the FIRST
+        // HighBay bin, and LoadHighBayFallbackAllBins now walks them all.
 
         ValidateCalculateInputs(ReceiveLocation, DestLocationCode);
 
@@ -75,6 +79,18 @@ codeunit 99991 "Decant Reclass Mgt."
         // and Static staging bins in RECEIVE. Items naturally segregate by
         // routing type because each item's lots only live in its own source bin.
         LoadSourceBuffer(TempSource, ReceiveLocation, SourceFlowrackBin, SourceStaticBin, ItemFilter, ManufacturerFilter, QtyPerToteOverride);
+
+        // Fallback: HIGHBAY is the overflow buffer the put-away engine spills
+        // into. It is NOT a normal decant source — stock is meant to reach the
+        // staging bins via the Movement Worksheet first. But when an item has
+        // nothing at all in its staging bin, that hand-off has not happened and
+        // the pick face would starve while stock sits in HIGHBAY. So top the
+        // buffer up from HIGHBAY for those items only, leaving the normal
+        // staged flow untouched.
+        // There can be SEVERAL HIGHBAY bins. They are loaded oldest-stock-first
+        // so the lot closest to expiry reaches the pick face before a fresher
+        // one sitting in another bin (see LoadHighBayFallbackAllBins).
+        LoadHighBayFallbackAllBins(TempSource, ReceiveLocation, ItemFilter, ManufacturerFilter, QtyPerToteOverride);
 
         NextLineNo := 10000;
 
@@ -89,7 +105,12 @@ codeunit 99991 "Decant Reclass Mgt."
             repeat
                 if Item.Get(BinContent."Item No.") and Bin.Get(BinContent."Location Code", BinContent."Bin Code") then
                     if BinFlagMatchesRoutingType(Bin, Item."Routing Type") then begin
-                        if BinContent."Number of Totes in a Bin" <= 0 then
+                        // Static bins size themselves from Max Qty / Qty per Tote
+                        // (see ResolveSlotCapacity), so a missing tote count is
+                        // only a blocker for Flowrack.
+                        if (BinContent."Number of Totes in a Bin" <= 0) and
+                           (Item."Routing Type" <> Item."Routing Type"::"Static")
+                        then
                             BinsSkippedNoToteConfig += 1
                         else
                             AllocateToBin(
@@ -97,6 +118,7 @@ codeunit 99991 "Decant Reclass Mgt."
                                 TemplateName, BatchName,
                                 DestLocationCode, BinContent."Zone Code",
                                 ManufacturerFilter, QtyPerToteOverride,
+                                Item."Routing Type",
                                 NextLineNo);
                     end;
             until BinContent.Next() = 0;
@@ -275,6 +297,187 @@ codeunit 99991 "Decant Reclass Mgt."
         SourceQuery.Close();
     end;
 
+    /// <summary>
+    /// Appends the RECEIVE HIGHBAY bin's stock to the FEFO buffer as a
+    /// LOWER-PRIORITY TAIL, for Flowrack and Static alike.
+    ///
+    /// HIGHBAY is the overflow buffer the put-away engine spills into; the
+    /// intended route out of it is the Movement Worksheet. But when the staging
+    /// bin cannot fill the destination's tote slots on its own, the pick face
+    /// would starve while stock sits in HIGHBAY — so HIGHBAY makes up the
+    /// shortfall here.
+    ///
+    /// Priority is by line number: LoadSourceBuffer numbers the staged rows
+    /// first, this appends after them, and AllocateToBin walks the buffer in
+    /// primary-key (line-number) order. Staged stock is therefore always
+    /// consumed first, and HIGHBAY supplies only the slots left over.
+    ///
+    /// Trade-off: strict FEFO holds WITHIN each source bin, but a HIGHBAY lot
+    /// is not interleaved by expiry against staged lots — staging always wins.
+    /// That matches the physical intent (staged stock is already in position)
+    /// and the Movement Worksheet feeds HIGHBAY into staging in expiry order.
+    /// </summary>
+    /// <summary>
+    /// Loads the HIGHBAY fallback across ALL HighBay-flagged bins in the
+    /// Receive location, oldest stock first.
+    ///
+    /// WHY BIN ORDER MATTERS
+    ///   With several HighBay bins, loading them in bin-code order would let a
+    ///   fresher lot reach the pick face while an older lot sat in another bin
+    ///   until it expired. Bins are therefore ranked by the EARLIEST usable
+    ///   expiry each one holds, and loaded in that order. Because AllocateToBin
+    ///   consumes the buffer in line-number order, and each bin's rows are
+    ///   appended after the previous bin's, the oldest HighBay stock is always
+    ///   taken first.
+    ///
+    ///   Staged (Flowrack / Static) rows still outrank every HighBay row - this
+    ///   only orders the fallback tail among itself.
+    ///
+    ///   Ranking uses the same filters the loader applies (positive qty, expiry
+    ///   on or after today), so a bin is never ranked on stock that would then
+    ///   be skipped.
+    /// </summary>
+    local procedure LoadHighBayFallbackAllBins(
+        var TempSource: Record "Decant Details" temporary;
+        SourceLocationCode: Code[10];
+        ItemFilter: Code[20];
+        ManufacturerFilter: Code[50];
+        QtyPerToteOverride: Decimal)
+    var
+        Bin: Record Bin;
+        TempRankedBin: Record "HighBay Bin Ranking NDPP" temporary;
+        EarliestExpiry: Date;
+    begin
+        Bin.SetRange("Location Code", SourceLocationCode);
+        Bin.SetRange(HighBay, true);
+        if not Bin.FindSet() then
+            exit;
+
+        // Rank pass: one row per HighBay bin that holds usable stock. The
+        // ranking table is keyed on Earliest Expiry, so the read below comes
+        // back in the order we need.
+        repeat
+            EarliestExpiry := GetEarliestHighBayExpiry(SourceLocationCode, Bin.Code, ItemFilter);
+            if EarliestExpiry <> 0D then begin
+                TempRankedBin.Init();
+                TempRankedBin."Earliest Expiry" := EarliestExpiry;
+                TempRankedBin."Bin Code" := Bin.Code;
+                TempRankedBin."Location Code" := SourceLocationCode;
+                if TempRankedBin.Insert() then;
+            end;
+        until Bin.Next() = 0;
+
+        // Load pass: oldest stock first.
+        TempRankedBin.Reset();
+        if not TempRankedBin.FindSet() then
+            exit;
+
+        repeat
+            LoadHighBayFallback(
+                TempSource, SourceLocationCode, TempRankedBin."Bin Code",
+                ItemFilter, ManufacturerFilter, QtyPerToteOverride);
+        until TempRankedBin.Next() = 0;
+    end;
+
+    /// <summary>
+    /// Earliest usable expiry for an item in one HighBay bin, or 0D when the
+    /// bin holds none. Mirrors the loader's own filters so ranking and loading
+    /// agree on what counts as usable.
+    /// </summary>
+    local procedure GetEarliestHighBayExpiry(LocationCode: Code[10]; BinCode: Code[20]; ItemFilter: Code[20]): Date
+    var
+        WhseEntry: Record "Warehouse Entry";
+        Earliest: Date;
+    begin
+        Clear(Earliest);
+        WhseEntry.SetRange("Location Code", LocationCode);
+        WhseEntry.SetRange("Bin Code", BinCode);
+        if ItemFilter <> '' then
+            WhseEntry.SetRange("Item No.", ItemFilter);
+        WhseEntry.SetFilter("Expiration Date", '>=%1', WorkDate());
+        WhseEntry.SetFilter("Qty. (Base)", '>%1', 0);
+        if not WhseEntry.FindSet() then
+            exit(0D);
+
+        repeat
+            if (Earliest = 0D) or (WhseEntry."Expiration Date" < Earliest) then
+                Earliest := WhseEntry."Expiration Date";
+        until WhseEntry.Next() = 0;
+
+        exit(Earliest);
+    end;
+
+    local procedure LoadHighBayFallback(
+        var TempSource: Record "Decant Details" temporary;
+        SourceLocationCode: Code[10];
+        SourceHighBayBin: Code[20];
+        ItemFilter: Code[20];
+        ManufacturerFilter: Code[50];
+        QtyPerToteOverride: Decimal)
+    var
+        TempItemTrackingSetup: Record "Item Tracking Setup" temporary;
+        ItemTrackingMgt: Codeunit "Item Tracking Management";
+        L_TaskletCodeunits: Codeunit Tasklet_Codeunits;
+        SourceQuery: Query WarehouseEntryReceive;
+        EntriesExist: Boolean;
+        LineNo: Integer;
+    begin
+        if SourceHighBayBin = '' then
+            exit;
+
+        // Continue the synthetic line numbering after whatever LoadSourceBuffer
+        // used, so every HIGHBAY row sorts after every staged row.
+        TempSource.Reset();
+        if TempSource.FindLast() then
+            LineNo := TempSource."Line No." + 10000
+        else
+            LineNo := 10000;
+
+        SourceQuery.SetFilter(Location_Code, SourceLocationCode);
+        SourceQuery.SetFilter(Bin_Code, '%1', SourceHighBayBin);
+        if ItemFilter <> '' then
+            SourceQuery.SetFilter(Item_No_, ItemFilter);
+        if (ManufacturerFilter <> '') and (QtyPerToteOverride <> 0) then
+            SourceQuery.SetFilter(Manufacturer_Code, ManufacturerFilter);
+        SourceQuery.SetFilter(Expiration_Date, '>=%1', WorkDate());
+        SourceQuery.SetFilter(Qty_Base, '>%1', 0);
+        SourceQuery.Open();
+
+        while SourceQuery.Read() do begin
+            // Every HIGHBAY lot joins the buffer. AllocateToBin consumes rows in
+            // line-number order, so these are only reached once the staged rows
+            // above them have been used up.
+            TempSource.Init();
+            TempSource."Journal Template Name" := DecantTempTemplateTok;
+            TempSource."Journal Batch Name" := DecantTempBatchTok;
+            TempSource."Line No." := LineNo;
+            TempSource."Location Code" := SourceQuery.Location_Code;
+            TempSource."Item No." := SourceQuery.Item_No_;
+            TempSource."Variant Code" := SourceQuery.Variant_Code;
+            TempSource."From Zone Code" := SourceQuery.Zone_Code;
+            TempSource."From Bin Code" := SourceQuery.Bin_Code;
+            TempSource."Lot No." := SourceQuery.Lot_No_;
+            TempSource."Package No." := SourceQuery.Package_No_;
+            TempSource."Manufacturer Code" := SourceQuery.Manufacturer_Code;
+            TempSource."Manufacturer Name" := CopyStr(L_TaskletCodeunits.GetManufacturerName(TempSource."Manufacturer Code"), 1, MaxStrLen(TempSource."Manufacturer Name"));
+            TempSource."Unit of Measure Code" := SourceQuery.Unit_of_Measure_Code;
+            TempSource."Available Qty. to Take" := SourceQuery.Qty_Base;
+            TempSource.Quantity := SourceQuery.Qty_per_Unit_of_Measure;
+
+            Clear(TempItemTrackingSetup);
+            TempItemTrackingSetup."Lot No." := SourceQuery.Lot_No_;
+            TempSource."Expiry Date" :=
+                ItemTrackingMgt.ExistingExpirationDate(
+                    SourceQuery.Item_No_, '', TempItemTrackingSetup, false, EntriesExist);
+
+            TempSource.Insert();
+            LineNo += 10000;
+        end;
+        SourceQuery.Close();
+
+        TempSource.Reset();
+    end;
+
     local procedure AllocateToBin(
         var DecantDetails: Record "Decant Details";
         var TempSource: Record "Decant Details" temporary;
@@ -285,6 +488,7 @@ codeunit 99991 "Decant Reclass Mgt."
         DestZone: Code[10];
         ManufacturerFilter: Code[50];
         QtyPerToteOverride: Decimal;
+        RoutingType: Enum "Item Routing Type NDPP";
         var NextLineNo: Integer)
     var
         RemainingSlots: Integer;
@@ -294,13 +498,18 @@ codeunit 99991 "Decant Reclass Mgt."
         ToteQty: Decimal;
         TotesCreatedForBin: Integer;
     begin
-        // Capacity is counted in PHYSICAL TOTE SLOTS, not base qty. One Decant
-        // Detail line = one tote = one slot consumed, regardless of fill level.
+        // Capacity is counted in TOTE SLOTS, not base qty. One Decant Detail
+        // line = one tote = one slot consumed, regardless of fill level.
         // Source lots are NOT merged into a single tote — when a lot runs out
         // mid-slot, the slot closes and the next slot starts fresh with the
         // next lot. Trade-off: bins may hold less than slots × Qty per Tote in
         // base qty, but the warehouse never has to deal with multi-lot totes.
-        RemainingSlots := BinContent."Number of Totes in a Bin";
+        //
+        // How many slots a bin offers differs by routing type — see
+        // ResolveSlotCapacity.
+        RemainingSlots := ResolveSlotCapacity(BinContent, RoutingType, ManufacturerFilter, QtyPerToteOverride);
+        if RemainingSlots <= 0 then
+            exit;
 
         TempSource.Reset();
         TempSource.SetRange("Item No.", BinContent."Item No.");
@@ -352,6 +561,92 @@ codeunit 99991 "Decant Reclass Mgt."
 
         if TotesCreatedForBin > 0 then
             StampNumberOfTotes(TemplateName, BatchName, BinContent, DestLocationCode, TotesCreatedForBin);
+    end;
+
+    /// <summary>
+    /// How many tote slots a destination bin offers for this decant run.
+    ///
+    ///   FLOWRACK — "Number of Totes in a Bin". The flow rack has a fixed
+    ///     number of physical tote positions, and overfilling it is not
+    ///     possible, so the bin's own slot count is the cap. Unchanged.
+    ///
+    ///   STATIC — Max Qty / Qty per Tote, rounded UP. A static location is
+    ///     floor / shelf space rather than fixed tote positions, so the real
+    ///     limit is how much stock the bin is allowed to hold, not how many
+    ///     totes fit a rack. Example from the spec: Max Qty 1000 with Qty per
+    ///     Tote 50 gives 1000 / 50 = 20 slots. Any totes beyond the bin's
+    ///     physical positions are kept on the floor, which is accepted.
+    ///     "Number of Totes in a Bin" is deliberately NOT applied as a second
+    ///     cap here — it would defeat the purpose of the rule.
+    ///
+    /// Returns 0 when the figures needed are not set up, which makes the
+    /// caller skip the bin rather than create an unbounded run.
+    /// </summary>
+    local procedure ResolveSlotCapacity(
+        BinContent: Record "Bin Content";
+        RoutingType: Enum "Item Routing Type NDPP";
+        ManufacturerFilter: Code[50];
+        QtyPerToteOverride: Decimal): Integer
+    var
+        QtyPerTote: Decimal;
+        MaxBaseQty: Decimal;
+        BinQtyPerUoM: Decimal;
+    begin
+        if RoutingType <> RoutingType::"Static" then
+            exit(BinContent."Number of Totes in a Bin");
+
+        // Static: derive the slot count from the bin's Max Qty.
+        //
+        // The slot count is a property of the BIN, not of any one lot, so the
+        // Qty per Tote used here cannot come from a source lot's manufacturer.
+        // Use the run's override when the page supplied one, otherwise fall
+        // back to the item's configured rate across manufacturers.
+        if (ManufacturerFilter <> '') and (QtyPerToteOverride <> 0) then
+            QtyPerTote := QtyPerToteOverride
+        else
+            QtyPerTote := GetItemQtyPerTote(BinContent."Item No.");
+        if QtyPerTote <= 0 then
+            exit(0);
+
+        BinQtyPerUoM := BinContent."Qty. per Unit of Measure";
+        if BinQtyPerUoM = 0 then
+            BinQtyPerUoM := 1;
+
+        MaxBaseQty := BinContent."Max. Qty." * BinQtyPerUoM;
+        if MaxBaseQty <= 0 then
+            exit(0);
+
+        // Round UP: a part-filled final tote still needs a slot of its own,
+        // matching how the allocation loop closes a slot per lot.
+        exit(Round(MaxBaseQty / QtyPerTote, 1, '>'));
+    end;
+
+    /// <summary>
+    /// The item's Qty per Tote irrespective of manufacturer, for sizing a
+    /// STATIC bin's slot count. Bin capacity is a property of the bin, so it
+    /// cannot be derived from whichever lot happens to be allocated first.
+    ///
+    /// Where manufacturers disagree, the SMALLEST positive rate wins: it yields
+    /// the most slots, so the bin is never under-filled against its Max Qty.
+    /// Returns 0 when no manufacturer has a rate set up, which makes the caller
+    /// skip the bin.
+    /// </summary>
+    local procedure GetItemQtyPerTote(ItemNo: Code[20]): Decimal
+    var
+        ItemManufacturer: Record "Item Manufacturer Table";
+        SmallestQtyPerTote: Decimal;
+    begin
+        ItemManufacturer.SetRange("Item No", ItemNo);
+        ItemManufacturer.SetFilter("Qty per Tote", '>%1', 0);
+        if not ItemManufacturer.FindSet() then
+            exit(0);
+
+        repeat
+            if (SmallestQtyPerTote = 0) or (ItemManufacturer."Qty per Tote" < SmallestQtyPerTote) then
+                SmallestQtyPerTote := ItemManufacturer."Qty per Tote";
+        until ItemManufacturer.Next() = 0;
+
+        exit(SmallestQtyPerTote);
     end;
 
     local procedure ResolveQtyPerTote(

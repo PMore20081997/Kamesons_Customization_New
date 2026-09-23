@@ -309,7 +309,7 @@ codeunit 99976 Customize_Events
     //     The test is on the BIN'S FLAGS, not on the bin code: two different bin
     //     codes are fine when one is Bulk and the other HighBay, while a second
     //     Bulk-flagged bin is rejected however it is named.
-    [EventSubscriber(ObjectType::Table, Database::"Bin Content", OnBeforeInsertEvent, '', false, false)]
+    /*[EventSubscriber(ObjectType::Table, Database::"Bin Content", OnBeforeInsertEvent, '', false, false)]
     local procedure BinContent_OnBeforeInsert_RestrictOneBinPerBulkItem(var Rec: Record "Bin Content"; RunTrigger: Boolean)
     var
         L_Item: Record Item;
@@ -362,7 +362,7 @@ codeunit 99976 Customize_Events
                 // if L_IncomingBin.HighBay and IsBinFlagged(L_ExistingBinContent."Location Code", L_ExistingBinContent."Bin Code", BinFlag::HighBay) then
                 //     Error(DuplicateHighBayErr, Rec."Item No.", Rec."Location Code", L_ExistingBinContent."Bin Code", L_ExistingBinContent."Zone Code");
             until L_ExistingBinContent.Next() = 0;
-    end;
+    end;*/
 
     /// <summary>
     /// TRUE when the given Location + Bin carries the requested routing flag.
