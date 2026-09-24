@@ -93,6 +93,7 @@ codeunit 99991 "Decant Reclass Mgt."
         LoadHighBayFallbackAllBins(TempSource, ReceiveLocation, ItemFilter, ManufacturerFilter, QtyPerToteOverride);
 
         NextLineNo := 10000;
+        NextLineNo := GetFirstNewLineNo(TemplateName, BatchName, NextLineNo);
 
         // Iterate Bin Content rows at the destination location. We don't filter
         // by zone — bins are identified by their Boolean Flowrack/Static flags,
@@ -104,7 +105,7 @@ codeunit 99991 "Decant Reclass Mgt."
         if BinContent.FindSet() then
             repeat
                 if Item.Get(BinContent."Item No.") and Bin.Get(BinContent."Location Code", BinContent."Bin Code") then
-                    if BinFlagMatchesRoutingType(Bin, Item."Routing Type") then begin
+                    if BinFlagMatchesRoutingType(Bin, Item."Routing Type") then
                         // Static bins size themselves from Max Qty / Qty per Tote
                         // (see ResolveSlotCapacity), so a missing tote count is
                         // only a blocker for Flowrack.
@@ -120,7 +121,7 @@ codeunit 99991 "Decant Reclass Mgt."
                                 ManufacturerFilter, QtyPerToteOverride,
                                 Item."Routing Type",
                                 NextLineNo);
-                    end;
+
             until BinContent.Next() = 0;
 
         if BinsSkippedNoToteConfig > 0 then
@@ -227,7 +228,26 @@ codeunit 99991 "Decant Reclass Mgt."
     begin
         DecantDetails.SetRange("Journal Template Name", TemplateName);
         DecantDetails.SetRange("Journal Batch Name", BatchName);
+        // Lines already sent to KNAPP are waiting to be posted from the Tasklet -
+        // recalculating must not wipe them.
+        DecantDetails.SetRange("Direct Control Sent", false);
         DecantDetails.DeleteAll();
+    end;
+
+    /// <summary>
+    /// First free Line No. for a new calculation: after any line still waiting
+    /// on the Tasklet (those survive ClearBuffer), otherwise the default.
+    /// </summary>
+    local procedure GetFirstNewLineNo(TemplateName: Code[10]; BatchName: Code[10]; DefaultLineNo: Integer): Integer
+    var
+        DecantDetails: Record "Decant Details";
+    begin
+        DecantDetails.SetRange("Journal Template Name", TemplateName);
+        DecantDetails.SetRange("Journal Batch Name", BatchName);
+        if DecantDetails.FindLast() then
+            if DecantDetails."Line No." >= DefaultLineNo then
+                exit(DecantDetails."Line No." + 10000);
+        exit(DefaultLineNo);
     end;
 
     local procedure LoadSourceBuffer(
@@ -723,6 +743,8 @@ codeunit 99991 "Decant Reclass Mgt."
         DecantDetails.SetRange("Item No.", BinContent."Item No.");
         DecantDetails.SetRange("To Location Code", DestLocationCode);
         DecantDetails.SetRange("To Bin Code", BinContent."Bin Code");
+        // Leave lines already sent to KNAPP as they were sent.
+        DecantDetails.SetRange("Direct Control Sent", false);
         DecantDetails.ModifyAll("Number of Totes", TotesCreated);
     end;
 

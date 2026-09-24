@@ -43,10 +43,15 @@ codeunit 99952 DecantScreenTasklet
         ExpectedValueTok: Label 'Expected: %1', Comment = '%1 = the value the operator is expected to scan';
         ToBinStepNameTok: Label 'ToBinCode_%1', Locked = true, Comment = '%1 = Decant Details Line No.';
         NewPackageStepNameTok: Label 'NewPackageNo_%1', Locked = true, Comment = '%1 = Decant Details Line No.';
+        ToQtyStepNameTok: Label 'ToQty_%1', Locked = true, Comment = '%1 = Decant Details Line No.';
+        InvalidToQtyErr: Label 'To Qty. "%1" is not a valid quantity.', Comment = '%1 = value entered on the device';
         NoDecantLineErr: Label 'No decant line selected. Please pick a line from the Decant Screen.';
         BatchCompletedErr: Label 'All decant lines in this batch are posted. Please start a new decant.';
         MissingUsernameErr: Label 'Basic Auth Username must be set in KiSoft Knapp Setup.';
         MissingPasswordErr: Label 'Basic Auth Password must be set in KiSoft Knapp Setup.';
+        NoLinesToSendErr: Label 'There are no decant lines with a New Package No. waiting to be sent to KNAPP.';
+        // MissingNewPackageForSendErr: Label 'New Package No. cannot be blank on Line No. %1.', Comment = '%1 = Decant Details Line No.';
+        DirectControlDocNoPrefixTok: Label 'GD', Locked = true;
 
     // ---------- 1. Header configurations -------------------------------------
 
@@ -106,6 +111,8 @@ codeunit 99952 DecantScreenTasklet
 
         // Only list lines that have a New Package No. assigned.
         DecantDetails.SetFilter("New Package No.", '<>%1', '');
+        // ...and whose Direct Control has gone to KNAPP from the BC Register.
+        DecantDetails.SetRange("Direct Control Sent", true);
 
         if DecantDetails.FindSet() then
             repeat
@@ -133,7 +140,7 @@ codeunit 99952 DecantScreenTasklet
 
                 // Right-hand column on the LookupWithRegistrations list shows
                 // "{Quantity}/{ExtraInfo1}" — fill both with the line's qty and UoM.
-                _LookupResponseElement.Set_Quantity(Format(DecantDetails.Quantity));
+                _LookupResponseElement.Set_Quantity(Format(DecantDetails."To Qty."));
                 _LookupResponseElement.Set_ExtraInfo1(DecantDetails."Unit of Measure Code");
             until DecantDetails.Next() = 0;
 
@@ -171,6 +178,7 @@ codeunit 99952 DecantScreenTasklet
         DecantDetails: Record "Decant Details";
         SeenPackages: List of [Code[50]];
     begin
+        DecantDetails.SetRange("Direct Control Sent", true);
         if DecantDetails.FindSet() then
             repeat
                 if (DecantDetails."Package No." <> '') and not SeenPackages.Contains(DecantDetails."Package No.") then begin
@@ -214,6 +222,18 @@ codeunit 99952 DecantScreenTasklet
         // "Scan To Bin Code". The scanned value arrives in the posting handler
         // through _RequestValues, same as ToBinCode.
         _Steps.Create_TextStep(2, StrSubstNo(NewPackageStepNameTok, DecantDetails."Line No."), 'Scan New Package No.', 'New Package No.:', BuildExpectedLabel(DefaultNewPackageNo), DefaultNewPackageNo, 20);
+
+        // Id 3 places this directly after "Scan New Package No.". The entered
+        // value replaces "To Qty." on the line before it is posted.
+        // Built with the short overload + setters: the full Create_DecimalStep
+        // always writes maxValue, and 0 there would cap the input at 0.
+        _Steps.Create_DecimalStep(3, StrSubstNo(ToQtyStepNameTok, DecantDetails."Line No."), false);
+        _Steps.Set_header('Enter Tote Qty.');
+        _Steps.Set_label('Tote Qty.:');
+        _Steps.Set_helpLabel(StrSubstNo(ExpectedValueTok, Format(DecantDetails."To Qty.")));
+        _Steps.Set_defaultValue(DecantDetails."To Qty.");
+        _Steps.Set_minValue(0);
+        _Steps.Save();
     end;
 
     /// <summary>
@@ -307,6 +327,10 @@ codeunit 99952 DecantScreenTasklet
         if BatchName <> '' then
             _DecantDetails.SetRange("Journal Batch Name", BatchName);
 
+        // Only lines already sent to KNAPP from the BC Register are worked on
+        // the device - same rule as the lookup list.
+        _DecantDetails.SetRange("Direct Control Sent", true);
+
         // NEW PACKAGE NO. WINS OVER LINE NUMBER.
         //
         // The device holds both carriers, but it does not refresh them in step.
@@ -398,6 +422,8 @@ codeunit 99952 DecantScreenTasklet
         LineNo: Integer;
         ToBinCode: Code[20];
         NewPackageNo: Code[20];
+        ToQtyText: Text;
+        NewToQty: Decimal;
     begin
         if _IsHandled then
             exit;
@@ -431,7 +457,15 @@ codeunit 99952 DecantScreenTasklet
         if NewPackageNo = '' then
             NewPackageNo := CopyStr(GetCarrier(_RequestValues, 'NewPackageNo'), 1, MaxStrLen(NewPackageNo));
 
-        DecantPostMgt.PostSingleDecantLine(TemplateName, BatchName, LineNo, ToBinCode, NewPackageNo);
+        // Blank means the step was not sent - PostSingleDecantLine then keeps the
+        // line's own To Qty. The device sends decimals in XML format ("12.5").
+        ToQtyText := _RequestValues.GetValue(StrSubstNo(ToQtyStepNameTok, LineNo));
+        if ToQtyText <> '' then
+            if not Evaluate(NewToQty, ToQtyText, 9) then
+                Error(InvalidToQtyErr, ToQtyText);
+
+        // DecantPostMgt.PostSingleDecantLine(TemplateName, BatchName, LineNo, ToBinCode, NewPackageNo);
+        DecantPostMgt.PostSingleDecantLine(TemplateName, BatchName, LineNo, ToBinCode, NewPackageNo, ToQtyText <> '', NewToQty);
 
         //_SuccessMessage := MobWmsLanguage.GetMessage('POST_SUCCESS');
         _SuccessMessage := 'Record posted successfully.';
@@ -496,6 +530,7 @@ codeunit 99952 DecantScreenTasklet
                     if _BatchName <> '' then
                         DecantDetails.SetRange("Journal Batch Name", _BatchName);
                     DecantDetails.SetRange("Line No.", LineNo);
+                    DecantDetails.SetRange("Direct Control Sent", true);
                     if not DecantDetails.IsEmpty() then
                         exit(LineNo);
                 end;
@@ -507,7 +542,10 @@ codeunit 99952 DecantScreenTasklet
 
     // ---------- 5. KNAPP: build payload + queue record after posting ----------
 
-    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Decant Tasklet Post Mgt.", 'OnAfterPostSingleDecantLine', '', true, true)]
+    // Disabled: the Direct Control is now sent from the BC Decant Screen's
+    // Register action (SendDirectControlForDecantLines), before the line ever
+    // reaches the Tasklet. Re-enabling this would send it to KNAPP twice.
+    // [EventSubscriber(ObjectType::Codeunit, Codeunit::"Decant Tasklet Post Mgt.", 'OnAfterPostSingleDecantLine', '', true, true)]
     local procedure OnAfterPostSingleDecantLine_CreateKnappQueue(var DecantDetails: Record "Decant Details"; ReclassTemplateName: Code[10]; ReclassBatchName: Code[10]; DocNo: Code[20])
     var
         L_Item: Record Item;
@@ -549,6 +587,86 @@ codeunit 99952 DecantScreenTasklet
         KnappDirectControlSender.SetChannelCode(KnappChannelCodeTok);
         if not KnappDirectControlSender.Run() then
             ClearLastError();
+    end;
+
+    // ---------- 5b. KNAPP: Direct Control from the BC Decant Screen Register --
+
+    /// <summary>
+    /// Called by the Register action on the BC Decant Screen. For every line in
+    /// the batch / location not sent yet, queues a Direct Control request for
+    /// KNAPP and flags the line "Direct Control Sent", which hands it over to
+    /// the Tasklet for the Item Reclass posting.
+    ///
+    /// The order number is generated here and stored on the line, so the
+    /// Tasklet post reuses it as the Reclass Document No.
+    ///
+    /// A line whose request cannot be built (no Knapp Item Details row for its
+    /// To Bin Code) is skipped and stays unsent on the BC screen.
+    /// </summary>
+    procedure SendDirectControlForDecantLines(TemplateName: Code[10]; BatchName: Code[10]; LocationCode: Code[10]; var SentCount: Integer; var SkippedCount: Integer)
+    var
+        DecantDetails: Record "Decant Details";
+        DecantDetailsToModify: Record "Decant Details";
+        KnappRequest: Text;
+        DocNoBase: Text;
+        DocNo: Code[20];
+    begin
+        SentCount := 0;
+        SkippedCount := 0;
+
+        DecantDetails.SetRange("Journal Template Name", TemplateName);
+        DecantDetails.SetRange("Journal Batch Name", BatchName);
+        DecantDetails.SetRange("Location Code", LocationCode);
+        DecantDetails.SetRange("Direct Control Sent", false);
+        // KNAPP needs the package - lines without one are left out and stay on
+        // the BC screen until a New Package No. is assigned.
+        DecantDetails.SetFilter("New Package No.", '<>%1', '');
+        if not DecantDetails.FindSet() then
+            Error(NoLinesToSendErr);
+
+        // Fail early, before anything is queued - KNAPP needs the package.
+        // Superseded by the "New Package No." filter above.
+        // repeat
+        //     if DecantDetails."New Package No." = '' then
+        //         Error(MissingNewPackageForSendErr, DecantDetails."Line No.");
+        // until DecantDetails.Next() = 0;
+
+        DocNoBase := BuildDirectControlDocNoBase();
+
+        DecantDetails.FindSet();
+        repeat
+            DocNo := CopyStr(DocNoBase + Format(SentCount + 1, 0, '<Integer,3><Filler Character,0>'), 1, MaxStrLen(DocNo));
+            KnappRequest := BuildKnappDecantRequest(DecantDetails, DocNo);
+            if KnappRequest = '' then
+                SkippedCount += 1
+            else begin
+                CreateKnappDocumentQueueEntry(KnappRequest, DocNo);
+
+                // Modified through a copy - "Direct Control Sent" is part of the
+                // loop's filter, and changing it on the looping record can make
+                // Next() skip rows.
+                DecantDetailsToModify := DecantDetails;
+                DecantDetailsToModify."Direct Control Doc. No." := DocNo;
+                DecantDetailsToModify."Direct Control Sent" := true;
+                DecantDetailsToModify.Modify();
+                SentCount += 1;
+            end;
+        until DecantDetails.Next() = 0;
+
+        if SentCount > 0 then
+            SendQueuedDirectControls();
+    end;
+
+    /// <summary>
+    /// GDyyMMddhhmmss- : the per-line sequence is appended by the caller
+    /// (GD260924153012-001), keeping lines of one Register unique within Code[20].
+    /// </summary>
+    local procedure BuildDirectControlDocNoBase(): Text
+    begin
+        exit(
+            DirectControlDocNoPrefixTok +
+            Format(WorkDate(), 0, '<Year,2><Month,2><Day,2>') +
+            Format(Time(), 0, '<Hours24,2><Filler Character,0><Minutes,2><Seconds,2>') + '-');
     end;
 
     /// <summary>

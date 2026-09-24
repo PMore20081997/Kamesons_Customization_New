@@ -78,7 +78,15 @@ table 99991 "Decant Details"
             var
                 L_DecantDetails: Record "Decant Details";
             begin
+                // Clearing the package is always allowed - a blank value is not a
+                // duplicate, even though the other unassigned lines are blank too.
+                if Rec."New Package No." = '' then
+                    exit;
+
                 L_DecantDetails.Reset();
+                // The line being edited still holds its old value in the database,
+                // so re-entering the same package would otherwise match itself.
+                L_DecantDetails.SetFilter("Line No.", '<>%1', Rec."Line No.");
                 L_DecantDetails.SetRange("Journal Batch Name", Rec."Journal Batch Name");
                 L_DecantDetails.SetRange("Location Code", Rec."Location Code");
                 L_DecantDetails.SetRange("Item No.", Rec."Item No.");
@@ -201,6 +209,19 @@ table 99991 "Decant Details"
             FieldClass = FlowField;
             CalcFormula = lookup("Item Reference"."Reference No." where("Item No." = field("Item No."), Manufacturer = field("Manufacturer Code")));
             Editable = false;
+        }
+        field(29; "Direct Control Sent"; Boolean)
+        {
+            Caption = 'Direct Control Sent';
+            DataClassification = CustomerContent;
+        }
+        field(30; "Direct Control Doc. No."; Code[20])
+        {
+            Caption = 'Direct Control Doc. No.';
+            DataClassification = CustomerContent;
+            Editable = false;
+            // Sent to KNAPP as orderNumber on Register, then reused as the Item
+            // Reclass Document No. when the Tasklet posts the line.
         }
     }
     keys

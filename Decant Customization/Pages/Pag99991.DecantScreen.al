@@ -410,7 +410,7 @@ page 99991 "Decant Screen"
                 field("To Qty."; Rec."To Qty.")
                 {
                     ApplicationArea = All;
-                    Editable = false;
+                    //Editable = false;
                 }
                 field("New Package No."; Rec."New Package No.")
                 {
@@ -425,6 +425,18 @@ page 99991 "Decant Screen"
                 {
                     ApplicationArea = All;
                     ToolTip = 'Specifies the value of the Item Barcode field.', Comment = '%';
+                }
+                field("Direct Control Sent"; Rec."Direct Control Sent")
+                {
+                    ApplicationArea = All;
+                    ToolTip = 'Specifies whether the Direct Control has been sent for this line.';
+                    Editable = false;
+                }
+                field("Direct Control Doc. No."; Rec."Direct Control Doc. No.")
+                {
+                    ApplicationArea = All;
+                    ToolTip = 'Specifies the order number sent to KNAPP, reused as the Item Reclass Document No. when the line is posted from Tasklet.';
+                    Visible = false;
                 }
 
             }
@@ -496,22 +508,41 @@ page 99991 "Decant Screen"
                 PromotedIsBig = true;
                 trigger OnAction()
                 var
-                    DecantMgt: Codeunit "Decant Reclass Mgt.";
-                    L_DecantDetails: Record "Decant Details";
+                    // DecantMgt: Codeunit "Decant Reclass Mgt.";
+                    DecantScreenTasklet: Codeunit DecantScreenTasklet;
+                    // L_DecantDetails: Record "Decant Details";
+                    SentCount: Integer;
+                    SkippedCount: Integer;
                 begin
-                    L_DecantDetails.Reset();
-                    L_DecantDetails.SetRange("Journal Batch Name", Rec."Journal Batch Name");
-                    L_DecantDetails.SetRange("Location Code", Rec."Location Code");
-                    L_DecantDetails.SetRange("Item No.", Rec."Item No.");
-                    L_DecantDetails.SetRange("Manufacturer Code", Rec."Manufacturer Code");
-                    L_DecantDetails.SetRange("New Package No.", '');
-                    if not L_DecantDetails.IsEmpty then
-                        Error('Package No. cannot be blank on Line No. %1', L_DecantDetails."Line No.");
+                    // Blank New Package No. no longer blocks Register: lines without
+                    // a package are left out by SendDirectControlForDecantLines and
+                    // stay on this screen until one is assigned.
+                    // L_DecantDetails.Reset();
+                    // L_DecantDetails.SetRange("Journal Batch Name", Rec."Journal Batch Name");
+                    // L_DecantDetails.SetRange("Location Code", Rec."Location Code");
+                    // L_DecantDetails.SetRange("Item No.", Rec."Item No.");
+                    // L_DecantDetails.SetRange("Manufacturer Code", Rec."Manufacturer Code");
+                    // L_DecantDetails.SetRange("New Package No.", '');
+                    // L_DecantDetails.SetRange("Direct Control Sent", false);
+                    // if not L_DecantDetails.IsEmpty then
+                    //     Error('Package No. cannot be blank on Line No. %1', L_DecantDetails."Line No.");
 
-                    DecantMgt.RegisterDecant(
+                    // Register no longer posts the Item Reclass - that now happens
+                    // per line on the Tasklet. It sends the Direct Control to KNAPP
+                    // and flags the lines "Direct Control Sent" instead.
+                    // DecantMgt.RegisterDecant(
+                    //     Rec."Journal Template Name",
+                    //     CurrentJnlBatchName, Rec."Location Code"
+                    // );
+                    DecantScreenTasklet.SendDirectControlForDecantLines(
                         Rec."Journal Template Name",
-                        CurrentJnlBatchName, Rec."Location Code"
-                    );
+                        CurrentJnlBatchName, Rec."Location Code",
+                        SentCount, SkippedCount);
+
+                    if SkippedCount = 0 then
+                        Message(DirectControlSentMsg, SentCount)
+                    else
+                        Message(DirectControlSentWithSkipsMsg, SentCount, SkippedCount);
                     CurrPage.Update(false);
                 end;
             }
@@ -528,6 +559,11 @@ page 99991 "Decant Screen"
         if not JnlSelected then
             Error('');
         Rec.OpenJnl(CurrentJnlBatchName, CurrentLocationCode, DestLocationCode, Rec);
+
+        // Lines already sent to KNAPP belong to the Tasklet until it posts them.
+        Rec.FilterGroup := 2;
+        Rec.SetRange("Direct Control Sent", false);
+        Rec.FilterGroup := 0;
 
         // if ItemFilter <> '' then begin
         //     RecItem.Reset();
@@ -567,4 +603,6 @@ page 99991 "Decant Screen"
         CurrentLocationCode: Code[10];
         DestLocationCode: Code[10];
         G_ItemBarcode: Code[250];
+        DirectControlSentMsg: Label 'Direct Control sent to KNAPP for %1 line(s). They can now be posted from the Tasklet.', Comment = '%1 = number of lines';
+        DirectControlSentWithSkipsMsg: Label 'Direct Control sent to KNAPP for %1 line(s). %2 line(s) were skipped because no Knapp Item Details matched their To Bin Code; they remain on this screen.', Comment = '%1 = sent lines, %2 = skipped lines';
 }

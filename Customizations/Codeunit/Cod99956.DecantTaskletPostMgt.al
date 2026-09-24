@@ -24,6 +24,8 @@ codeunit 99956 "Decant Tasklet Post Mgt."
         NoLinesToPostErr: Label 'No Decant Details lines found for Template %1 / Batch %2.', Comment = '%1 = Template, %2 = Batch';
         LineNotFoundErr: Label 'Decant Details line %1 not found in Template %2 / Batch %3.', Comment = '%1 = Line No., %2 = Template, %3 = Batch';
         NewPackageNoBlankErr: Label 'New Package No. is blank for line %1. Please assign a New Package No. before posting.', Comment = '%1 = Line No.';
+        ToQtyNotPositiveErr: Label 'To Qty. must be greater than 0 for line %1.', Comment = '%1 = Line No.';
+        DirectControlNotSentErr: Label 'Line %1 has not been registered on the Decant Screen yet, so its Direct Control has not been sent to KNAPP.', Comment = '%1 = Line No.';
         NoTransferTemplateErr: Label 'No Item Journal Template of type Transfer is configured. Configure an Item Reclassification template before posting from Tasklet.';
         PostingFailedErr: Label 'Posting the Item Reclassification journal failed:\%1', Comment = '%1 = error text from the post codeunit';
         ReclassBatchNameTok: Label 'GENDECANT', Locked = true;
@@ -60,6 +62,15 @@ codeunit 99956 "Decant Tasklet Post Mgt."
     /// the row. Used by the per-line "Post" path on the Tasklet device.
     /// </summary>
     procedure PostSingleDecantLine(TemplateName: Code[10]; BatchName: Code[10]; LineNo: Integer; NewToBinCode: Code[20]; NewPackageNo: Code[50])
+    begin
+        PostSingleDecantLine(TemplateName, BatchName, LineNo, NewToBinCode, NewPackageNo, false, 0);
+    end;
+
+    /// <summary>
+    /// As above, and when ApplyToQty is set, replaces "To Qty." on the row with
+    /// the quantity the operator entered on the device before posting.
+    /// </summary>
+    procedure PostSingleDecantLine(TemplateName: Code[10]; BatchName: Code[10]; LineNo: Integer; NewToBinCode: Code[20]; NewPackageNo: Code[50]; ApplyToQty: Boolean; NewToQty: Decimal)
     var
         DecantDetails: Record "Decant Details";
         TempDecantDetails: Record "Decant Details" temporary;
@@ -73,12 +84,23 @@ codeunit 99956 "Decant Tasklet Post Mgt."
         if DecantDetails."New Package No." = '' then
             Error(NewPackageNoBlankErr, LineNo);
 
+        // The Direct Control goes to KNAPP from the BC Decant Screen's Register;
+        // the Tasklet only posts lines that have been through it.
+        if not DecantDetails."Direct Control Sent" then
+            Error(DirectControlNotSentErr, LineNo);
+
         // See note in SaveScanForDecantLine — bypass Validate on "To Bin Code"
         // because its TableRelation filters by the source location, not destination.
         if NewToBinCode <> '' then
             DecantDetails."To Bin Code" := NewToBinCode;
         if (NewPackageNo <> '') and (NewPackageNo <> DecantDetails."New Package No.") then
             DecantDetails.Validate("New Package No.", NewPackageNo);
+        // "To Qty." is what the Reclass line posts (CreateReclassJournalLine).
+        if ApplyToQty then begin
+            if NewToQty <= 0 then
+                Error(ToQtyNotPositiveErr, LineNo);
+            DecantDetails."To Qty." := NewToQty;
+        end;
         DecantDetails.Modify(true);
 
         ResolveReclassTemplateAndBatch(ReclassTemplateName, ReclassBatchName);
@@ -87,7 +109,12 @@ codeunit 99956 "Decant Tasklet Post Mgt."
         // "item tracking defined" error when deleting journal lines.
         DeleteReclassJournalLinesWithTracking(ReclassTemplateName, ReclassBatchName);
 
-        DocNo := BuildUniqueDocNo();
+        // Reuse the order number KNAPP was given on Register, so the posted
+        // entries and the Direct Control share one document number.
+        if DecantDetails."Direct Control Doc. No." <> '' then
+            DocNo := DecantDetails."Direct Control Doc. No."
+        else
+            DocNo := BuildUniqueDocNo();
         CreateReclassJournalLine(DecantDetails, ReclassTemplateName, ReclassBatchName, DocNo, 10000);
 
         PostReclassBatch(ReclassTemplateName, ReclassBatchName);
