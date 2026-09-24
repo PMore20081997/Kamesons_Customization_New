@@ -217,6 +217,37 @@ codeunit 99952 DecantScreenTasklet
     end;
 
     /// <summary>
+    /// Reads one of the lookup's carrier values.
+    ///
+    /// The values the lookup attaches to a row (Template, Batch, LineNumber,
+    /// NewPackageNo, ToBinCode, LocationCode) come back in the request CONTEXT
+    /// rather than as plain request values, so a bare GetValue returns blank
+    /// for all of them. GetValueOrContextValue checks the plain value first and
+    /// falls back to the context, which covers both shapes: freshly tapped rows
+    /// (context) and values this codeunit has already rewritten through
+    /// RefreshLineCarriers (plain).
+    ///
+    /// Returns '' when the name is present in neither, so callers can test for
+    /// blank rather than guarding every read.
+    /// </summary>
+    local procedure GetCarrier(var _RequestValues: Record "MOB NS Request Element"; _KeyName: Text): Text
+    var
+        CarrierValue: Text;
+    begin
+        if not TryGetCarrier(_RequestValues, _KeyName, CarrierValue) then
+            exit('');
+        exit(CarrierValue);
+    end;
+
+    [TryFunction]
+    local procedure TryGetCarrier(var _RequestValues: Record "MOB NS Request Element"; _KeyName: Text; var _Value: Text)
+    begin
+        // The two-argument form errors when the name exists nowhere, hence the
+        // TryFunction wrapper - a missing carrier is a normal case here.
+        _Value := _RequestValues.GetValueOrContextValue(CopyStr(_KeyName, 1, 250), false);
+    end;
+
+    /// <summary>
     /// Builds the "Expected: X" help label, or '' when there is no value to
     /// show — keeps the empty case out of the step-building calls.
     /// </summary>
@@ -245,11 +276,26 @@ codeunit 99952 DecantScreenTasklet
     var
         TemplateName: Code[10];
         BatchName: Code[10];
+        NewPackageNo: Code[20];
         LineNo: Integer;
     begin
-        TemplateName := CopyStr(_HeaderFieldValues.GetValue('Template'), 1, MaxStrLen(TemplateName));
-        BatchName := CopyStr(_HeaderFieldValues.GetValue('Batch'), 1, MaxStrLen(BatchName));
-        LineNo := _HeaderFieldValues.GetValueAsInteger('LineNumber');
+        // GetValueOrContextValue, NOT GetValue.
+        //
+        // The carriers the lookup sets on each row arrive in the request
+        // CONTEXT, not as plain request values - a device dump showed
+        // GetValue('Template'/'Batch'/'NewPackageNo') returning blank while the
+        // context held Template=RECLASSIFI, Batch=DEFAULT, NewPackageNo=299995.
+        // Reading them with GetValue meant nothing ever matched, so the
+        // resolver fell through to "first open line in the batch" and opened
+        // the wrong record whichever row the operator tapped.
+        //
+        // The OrContextValue form still prefers a plain value when one is
+        // present, so lines already refreshed by RefreshLineCarriers keep
+        // working unchanged.
+        TemplateName := CopyStr(GetCarrier(_HeaderFieldValues, 'Template'), 1, MaxStrLen(TemplateName));
+        BatchName := CopyStr(GetCarrier(_HeaderFieldValues, 'Batch'), 1, MaxStrLen(BatchName));
+        NewPackageNo := CopyStr(GetCarrier(_HeaderFieldValues, 'NewPackageNo'), 1, MaxStrLen(NewPackageNo));
+        Evaluate(LineNo, GetCarrier(_HeaderFieldValues, 'LineNumber'));
 
         _DecantDetails.Reset();
 
@@ -261,11 +307,37 @@ codeunit 99952 DecantScreenTasklet
         if BatchName <> '' then
             _DecantDetails.SetRange("Journal Batch Name", BatchName);
 
+        // NEW PACKAGE NO. WINS OVER LINE NUMBER.
+        //
+        // The device holds both carriers, but it does not refresh them in step.
+        // After working one row and then tapping another in the lookup, the
+        // NewPackageNo carrier describes the row just tapped while LineNumber
+        // can still be the previous row's — so resolving on LineNumber opened
+        // the old record (tapping 299995 opened 299996).
+        //
+        // New Package No. is unique per line and is what the operator actually
+        // selected, so it is trusted first. LineNumber is used only as a
+        // fallback when no package is carried.
+        if NewPackageNo <> '' then begin
+            _DecantDetails.SetRange("New Package No.", NewPackageNo);
+            if _DecantDetails.FindFirst() then begin
+                RefreshLineCarriers(_HeaderFieldValues, _DecantDetails);
+                exit;
+            end;
+            _DecantDetails.SetRange("New Package No.");
+        end;
+
         // The carried line, if it is still open.
+        //
+        // The carriers MUST be refreshed here too, not only on the fall-forward
+        // path below: the device re-sends the header values it already held, so
+        // returning without rewriting them leaves later readers on stale data.
         if LineNo <> 0 then begin
             _DecantDetails.SetRange("Line No.", LineNo);
-            if _DecantDetails.FindFirst() then
+            if _DecantDetails.FindFirst() then begin
+                RefreshLineCarriers(_HeaderFieldValues, _DecantDetails);
                 exit;
+            end;
             _DecantDetails.SetRange("Line No.");
         end;
 
@@ -335,23 +407,29 @@ codeunit 99952 DecantScreenTasklet
         // if _RequestValues.GetValue('Confirm') <> 'Yes' then
         //     Error(PostingCancelledTok);
 
-        TemplateName := CopyStr(_RequestValues.GetValue('Template'), 1, MaxStrLen(TemplateName));
-        BatchName := CopyStr(_RequestValues.GetValue('Batch'), 1, MaxStrLen(BatchName));
+        // Carriers live in the request context, not as plain values - see
+        // GetCarrier. Reading them with GetValue returned blank, so the post
+        // ran unscoped by template / batch.
+        TemplateName := CopyStr(GetCarrier(_RequestValues, 'Template'), 1, MaxStrLen(TemplateName));
+        BatchName := CopyStr(GetCarrier(_RequestValues, 'Batch'), 1, MaxStrLen(BatchName));
         // The device sends back its own cached LineNumber, which after a post is
         // the line that was just deleted. The step names carry the line the steps
         // were actually built for, so trust those instead and fall back to the
         // header value only when no suffixed step is present.
-        LineNo := GetPostedLineNo(_RequestValues);
+        LineNo := GetPostedLineNo(_RequestValues, TemplateName, BatchName);
         if LineNo = 0 then
-            LineNo := _RequestValues.GetValueAsInteger('LineNumber');
+            Evaluate(LineNo, GetCarrier(_RequestValues, 'LineNumber'));
 
+        // The scanned step values ARE plain request values (the operator typed
+        // them into this screen), so GetValue is correct for those. Only the
+        // fallbacks - the carriers from the lookup row - need the context read.
         ToBinCode := CopyStr(_RequestValues.GetValue(StrSubstNo(ToBinStepNameTok, LineNo)), 1, MaxStrLen(ToBinCode));
         if ToBinCode = '' then
-            ToBinCode := CopyStr(_RequestValues.GetValue('ToBinCode'), 1, MaxStrLen(ToBinCode));
+            ToBinCode := CopyStr(GetCarrier(_RequestValues, 'ToBinCode'), 1, MaxStrLen(ToBinCode));
 
         NewPackageNo := CopyStr(_RequestValues.GetValue(StrSubstNo(NewPackageStepNameTok, LineNo)), 1, MaxStrLen(NewPackageNo));
         if NewPackageNo = '' then
-            NewPackageNo := CopyStr(_RequestValues.GetValue('NewPackageNo'), 1, MaxStrLen(NewPackageNo));
+            NewPackageNo := CopyStr(GetCarrier(_RequestValues, 'NewPackageNo'), 1, MaxStrLen(NewPackageNo));
 
         DecantPostMgt.PostSingleDecantLine(TemplateName, BatchName, LineNo, ToBinCode, NewPackageNo);
 
@@ -370,12 +448,20 @@ codeunit 99952 DecantScreenTasklet
     /// Returns 0 when no suffixed step is present.
     /// </summary>
     local procedure GetPostedLineNo(var _RequestValues: Record "MOB NS Request Element"): Integer
+    begin
+        exit(GetPostedLineNo(_RequestValues, '', ''));
+    end;
+
+    local procedure GetPostedLineNo(var _RequestValues: Record "MOB NS Request Element"; _TemplateName: Code[10]; _BatchName: Code[10]): Integer
     var
         Element: Record "MOB NS Request Element" temporary;
+        DecantDetails: Record "Decant Details";
         NamePrefix: Text;
         Suffix: Text;
         LineNo: Integer;
+        FirstLineNoFound: Integer;
     begin
+        Clear(FirstLineNoFound);
         // Work on a copy — the caller keeps reading values off _RequestValues,
         // so its cursor and filters must not move. Both records must be
         // temporary for Copy(..., true) to share the underlying table.
@@ -386,15 +472,37 @@ codeunit 99952 DecantScreenTasklet
 
         NamePrefix := StrSubstNo(NewPackageStepNameTok, '');
 
+        // The device returns EVERY step it still has cached, not just the one
+        // it is posting — so after working line 299996 and then opening 299995,
+        // both "NewPackageNo_299996" and "NewPackageNo_299995" arrive together.
+        // Taking the first match therefore picked whichever the record cursor
+        // happened to yield first (the older, already-posted line), which is
+        // why the wrong package opened.
+        //
+        // A step is only believed when its line still EXISTS in Decant Details:
+        // the previously posted line has been deleted, so the stale step for it
+        // no longer resolves and the live one wins. The first match is kept as a
+        // fallback so behaviour is unchanged when nothing resolves.
         repeat
             if StrPos(Element.Name, NamePrefix) = 1 then begin
                 Suffix := CopyStr(Element.Name, StrLen(NamePrefix) + 1);
-                if Evaluate(LineNo, Suffix) then
-                    exit(LineNo);
+                if Evaluate(LineNo, Suffix) then begin
+                    if FirstLineNoFound = 0 then
+                        FirstLineNoFound := LineNo;
+
+                    DecantDetails.Reset();
+                    if _TemplateName <> '' then
+                        DecantDetails.SetRange("Journal Template Name", _TemplateName);
+                    if _BatchName <> '' then
+                        DecantDetails.SetRange("Journal Batch Name", _BatchName);
+                    DecantDetails.SetRange("Line No.", LineNo);
+                    if not DecantDetails.IsEmpty() then
+                        exit(LineNo);
+                end;
             end;
         until Element.Next() = 0;
 
-        exit(0);
+        exit(FirstLineNoFound);
     end;
 
     // ---------- 5. KNAPP: build payload + queue record after posting ----------
