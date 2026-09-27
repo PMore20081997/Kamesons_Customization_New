@@ -31,6 +31,7 @@ codeunit 99956 "Decant Tasklet Post Mgt."
         ReclassBatchNameTok: Label 'GENDECANT', Locked = true;
         ReclassBatchDescLbl: Label 'GEN DECANT Reclassification';
         DocNoPrefixTok: Label 'GENDEC-', Locked = true;
+        StaticNewPackageNoTok: Label 'NA', Locked = true;
 
     /// <summary>
     /// Writes scanned values back onto a single Decant Details row without posting.
@@ -258,8 +259,24 @@ codeunit 99956 "Decant Tasklet Post Mgt."
                 DecantDetails."Lot No.",
                 DecantDetails."Expiry Date",
                 DecantDetails."Package No.",
-                DecantDetails."New Package No.",
+                // DecantDetails."New Package No.",
+                GetPostingNewPackageNo(DecantDetails),
                 DecantDetails."Manufacturer Code");
+    end;
+
+    /// <summary>
+    /// The New Package No. the Reclass posts for this line: "NA" for Static
+    /// routing-type items, the scanned New Package No. for every other item.
+    /// The Decant Details row itself is left unchanged.
+    /// </summary>
+    local procedure GetPostingNewPackageNo(var DecantDetails: Record "Decant Details"): Code[50]
+    var
+        Item: Record Item;
+    begin
+        if Item.Get(DecantDetails."Item No.") then
+            if Item."Routing Type" = Item."Routing Type"::"Static" then
+                exit(StaticNewPackageNoTok);
+        exit(DecantDetails."New Package No.");
     end;
 
     local procedure CreateItemTrackingForLine(var ItemJnlLine: Record "Item Journal Line"; LotNo: Code[50]; ExpirationDate: Date; OldPackageNo: Code[50]; NewPackageNo: Code[50]; ManufacturerCode: Code[10])
