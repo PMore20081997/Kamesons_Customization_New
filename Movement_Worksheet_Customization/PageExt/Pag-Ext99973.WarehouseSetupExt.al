@@ -17,6 +17,12 @@ pageextension 99973 WarehouseSetupExt extends "Warehouse Setup"
                 Caption = 'RECEIVE Warehouse';
                 ToolTip = 'Specifies the value of the RECEIVE Warehouse field.';
             }
+            field("Case Label Nos."; Rec."Case Label Nos.")
+            {
+                ApplicationArea = All;
+                Caption = 'Case Label Nos.';
+                ToolTip = 'Specifies the number series used to generate the Load Unit (case label) for BULK order inventory picks. Numbers must be at most 8 characters, e.g. 00000001.';
+            }
         }
     }
 }

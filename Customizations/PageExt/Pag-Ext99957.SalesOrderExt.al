@@ -63,7 +63,7 @@ pageextension 99957 Sales_Order_Ext extends "Sales Order"
                 Caption = 'Create Inventory Pick';
                 ApplicationArea = All;
                 Image = CreateInventoryPickup;
-                ToolTip = 'Create Inventory Pick(s) for this Sales Order, split by Knapp Tote if tote information exists.';
+                ToolTip = 'Create Inventory Pick(s) for this Sales Order, split by Knapp Tote if tote information exists. BULK orders use the standard pick creation.';
 
                 trigger OnAction()
                 var
