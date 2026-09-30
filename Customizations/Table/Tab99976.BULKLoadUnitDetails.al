@@ -5,6 +5,7 @@ using Microsoft.Inventory.Item;
 using Microsoft.Inventory.Location;
 using Microsoft.Foundation.UOM;
 using Microsoft.Warehouse.Activity;
+using Microsoft.Warehouse.InventoryDocument;
 
 // Load Unit details for BULK Sales Orders ("Knapp Order Type" = BULK).
 // Standalone: BULK orders are not tied to the Knapp Order Response.
@@ -96,6 +97,48 @@ table 99976 "BULK Load Unit Details"
             Caption = 'Invt. Pick No.';
             TableRelation = "Warehouse Activity Header"."No." where(Type = const("Invt. Pick"));
         }
+        // Copied from the Sales Header at pick creation, so the Goods Out Order can
+        // be built after posting even when Ship and Invoice deleted the order.
+        field(14; "Dispatch Ramp No."; Integer)
+        {
+            Caption = 'Dispatch Ramp No.';
+        }
+        field(15; "Sent to Knapp"; Boolean)
+        {
+            Caption = 'Sent to Knapp';
+            Editable = false;
+        }
+        field(16; "Knapp Queue Entry No."; Integer)
+        {
+            Caption = 'Knapp Queue Entry No.';
+            Editable = false;
+        }
+        field(17; "Sent to Knapp DateTime"; DateTime)
+        {
+            Caption = 'Sent to Knapp DateTime';
+            Editable = false;
+        }
+        // Partial pick posting: Quantity stays the original pick quantity on every
+        // row. The first posting of a line updates its planned row, each later
+        // posting adds a row with a new Load Unit (see "KNAPP BULK Goods Out Mgt.").
+        field(18; "Qty. Handled"; Decimal)
+        {
+            Caption = 'Qty. Handled';
+            DecimalPlaces = 0 : 5;
+            Editable = false;
+        }
+        field(19; "Qty. Outstanding"; Decimal)
+        {
+            Caption = 'Qty. Outstanding';
+            DecimalPlaces = 0 : 5;
+            Editable = false;
+        }
+        field(20; "Posted Invt. Pick No."; Code[20])
+        {
+            Caption = 'Posted Invt. Pick No.';
+            TableRelation = "Posted Invt. Pick Header"."No.";
+            Editable = false;
+        }
     }
 
     keys
@@ -111,6 +154,12 @@ table 99976 "BULK Load Unit Details"
         {
         }
         key(ByInvtPickLine; "Invt. Pick No.", "Sales Order Line No.")
+        {
+        }
+        key(ByInvtPickSent; "Invt. Pick No.", "Sent to Knapp")
+        {
+        }
+        key(ByPostedInvtPick; "Posted Invt. Pick No.")
         {
         }
     }

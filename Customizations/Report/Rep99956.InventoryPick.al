@@ -569,6 +569,7 @@ report 99956 "Create Invt. Pick"
         L_WhseActivLine: Record "Warehouse Activity Line";
         L_SalesLine: Record "Sales Line";
         L_BulkLoadUnit: Record "BULK Load Unit Details";
+        L_SalesHeader: Record "Sales Header";
         NoSeries: Codeunit "No. Series";
         LoadUnitNo: Code[20];
         PickQty: Decimal;
@@ -578,6 +579,11 @@ report 99956 "Create Invt. Pick"
     begin
         L_WhseSetup.Get();
         L_WhseSetup.TestField("Case Label Nos.");
+
+        // Header values the Goods Out Order needs after posting (the order can be
+        // deleted by Ship and Invoice), see codeunit "KNAPP BULK Goods Out Mgt.".
+        if not L_SalesHeader.Get(L_SalesHeader."Document Type"::Order, WhseRequest."Source No.") then
+            Clear(L_SalesHeader);
 
         // All Invt. Pick lines of this order; sorted so the lines of one pick +
         // sales line are consecutive (a sales line can span several bins/lots).
@@ -615,6 +621,9 @@ report 99956 "Create Invt. Pick"
                         L_BulkLoadUnit."Invt. Pick No." := LastPickNo;
                         L_BulkLoadUnit."Load Unit" := CopyStr(LoadUnitNo, 1, MaxStrLen(L_BulkLoadUnit."Load Unit"));
                         L_BulkLoadUnit.Quantity := PickQty;
+                        // Planned row: nothing posted yet.
+                        L_BulkLoadUnit."Qty. Handled" := 0;
+                        L_BulkLoadUnit."Qty. Outstanding" := PickQty;
                         if L_SalesLine.Get(L_SalesLine."Document Type"::Order, WhseRequest."Source No.", LastLineNo) then begin
                             L_BulkLoadUnit."Item No." := L_SalesLine."No.";
                             L_BulkLoadUnit."Variant Code" := L_SalesLine."Variant Code";
@@ -627,6 +636,7 @@ report 99956 "Create Invt. Pick"
                             L_BulkLoadUnit."Unit of Measure Code" := L_WhseActivLine."Unit of Measure Code";
                         end;
                         L_BulkLoadUnit."Location Code" := L_WhseActivLine."Location Code";
+                        L_BulkLoadUnit."Dispatch Ramp No." := L_SalesHeader."Dispatch Ramp No.";
                         L_BulkLoadUnit.Insert(true);
                     end;
                 end;

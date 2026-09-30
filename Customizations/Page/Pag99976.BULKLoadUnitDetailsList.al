@@ -51,6 +51,18 @@ page 99976 "BULK Load Unit Details List"
                 {
                     ToolTip = 'Specifies the quantity on this load unit.';
                 }
+                field("Qty. Handled"; Rec."Qty. Handled")
+                {
+                    ToolTip = 'Specifies the quantity posted in the inventory pick posting this row belongs to.';
+                }
+                field("Qty. Outstanding"; Rec."Qty. Outstanding")
+                {
+                    ToolTip = 'Specifies the quantity of the pick line still to be posted after this row''s posting.';
+                }
+                field("Posted Invt. Pick No."; Rec."Posted Invt. Pick No.")
+                {
+                    ToolTip = 'Specifies the posted inventory pick this row was handled in.';
+                }
                 field("Unit of Measure Code"; Rec."Unit of Measure Code")
                 {
                     ToolTip = 'Specifies the unit of measure.';
@@ -58,6 +70,22 @@ page 99976 "BULK Load Unit Details List"
                 field("Location Code"; Rec."Location Code")
                 {
                     ToolTip = 'Specifies the location.';
+                }
+                field("Dispatch Ramp No."; Rec."Dispatch Ramp No.")
+                {
+                    ToolTip = 'Specifies the dispatch ramp number of the sales order, sent to Knapp in the Goods Out Order.';
+                }
+                field("Sent to Knapp"; Rec."Sent to Knapp")
+                {
+                    ToolTip = 'Specifies whether this line has been sent to Knapp in a Goods Out Order.';
+                }
+                field("Knapp Queue Entry No."; Rec."Knapp Queue Entry No.")
+                {
+                    ToolTip = 'Specifies the Knapp Document Queue entry (GO Order) this line was sent with.';
+                }
+                field("Sent to Knapp DateTime"; Rec."Sent to Knapp DateTime")
+                {
+                    ToolTip = 'Specifies when this line was sent to Knapp.';
                 }
                 field("Created By"; Rec."Created By")
                 {
