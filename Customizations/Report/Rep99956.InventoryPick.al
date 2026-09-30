@@ -23,6 +23,7 @@ report 99956 "Create Invt. Pick"
                 L_Customer: Record Customer;
                 L_SalesHeader: Record "Sales Header";
                 L_ToteInformation: Record "Knapp Tote Information";
+                IsBulkOrder: Boolean;
                 report7323: Report 7323;
             begin
                 Clear(InvePickCreated);
@@ -39,7 +40,7 @@ report 99956 "Create Invt. Pick"
                 //             TotalMovementCounter += 1;
                 // end;
 
-                L_SalesHeader.Reset();
+                /*L_SalesHeader.Reset();
                 if "Warehouse Request"."Source Document" = "Warehouse Request"."Source Document"::"Sales Order" then
                     L_SalesHeader.SetRange("Document Type", L_SalesHeader."Document Type"::Order);
                 if "Warehouse Request"."Source Document" = "Warehouse Request"."Source Document"::"Sales Return Order" then
@@ -57,20 +58,31 @@ report 99956 "Create Invt. Pick"
                     //  L_SalesHeader.CalcFields("Inv. Pick Exist");
                     // if L_SalesHeader."Inv. Pick Exist" = true then
                     //  CurrReport.Skip();
-                end;
+                end;*/ //Commented By Prathamesh++ 29092026
 
                 // ── KNAPP LOAD-UNIT SECTION ─────────────────────────────────────────────
-                // Sales Orders are always handled via the Knapp Order Response.
+                // Sales Orders are handled via the Knapp Order Response.
                 // With responses    → create one Inventory Pick per Load Unit, then exit.
                 // Without responses → skip; no pick is created.
+                // BULK orders never get a Knapp Order Response, so they bypass this
+                // section and fall through to the default pick creation below.
                 if ("Warehouse Request"."Source Document" = "Warehouse Request"."Source Document"::"Sales Order") and CreatePick then begin
-                    if HasKnappOrderResponse("Warehouse Request"."Source No.") then begin
-                        CreateKnappTotePicksForOrder("Warehouse Request");
-                        exit;
-                    end else
+                    IsBulkOrder := IsKnappBulkOrder("Warehouse Request"."Source No.");
+                    if not IsBulkOrder then begin
+                        if HasKnappOrderResponse("Warehouse Request"."Source No.") then begin
+                            CreateKnappTotePicksForOrder("Warehouse Request");
+                            exit;
+                        end;
                         CurrReport.Skip();
+                    end;
                 end;
+
                 // ── END KNAPP LOAD-UNIT SECTION ──────────────────────────────────────────
+
+                // BULK: check the Case Label No. Series before any pick is created, so
+                // a missing setup never leaves a pick without its Load Unit details.
+                if IsBulkOrder then
+                    CheckCaseLabelNoSeries();
 
 
 
@@ -86,7 +98,7 @@ report 99956 "Create Invt. Pick"
                 //L_SalesLine.SetRange("Knapp Line", false);
                 //L_SalesLine.SetCurrentKey("Whs. Class Code type");
                 L_SalesLine.Ascending(true);
-                if L_SalesLine.FindSet() then begin
+                if L_SalesLine.FindSet() then
                     repeat
                         Clear(InvePickCreated);
 
@@ -108,13 +120,13 @@ report 99956 "Create Invt. Pick"
                                     if not CreateInvtPutAway.CheckSourceDoc("Warehouse Request") then
                                         CurrReport.Skip();
                                 Type::Outbound:
-                                    begin
-                                        //Set the Warehouse Class Code type++
-                                        //MultipleInvePick.CallFromCheckSourceDoc(true); // variable declaration commented out above
 
-                                        if not CreateInvtPickMovement.CheckSourceDoc("Warehouse Request") then
-                                            CurrReport.Skip();
-                                    end;
+                                    //Set the Warehouse Class Code type++
+                                    //MultipleInvePick.CallFromCheckSourceDoc(true); // variable declaration commented out above
+
+                                    if not CreateInvtPickMovement.CheckSourceDoc("Warehouse Request") then
+                                        CurrReport.Skip();
+
                             end;
 
 
@@ -167,7 +179,14 @@ report 99956 "Create Invt. Pick"
                         end;
                     //Default Code-----
                     until L_SalesLine.Next() = 0;
-                end;
+
+                // ── BULK LOAD UNIT DETAILS ──────────────────────────────────────────────
+                // One Load Unit (from Warehouse Setup."Case Label Nos.") per sales line
+                // on each new BULK Inventory Pick, saved in "BULK Load Unit Details".
+                if IsBulkOrder then
+                    CreateBulkLoadUnitDetails("Warehouse Request");
+                // ── END BULK LOAD UNIT DETAILS ──────────────────────────────────────────
+
             end;
 
             trigger OnPostDataItem()
@@ -390,7 +409,7 @@ report 99956 "Create Invt. Pick"
             "Location Code" := "Warehouse Request"."Location Code";
             //"Whs. Class Code type" := _SalesLine."Whs. Class Code type";
 
-            L_SalesHeader.Reset();
+            /*L_SalesHeader.Reset();
             L_SalesHeader.SetRange("No.", _SalesLine."Document No.");
             L_SalesHeader.SetRange("Document Type", _SalesLine."Document Type");
             if L_SalesHeader.FindFirst() then begin
@@ -403,7 +422,7 @@ report 99956 "Create Invt. Pick"
                     //  Shift := L_ShippingAgentService.Shift;
                     // "Departure Time" := L_ShippingAgentService."Departure Time";
                 end;
-            end;
+            end;*/ //Commented By Prathamesh++
 
 
         end;
@@ -524,6 +543,110 @@ report 99956 "Create Invt. Pick"
         KnappOrderResponse.SetRange("Document No.", SalesOrderNo);
         exit(not KnappOrderResponse.IsEmpty());
     end;
+
+    local procedure IsKnappBulkOrder(SalesOrderNo: Code[20]): Boolean
+    var
+        L_SalesHeader: Record "Sales Header";
+    begin
+        if not L_SalesHeader.Get(L_SalesHeader."Document Type"::Order, SalesOrderNo) then
+            exit(false);
+        exit(L_SalesHeader."Knapp Order Type" = L_SalesHeader."Knapp Order Type"::BULK);
+    end;
+
+    // ── BULK LOAD UNIT PROCEDURES ────────────────────────────────────────────
+
+    local procedure CheckCaseLabelNoSeries()
+    var
+        L_WhseSetup: Record "Warehouse Setup";
+    begin
+        L_WhseSetup.Get();
+        L_WhseSetup.TestField("Case Label Nos.");
+    end;
+
+    local procedure CreateBulkLoadUnitDetails(var WhseRequest: Record "Warehouse Request")
+    var
+        L_WhseSetup: Record "Warehouse Setup";
+        L_WhseActivLine: Record "Warehouse Activity Line";
+        L_SalesLine: Record "Sales Line";
+        L_BulkLoadUnit: Record "BULK Load Unit Details";
+        NoSeries: Codeunit "No. Series";
+        LoadUnitNo: Code[20];
+        PickQty: Decimal;
+        LastPickNo: Code[20];
+        LastLineNo: Integer;
+        LoadUnitTooLongErr: Label 'The number %1 from No. Series %2 is longer than %3 characters. Set up the Case Label Nos. series with numbers of max %3 characters (e.g. 00000001).', Comment = '%1 = number, %2 = No. Series code, %3 = max length';
+    begin
+        L_WhseSetup.Get();
+        L_WhseSetup.TestField("Case Label Nos.");
+
+        // All Invt. Pick lines of this order; sorted so the lines of one pick +
+        // sales line are consecutive (a sales line can span several bins/lots).
+        L_WhseActivLine.SetCurrentKey("Activity Type", "No.", "Source Line No.");
+        L_WhseActivLine.SetRange("Activity Type", L_WhseActivLine."Activity Type"::"Invt. Pick");
+        L_WhseActivLine.SetRange("Source Type", Database::"Sales Line");
+        L_WhseActivLine.SetRange("Source Subtype", WhseRequest."Source Subtype");
+        L_WhseActivLine.SetRange("Source No.", WhseRequest."Source No.");
+        L_WhseActivLine.SetRange("Location Code", WhseRequest."Location Code");
+        if not L_WhseActivLine.FindSet() then
+            exit;
+
+        repeat
+            if (L_WhseActivLine."No." <> LastPickNo) or (L_WhseActivLine."Source Line No." <> LastLineNo) then begin
+                LastPickNo := L_WhseActivLine."No.";
+                LastLineNo := L_WhseActivLine."Source Line No.";
+
+                // Only once per pick + sales line: re-running the report must not
+                // generate a second Load Unit for a pick that already has one.
+                L_BulkLoadUnit.Reset();
+                L_BulkLoadUnit.SetCurrentKey("Invt. Pick No.", "Sales Order Line No.");
+                L_BulkLoadUnit.SetRange("Invt. Pick No.", LastPickNo);
+                L_BulkLoadUnit.SetRange("Sales Order Line No.", LastLineNo);
+                if L_BulkLoadUnit.IsEmpty() then begin
+                    PickQty := BulkPickLineQty(LastPickNo, LastLineNo);
+                    if PickQty > 0 then begin
+                        LoadUnitNo := NoSeries.GetNextNo(L_WhseSetup."Case Label Nos.");
+                        if StrLen(LoadUnitNo) > MaxStrLen(L_BulkLoadUnit."Load Unit") then
+                            Error(LoadUnitTooLongErr, LoadUnitNo, L_WhseSetup."Case Label Nos.", MaxStrLen(L_BulkLoadUnit."Load Unit"));
+
+                        L_BulkLoadUnit.Init();
+                        L_BulkLoadUnit."Entry No." := 0;
+                        L_BulkLoadUnit."Sales Order No." := WhseRequest."Source No.";
+                        L_BulkLoadUnit."Sales Order Line No." := LastLineNo;
+                        L_BulkLoadUnit."Invt. Pick No." := LastPickNo;
+                        L_BulkLoadUnit."Load Unit" := CopyStr(LoadUnitNo, 1, MaxStrLen(L_BulkLoadUnit."Load Unit"));
+                        L_BulkLoadUnit.Quantity := PickQty;
+                        if L_SalesLine.Get(L_SalesLine."Document Type"::Order, WhseRequest."Source No.", LastLineNo) then begin
+                            L_BulkLoadUnit."Item No." := L_SalesLine."No.";
+                            L_BulkLoadUnit."Variant Code" := L_SalesLine."Variant Code";
+                            L_BulkLoadUnit.Description := L_SalesLine.Description;
+                            L_BulkLoadUnit."Unit of Measure Code" := L_SalesLine."Unit of Measure Code";
+                        end else begin
+                            L_BulkLoadUnit."Item No." := L_WhseActivLine."Item No.";
+                            L_BulkLoadUnit."Variant Code" := L_WhseActivLine."Variant Code";
+                            L_BulkLoadUnit.Description := L_WhseActivLine.Description;
+                            L_BulkLoadUnit."Unit of Measure Code" := L_WhseActivLine."Unit of Measure Code";
+                        end;
+                        L_BulkLoadUnit."Location Code" := L_WhseActivLine."Location Code";
+                        L_BulkLoadUnit.Insert(true);
+                    end;
+                end;
+            end;
+        until L_WhseActivLine.Next() = 0;
+        Commit();
+    end;
+
+    local procedure BulkPickLineQty(InvtPickNo: Code[20]; SourceLineNo: Integer): Decimal
+    var
+        L_WhseActivLine: Record "Warehouse Activity Line";
+    begin
+        L_WhseActivLine.SetRange("Activity Type", L_WhseActivLine."Activity Type"::"Invt. Pick");
+        L_WhseActivLine.SetRange("No.", InvtPickNo);
+        L_WhseActivLine.SetRange("Source Line No.", SourceLineNo);
+        L_WhseActivLine.CalcSums(Quantity);
+        exit(L_WhseActivLine.Quantity);
+    end;
+
+    // ── END BULK LOAD UNIT PROCEDURES ─────────────────────────────────────────
 
     local procedure CreateKnappTotePicksForOrder(var WhseRequest: Record "Warehouse Request")
     var
