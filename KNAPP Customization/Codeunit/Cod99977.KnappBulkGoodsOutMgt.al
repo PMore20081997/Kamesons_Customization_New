@@ -194,8 +194,8 @@ codeunit 99977 "KNAPP BULK Goods Out Mgt."
     //                        number per scan, so the same tote can be sent again)
     //   loadUnitCode       = the tote
     //   dispatchRampNumbers= the customer's Dispatch Ramp No. ([] when blank)
-    //   printDocuments     = ABA001 shipping label (ZPL, Base64) - same layout as
-    //                        90506 BuildShippingLabelZpl
+    //   printDocuments     = Tasklet shipping label (ZPL, Base64), see
+    //                        BuildToteShippingLabelZpl
     //   controlFlags       = ["STRAPPING"]
     // The queue entry is committed before sending, so a failed send leaves it New
     // for Knapp's own job queue to retry. Returns the Goods Out order number.
@@ -221,7 +221,7 @@ codeunit 99977 "KNAPP BULK Goods Out Mgt."
             RampNumbers := Format(L_Customer."Dispatch Ramp No.");
 
         PrintDocuments := StrSubstNo(ShippingLabelPrintDocumentsTok,
-            Base64Convert.ToBase64(BuildToteShippingLabelZpl(L_Customer, GoodsOutNo, 1)));
+            Base64Convert.ToBase64(BuildToteShippingLabelZpl(L_Customer, GoodsOutNo, ToteNo, 1)));
 
         OrderRequest := StrSubstNo(ToteGoodsOutOrderJsonTok,
             ClientNumberTok, GoodsOutNo, 1, LoadCarrierTok, '', ToteNo, RampNumbers, PrintDocuments);
@@ -232,46 +232,65 @@ codeunit 99977 "KNAPP BULK Goods Out Mgt."
         KiSoftIntegration.CreateOrder(GetChannelCode());
     end;
 
-    // TODO: BuildToteShippingLabelZpl, BuildShippingLabelBarcode and SanitizeZplValue
-    // are copies of the local procedures in Knapp Integration codeunit 90506
-    // "KnappGenerateDocuments-KiSoft" (BuildShippingLabelZpl / BuildShippingLabelBarcode /
-    // SanitizeZplValue), which only take a Sales Header. Once the KNAPP label layout is
-    // final, expose public versions without a Sales Header in 90506, bump the Knapp
-    // dependency in app.json, and replace these copies with calls to it.
+    // TODO: SanitizeZplValue is a copy of the local procedure in Knapp Integration
+    // codeunit 90506 "KnappGenerateDocuments-KiSoft", which also builds a shipping
+    // label (BuildShippingLabelZpl) but only from a Sales Header and in the BULK
+    // layout. Once the KNAPP label layouts are final, consider exposing shared public
+    // label helpers in 90506, bump the Knapp dependency in app.json, and call them.
 
-    // ABA001 shipping label as ZPL II, in the layout of 90506 BuildShippingLabelZpl
-    // (LF line endings, no newline after ^XZ):
-    //   line 1  = Customer Name
-    //   line 2  = "<Dispatch Ramp No.> <Goods Out No.>"
-    //   barcode = Goods Out No. (13, zero padded) + sheet (3) - 16 characters
-    local procedure BuildToteShippingLabelZpl(var Customer: Record Customer; GoodsOutNo: Code[20]; SheetNumber: Integer): Text
+    // Tasklet tote shipping label as ZPL II (LF line endings, no newline after ^XZ):
+    //   top left     = Dispatch Ramp No. (large)
+    //   top right    = barcode "MDS_<Goods Out No.>-<sheet>" (see BuildToteShippingLabelBarcode)
+    //   line 1       = Customer Name (bold)
+    //   line 2       = "MDS" (always for Tasklet)  |  Goods Out No.  |  date (dd/MMyyyy)
+    //   right column = "<count> of <sheet>" (001 of 001), then the Load Unit (tote)
+    // Positions are taken from KNAPP's sample label - check on the printer.
+    local procedure BuildToteShippingLabelZpl(var Customer: Record Customer; GoodsOutNo: Code[20]; ToteNo: Code[50]; SheetNumber: Integer): Text
     var
         Zpl: TextBuilder;
         Lf: Text[1];
-        Line1: Text;
-        Line2: Text;
+        RampText: Text;
+        CustomerName: Text;
+        OrderText: Text;
+        DateText: Text;
+        SheetText: Text;
+        LoadUnitText: Text;
         Barcode: Text;
-        ZplLine2Tok: Label '%1 %2', Locked = true;
+        SheetOfTok: Label '%1 of %2', Locked = true;
+        MdsTok: Label 'MDS', Locked = true;
         ZplEmptyValueErr: Label 'The shipping label for Goods Out Order %1 cannot be created because %2 is empty.', Comment = '%1 = Goods Out No., %2 = label field';
         ZplTooLargeErr: Label 'The shipping label for Goods Out Order %1 is %2 bytes. KNAPP allows at most 5120 bytes.', Comment = '%1 = Goods Out No., %2 = size in bytes';
     begin
         Lf[1] := 10;
 
-        Line1 := SanitizeZplValue(Customer.Name);
-        Line2 := SanitizeZplValue(StrSubstNo(ZplLine2Tok, Customer."Dispatch Ramp No.", GoodsOutNo));
-        Barcode := BuildShippingLabelBarcode(GoodsOutNo, SheetNumber);
+        if Customer."Dispatch Ramp No." <> 0 then
+            RampText := Format(Customer."Dispatch Ramp No.");
+        CustomerName := SanitizeZplValue(Customer.Name);
+        OrderText := SanitizeZplValue(GoodsOutNo);
+        // dd/MMyyyy, as on KNAPP's sample label (e.g. 03/04/2026).
+        DateText := Format(Today(), 0, '<Day,2>/<Month,2>/<Year4>');
+        // For Tasklet the count is always 001.
+        SheetText := StrSubstNo(SheetOfTok, PadSheetNumber(1), PadSheetNumber(SheetNumber));
+        LoadUnitText := SanitizeZplValue(ToteNo);
+        Barcode := BuildToteShippingLabelBarcode(GoodsOutNo, SheetNumber);
 
-        if Line1.Trim() = '' then
+        if CustomerName.Trim() = '' then
             Error(ZplEmptyValueErr, GoodsOutNo, Customer.FieldCaption(Name));
 
         Zpl.Append('^XA' + Lf);
         Zpl.Append('^LL560' + Lf);
-        Zpl.Append('^FO100,200' + Lf);
-        Zpl.Append('^FT60,150^AON,50,20^FD' + Line1 + '^FS' + Lf);
-        Zpl.Append('^FT60,250^AON,50,30^FD' + Line2 + '^FS' + Lf);
-        Zpl.Append('^FO700,10^BY2' + Lf);
-        Zpl.Append('^BCN,160,Y,N,N' + Lf);
-        Zpl.Append('^FD' + Barcode + '^FS' + Lf);
+        Zpl.Append('^FO40,30^A0N,110,110^FD' + RampText + '^FS' + Lf);
+        // Barcode is ~422 dots wide (16 chars, ^BY2), so x 350 ends it at 772 - the
+        // same right edge as the right-aligned column below.
+        Zpl.Append('^FO350,20^BY2^BCN,100,Y,N,N^FD' + Barcode + '^FS' + Lf);
+        Zpl.Append('^FO40,170^A0N,55,55^FD' + CustomerName + '^FS' + Lf);
+        Zpl.Append('^FO40,240^A0N,40,40^FD' + MdsTok + '^FS' + Lf);
+        Zpl.Append('^FO300,240^A0N,40,40^FD' + OrderText + '^FS' + Lf);
+        // Right column: right-aligned in a 332-dot field block (x 440-772), under
+        // the barcode's right edge.
+        Zpl.Append('^FO440,240^A0N,40,40^FB332,1,0,R^FD' + DateText + '^FS' + Lf);
+        Zpl.Append('^FO440,290^A0N,40,40^FB332,1,0,R^FD' + SheetText + '^FS' + Lf);
+        Zpl.Append('^FO440,340^A0N,40,40^FB332,1,0,R^FD' + LoadUnitText + '^FS' + Lf);
         Zpl.Append('^XZ');
 
         // Values are ASCII only after sanitising, so characters = bytes.
@@ -281,27 +300,35 @@ codeunit 99977 "KNAPP BULK Goods Out Mgt."
         exit(Zpl.ToText());
     end;
 
-    // Same as 90506 BuildShippingLabelBarcode: exactly 16 characters, because the
-    // ABA001 scanner only reads 16-character barcodes. Order number zero padded
-    // to 13, then the sheet number zero padded to 3, no separator.
-    local procedure BuildShippingLabelBarcode(OrderNumber: Text; SheetNumber: Integer): Text
+    // Tasklet tote barcode: "MDS_" + Goods Out No. + "-" + sheet (3 digits), e.g.
+    // MDS_12345678-001. The Goods Out No. is used as is (no zero padding) and must
+    // be exactly 8 characters, so the barcode stays 16 characters - the ABA001
+    // scanner only reads 16-character barcodes.
+    local procedure BuildToteShippingLabelBarcode(OrderNumber: Text; SheetNumber: Integer): Text
     var
         OrderPart: Text;
-        SheetPart: Text;
-        BarcodeOrderTooLongErr: Label 'Order %1 cannot be used in the KNAPP barcode: the order number can have at most 13 characters.', Comment = '%1 = Order No.';
-        BarcodeSheetInvalidErr: Label 'Sheet number %1 of order %2 cannot be used in the KNAPP barcode: it must be between 1 and 999.', Comment = '%1 = Sheet No., %2 = Order No.';
+        BarcodePrefixTok: Label 'MDS_', Locked = true;
+        BarcodeTok: Label '%1%2-%3', Locked = true;
+        BarcodeOrderLengthErr: Label 'Goods Out Order %1 cannot be used in the KNAPP barcode: the order number must be exactly 8 characters. Check the Goods Out Nos. series in Warehouse Setup.', Comment = '%1 = Goods Out No.';
     begin
         OrderPart := SanitizeZplValue(OrderNumber).Trim();
-        if StrLen(OrderPart) > 13 then
-            Error(BarcodeOrderTooLongErr, OrderNumber);
+        if StrLen(OrderPart) <> 8 then
+            Error(BarcodeOrderLengthErr, OrderNumber);
+
+        exit(StrSubstNo(BarcodeTok, BarcodePrefixTok, OrderPart, PadSheetNumber(SheetNumber)));
+    end;
+
+    // Sheet / count as 3 digits, zero padded (1 -> 001).
+    local procedure PadSheetNumber(SheetNumber: Integer): Text
+    var
+        SheetPart: Text;
+        SheetInvalidErr: Label 'Sheet number %1 cannot be used on the KNAPP label: it must be between 1 and 999.', Comment = '%1 = Sheet No.';
+    begin
         if (SheetNumber < 1) or (SheetNumber > 999) then
-            Error(BarcodeSheetInvalidErr, SheetNumber, OrderNumber);
+            Error(SheetInvalidErr, SheetNumber);
 
-        OrderPart := PadStr('', 13 - StrLen(OrderPart), '0') + OrderPart;
         SheetPart := Format(SheetNumber);
-        SheetPart := PadStr('', 3 - StrLen(SheetPart), '0') + SheetPart;
-
-        exit(OrderPart + SheetPart);
+        exit(PadStr('', 3 - StrLen(SheetPart), '0') + SheetPart);
     end;
 
     // Same as 90506 SanitizeZplValue: keeps printable ASCII (32-126) and removes
