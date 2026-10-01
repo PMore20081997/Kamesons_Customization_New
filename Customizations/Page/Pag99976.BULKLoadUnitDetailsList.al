@@ -31,6 +31,10 @@ page 99976 "BULK Load Unit Details List"
                 {
                     ToolTip = 'Specifies the inventory pick this load unit was created for.';
                 }
+                field("Invt. Pick Line No."; Rec."Invt. Pick Line No.")
+                {
+                    ToolTip = 'Specifies the line number of the inventory pick line this load unit was created from. When a sales order line is split over several pick lines, this is the first of them.';
+                }
                 field("Item No."; Rec."Item No.")
                 {
                     ToolTip = 'Specifies the item number.';

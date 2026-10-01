@@ -550,7 +550,7 @@ report 99956 "Create Invt. Pick"
     begin
         if not L_SalesHeader.Get(L_SalesHeader."Document Type"::Order, SalesOrderNo) then
             exit(false);
-        exit(L_SalesHeader."Knapp Order Type" = L_SalesHeader."Knapp Order Type"::BULK);
+        exit(L_SalesHeader."BULK Order");
     end;
 
     // ── BULK LOAD UNIT PROCEDURES ────────────────────────────────────────────
@@ -619,6 +619,7 @@ report 99956 "Create Invt. Pick"
                         L_BulkLoadUnit."Sales Order No." := WhseRequest."Source No.";
                         L_BulkLoadUnit."Sales Order Line No." := LastLineNo;
                         L_BulkLoadUnit."Invt. Pick No." := LastPickNo;
+                        L_BulkLoadUnit."Invt. Pick Line No." := L_WhseActivLine."Line No.";
                         L_BulkLoadUnit."Load Unit" := CopyStr(LoadUnitNo, 1, MaxStrLen(L_BulkLoadUnit."Load Unit"));
                         L_BulkLoadUnit.Quantity := PickQty;
                         // Planned row: nothing posted yet.

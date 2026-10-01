@@ -1,5 +1,6 @@
 namespace Kamesons_Customization.Kamesons_Customization;
 
+using Microsoft.Sales.Customer;
 using Microsoft.Sales.Document;
 using Microsoft.Purchases.Document;
 using Microsoft.Inventory.Transfer;
@@ -9,6 +10,7 @@ using Microsoft.Warehouse.Activity;
 using Microsoft.Warehouse.InventoryDocument;
 using Microsoft.Warehouse.Setup;
 using Microsoft.Foundation.NoSeries;
+using System.Text;
 
 // After an Inventory Pick of a BULK Sales Order is posted, builds the KiSoft
 // Goods Out Order (Knapp Document Queue "GO Order") for that ONE order and
@@ -91,12 +93,17 @@ codeunit 99977 "KNAPP BULK Goods Out Mgt."
         GoodsOutFailedMsg: Label 'The inventory pick was posted, but the Goods Out Order for Sales Order %1 could not be sent to Knapp:\%2', Comment = '%1 = Sales Order No., %2 = error text';
         DefaultChannelCodeTok: Label 'KISOFT', Locked = true;
         ClientNumberTok: Label 'DEFAULT', Locked = true;
-        LoadCarrierTok: Label 'FULL_CASE', Locked = true;
-        GoodsOutOrderLineJsonTok: Label '{"lineReference":"%1","articleNumber":"%2","requestedQuantity":%3,"stationName":"%4"}', Locked = true;
-        GoodsOutOrderJsonTok: Label '{"clientNumber":"%1","orderNumber":"%2","sheetNumber":%3,"loadCarrier":"%4","loadUnitCode":"%7","dispatchRampNumbers":[%5],"goodsOutOrderLines":[%6]}', Locked = true;
+        LoadCarrierTok: Label 'LARGE', Locked = true;
+        //GoodsOutOrderLineJsonTok: Label '{"lineReference":"%1","articleNumber":"%2","requestedQuantity":%3,"stationName":"%4"}', Locked = true;
+        //GoodsOutOrderJsonTok: Label '{"clientNumber":"%1","orderNumber":"%2","sheetNumber":%3,"loadCarrier":"%4","loadUnitCode":"%7","dispatchRampNumbers":[%5],"goodsOutOrderLines":[%6]}', Locked = true;
         // Pick posting (one GO Order per Load Unit): Knapp does not expect goodsOutOrderLines for now.
         GoodsOutOrderLoadUnitJsonTok: Label '{"clientNumber":"%1","orderNumber":"%2","sheetNumber":%3,"loadCarrier":"%4","startStationName":"%5","loadUnitCode":"%6","dispatchRampNumbers":[%7]}', Locked = true;
         NoChannelErr: Label 'No KiSoft Knapp Setup exists. Set up channel %1 before sending Goods Out Orders.', Comment = '%1 = default channel code';
+        // Tote Goods Out (Tasklet Goods Out screen, Cod99978): GO Order for one tote
+        // and customer, with the shipping label and the strapping flag.
+        ToteGoodsOutOrderJsonTok: Label '{"clientNumber":"%1","orderNumber":"%2","sheetNumber":%3,"loadCarrier":"%4","startStationName":"%5","loadUnitCode":"%6","dispatchRampNumbers":[%7],"printDocuments":%8,"controlFlags":["STRAPPING"]}', Locked = true;
+        ShippingLabelPrintDocumentsTok: Label '[{"documentType":"SHIPPING_LABEL","documentContent":"%1"}]', Locked = true;
+        CustomerNotFoundErr: Label 'Customer %1 does not exist.', Comment = '%1 = Customer No.';
 
     // Goods Out Orders for one posting of a BULK Inventory Pick: records the
     // posted quantities in "BULK Load Unit Details" and sends ONE GO Order PER
@@ -178,6 +185,136 @@ codeunit 99977 "KNAPP BULK Goods Out Mgt."
 
         if AnyQueued then
             KiSoftIntegration.CreateOrder(GetChannelCode());
+    end;
+
+    // ── TOTE GOODS OUT (Tasklet Goods Out screen) ─────────────────────────────
+
+    // One GO Order for a scanned tote and a selected customer:
+    //   orderNumber        = next no. from Warehouse Setup "Goods Out Nos." (a new
+    //                        number per scan, so the same tote can be sent again)
+    //   loadUnitCode       = the tote
+    //   dispatchRampNumbers= the customer's Dispatch Ramp No. ([] when blank)
+    //   printDocuments     = ABA001 shipping label (ZPL, Base64) - same layout as
+    //                        90506 BuildShippingLabelZpl
+    //   controlFlags       = ["STRAPPING"]
+    // The queue entry is committed before sending, so a failed send leaves it New
+    // for Knapp's own job queue to retry. Returns the Goods Out order number.
+    procedure SendToteGoodsOutOrder(ToteNo: Code[50]; CustomerNo: Code[20]) GoodsOutNo: Code[20]
+    var
+        L_Customer: Record Customer;
+        L_WhseSetup: Record "Warehouse Setup";
+        KiSoftIntegration: Codeunit KiSoftIntegration;
+        Base64Convert: Codeunit "Base64 Convert";
+        NoSeries: Codeunit "No. Series";
+        RampNumbers: Text;
+        PrintDocuments: Text;
+        OrderRequest: Text;
+    begin
+        if not L_Customer.Get(CustomerNo) then
+            Error(CustomerNotFoundErr, CustomerNo);
+
+        L_WhseSetup.Get();
+        L_WhseSetup.TestField("Goods Out Nos.");
+        GoodsOutNo := NoSeries.GetNextNo(L_WhseSetup."Goods Out Nos.");
+
+        if L_Customer."Dispatch Ramp No." <> 0 then
+            RampNumbers := Format(L_Customer."Dispatch Ramp No.");
+
+        PrintDocuments := StrSubstNo(ShippingLabelPrintDocumentsTok,
+            Base64Convert.ToBase64(BuildToteShippingLabelZpl(L_Customer, GoodsOutNo, 1)));
+
+        OrderRequest := StrSubstNo(ToteGoodsOutOrderJsonTok,
+            ClientNumberTok, GoodsOutNo, 1, LoadCarrierTok, '', ToteNo, RampNumbers, PrintDocuments);
+
+        InsertGoodsOutOrderQueueEntry(GoodsOutNo, OrderRequest);
+        Commit();
+
+        KiSoftIntegration.CreateOrder(GetChannelCode());
+    end;
+
+    // TODO: BuildToteShippingLabelZpl, BuildShippingLabelBarcode and SanitizeZplValue
+    // are copies of the local procedures in Knapp Integration codeunit 90506
+    // "KnappGenerateDocuments-KiSoft" (BuildShippingLabelZpl / BuildShippingLabelBarcode /
+    // SanitizeZplValue), which only take a Sales Header. Once the KNAPP label layout is
+    // final, expose public versions without a Sales Header in 90506, bump the Knapp
+    // dependency in app.json, and replace these copies with calls to it.
+
+    // ABA001 shipping label as ZPL II, in the layout of 90506 BuildShippingLabelZpl
+    // (LF line endings, no newline after ^XZ):
+    //   line 1  = Customer Name
+    //   line 2  = "<Dispatch Ramp No.> <Goods Out No.>"
+    //   barcode = Goods Out No. (13, zero padded) + sheet (3) - 16 characters
+    local procedure BuildToteShippingLabelZpl(var Customer: Record Customer; GoodsOutNo: Code[20]; SheetNumber: Integer): Text
+    var
+        Zpl: TextBuilder;
+        Lf: Text[1];
+        Line1: Text;
+        Line2: Text;
+        Barcode: Text;
+        ZplLine2Tok: Label '%1 %2', Locked = true;
+        ZplEmptyValueErr: Label 'The shipping label for Goods Out Order %1 cannot be created because %2 is empty.', Comment = '%1 = Goods Out No., %2 = label field';
+        ZplTooLargeErr: Label 'The shipping label for Goods Out Order %1 is %2 bytes. KNAPP allows at most 5120 bytes.', Comment = '%1 = Goods Out No., %2 = size in bytes';
+    begin
+        Lf[1] := 10;
+
+        Line1 := SanitizeZplValue(Customer.Name);
+        Line2 := SanitizeZplValue(StrSubstNo(ZplLine2Tok, Customer."Dispatch Ramp No.", GoodsOutNo));
+        Barcode := BuildShippingLabelBarcode(GoodsOutNo, SheetNumber);
+
+        if Line1.Trim() = '' then
+            Error(ZplEmptyValueErr, GoodsOutNo, Customer.FieldCaption(Name));
+
+        Zpl.Append('^XA' + Lf);
+        Zpl.Append('^LL560' + Lf);
+        Zpl.Append('^FO100,200' + Lf);
+        Zpl.Append('^FT60,150^AON,50,20^FD' + Line1 + '^FS' + Lf);
+        Zpl.Append('^FT60,250^AON,50,30^FD' + Line2 + '^FS' + Lf);
+        Zpl.Append('^FO700,10^BY2' + Lf);
+        Zpl.Append('^BCN,160,Y,N,N' + Lf);
+        Zpl.Append('^FD' + Barcode + '^FS' + Lf);
+        Zpl.Append('^XZ');
+
+        // Values are ASCII only after sanitising, so characters = bytes.
+        if Zpl.Length() > 5120 then
+            Error(ZplTooLargeErr, GoodsOutNo, Zpl.Length());
+
+        exit(Zpl.ToText());
+    end;
+
+    // Same as 90506 BuildShippingLabelBarcode: exactly 16 characters, because the
+    // ABA001 scanner only reads 16-character barcodes. Order number zero padded
+    // to 13, then the sheet number zero padded to 3, no separator.
+    local procedure BuildShippingLabelBarcode(OrderNumber: Text; SheetNumber: Integer): Text
+    var
+        OrderPart: Text;
+        SheetPart: Text;
+        BarcodeOrderTooLongErr: Label 'Order %1 cannot be used in the KNAPP barcode: the order number can have at most 13 characters.', Comment = '%1 = Order No.';
+        BarcodeSheetInvalidErr: Label 'Sheet number %1 of order %2 cannot be used in the KNAPP barcode: it must be between 1 and 999.', Comment = '%1 = Sheet No., %2 = Order No.';
+    begin
+        OrderPart := SanitizeZplValue(OrderNumber).Trim();
+        if StrLen(OrderPart) > 13 then
+            Error(BarcodeOrderTooLongErr, OrderNumber);
+        if (SheetNumber < 1) or (SheetNumber > 999) then
+            Error(BarcodeSheetInvalidErr, SheetNumber, OrderNumber);
+
+        OrderPart := PadStr('', 13 - StrLen(OrderPart), '0') + OrderPart;
+        SheetPart := Format(SheetNumber);
+        SheetPart := PadStr('', 3 - StrLen(SheetPart), '0') + SheetPart;
+
+        exit(OrderPart + SheetPart);
+    end;
+
+    // Same as 90506 SanitizeZplValue: keeps printable ASCII (32-126) and removes
+    // ^ and ~, which start ZPL commands.
+    local procedure SanitizeZplValue(Value: Text): Text
+    var
+        Result: TextBuilder;
+        i: Integer;
+    begin
+        for i := 1 to StrLen(Value) do
+            if (Value[i] >= 32) and (Value[i] <= 126) and not (Value[i] in ['^', '~']) then
+                Result.Append(Value[i]);
+        exit(Result.ToText());
     end;
 
     // Per pick line posted this time: the first posting updates the planned row,
@@ -371,7 +508,7 @@ codeunit 99977 "KNAPP BULK Goods Out Mgt."
         exit(
             (SalesHeader."Document Type" = SalesHeader."Document Type"::Order) and
             SalesHeader."Knapp Order" and
-            (SalesHeader."Knapp Order Type" = SalesHeader."Knapp Order Type"::BULK) and
+            SalesHeader."BULK Order" and
             (SalesHeader.Status = SalesHeader.Status::Released));
     end;
 

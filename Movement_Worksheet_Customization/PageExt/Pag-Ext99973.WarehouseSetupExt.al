@@ -23,6 +23,12 @@ pageextension 99973 WarehouseSetupExt extends "Warehouse Setup"
                 Caption = 'Case Label Nos.';
                 ToolTip = 'Specifies the number series used to generate the Load Unit (case label) for BULK order inventory picks. Numbers must be at most 8 characters, e.g. 00000001.';
             }
+            field("Goods Out Nos."; Rec."Goods Out Nos.")
+            {
+                ApplicationArea = All;
+                Caption = 'Goods Out Nos.';
+                ToolTip = 'Specifies the number series used for the order number of Goods Out Orders sent to KNAPP from the Goods Out screen on the mobile device. Numbers must be at most 13 characters.';
+            }
         }
     }
 }

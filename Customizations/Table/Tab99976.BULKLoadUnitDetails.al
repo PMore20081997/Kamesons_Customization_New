@@ -7,7 +7,7 @@ using Microsoft.Foundation.UOM;
 using Microsoft.Warehouse.Activity;
 using Microsoft.Warehouse.InventoryDocument;
 
-// Load Unit details for BULK Sales Orders ("Knapp Order Type" = BULK).
+// Load Unit details for BULK Sales Orders ("BULK Order" = true).
 // Standalone: BULK orders are not tied to the Knapp Order Response.
 table 99976 "BULK Load Unit Details"
 {
@@ -138,6 +138,14 @@ table 99976 "BULK Load Unit Details"
             Caption = 'Posted Invt. Pick No.';
             TableRelation = "Posted Invt. Pick Header"."No.";
             Editable = false;
+        }
+        // Line No. of the Invt. Pick line the Load Unit was created from (set by
+        // report 99956). When a sales line is split over several pick lines, this
+        // is the first of them.
+        field(21; "Invt. Pick Line No."; Integer)
+        {
+            Caption = 'Invt. Pick Line No.';
+            //Editable = false;
         }
     }
 
