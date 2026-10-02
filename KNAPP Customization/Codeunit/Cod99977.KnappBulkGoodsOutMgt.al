@@ -280,17 +280,20 @@ codeunit 99977 "KNAPP BULK Goods Out Mgt."
         Zpl.Append('^XA' + Lf);
         Zpl.Append('^LL560' + Lf);
         Zpl.Append('^FO40,30^A0N,110,110^FD' + RampText + '^FS' + Lf);
-        // Barcode is ~422 dots wide (16 chars, ^BY2), so x 350 ends it at 772 - the
-        // same right edge as the right-aligned column below.
-        Zpl.Append('^FO350,20^BY2^BCN,100,Y,N,N^FD' + Barcode + '^FS' + Lf);
-        Zpl.Append('^FO40,170^A0N,55,55^FD' + CustomerName + '^FS' + Lf);
-        Zpl.Append('^FO40,240^A0N,40,40^FD' + MdsTok + '^FS' + Lf);
-        Zpl.Append('^FO300,240^A0N,40,40^FD' + OrderText + '^FS' + Lf);
-        // Right column: right-aligned in a 332-dot field block (x 440-772), under
+        // The ABA001 label is ~1230 dots wide (300 dpi, 4"). Barcode at x 700 as on
+        // the 90506 label; it is ~422 dots wide (16 chars, ^BY2), so it ends at
+        // ~1122 - the same right edge as the right-aligned column below. Same size
+        // as the 90506 label: ^FO700,10, ^BY2, height 160 (ends ~y 200 with the
+        // human-readable line), so the text below starts at y 230.
+        Zpl.Append('^FO700,10^BY2^BCN,160,Y,N,N^FD' + Barcode + '^FS' + Lf);
+        Zpl.Append('^FO40,230^A0N,55,55^FD' + CustomerName + '^FS' + Lf);
+        Zpl.Append('^FO40,300^A0N,40,40^FD' + MdsTok + '^FS' + Lf);
+        Zpl.Append('^FO500,300^A0N,40,40^FD' + OrderText + '^FS' + Lf);
+        // Right column: right-aligned in a 332-dot field block (x 790-1122), under
         // the barcode's right edge.
-        Zpl.Append('^FO440,240^A0N,40,40^FB332,1,0,R^FD' + DateText + '^FS' + Lf);
-        Zpl.Append('^FO440,290^A0N,40,40^FB332,1,0,R^FD' + SheetText + '^FS' + Lf);
-        Zpl.Append('^FO440,340^A0N,40,40^FB332,1,0,R^FD' + LoadUnitText + '^FS' + Lf);
+        Zpl.Append('^FO790,300^A0N,40,40^FB332,1,0,R^FD' + DateText + '^FS' + Lf);
+        Zpl.Append('^FO790,350^A0N,40,40^FB332,1,0,R^FD' + SheetText + '^FS' + Lf);
+        Zpl.Append('^FO790,400^A0N,40,40^FB332,1,0,R^FD' + LoadUnitText + '^FS' + Lf);
         Zpl.Append('^XZ');
 
         // Values are ASCII only after sanitising, so characters = bytes.
