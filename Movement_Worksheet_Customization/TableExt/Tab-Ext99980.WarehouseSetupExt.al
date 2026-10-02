@@ -24,7 +24,7 @@ tableextension 99980 WarehouseSetupExt extends "Warehouse Setup"
         }
         // No. Series for the order number of Goods Out Orders sent from the
         // Tasklet Goods Out screen (Cod99978). The KNAPP shipping label barcode
-        // (MDS_<order no.>-<sheet>, 16 chars) needs numbers of exactly 8 characters.
+        // holds the order number zero padded to 13 characters, so numbers must be max 13 chars.
         field(99974; "Goods Out Nos."; Code[20])
         {
             Caption = 'Goods Out Nos.';

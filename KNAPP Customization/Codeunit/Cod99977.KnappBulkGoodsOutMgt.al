@@ -240,11 +240,11 @@ codeunit 99977 "KNAPP BULK Goods Out Mgt."
 
     // Tasklet tote shipping label as ZPL II (LF line endings, no newline after ^XZ):
     //   top left     = Dispatch Ramp No. (large)
-    //   top right    = barcode "MDS_<Goods Out No.>-<sheet>" (see BuildToteShippingLabelBarcode)
-    //   line 1       = Customer Name (bold)
-    //   line 2       = "MDS" (always for Tasklet)  |  Goods Out No.  |  date (dd/MMyyyy)
+    //   top right    = barcode <Goods Out No. (13, zero padded)><sheet (3)> - 16
+    //                  characters (see BuildToteShippingLabelBarcode)
+    //   line 1       = Customer Name
+    //   line 2       = "MDS" (always for Tasklet)  |  Goods Out No.  |  date (dd/MM/yyyy)
     //   right column = "<count> of <sheet>" (001 of 001), then the Load Unit (tote)
-    // Positions are taken from KNAPP's sample label - check on the printer.
     local procedure BuildToteShippingLabelZpl(var Customer: Record Customer; GoodsOutNo: Code[20]; ToteNo: Code[50]; SheetNumber: Integer): Text
     var
         Zpl: TextBuilder;
@@ -267,7 +267,6 @@ codeunit 99977 "KNAPP BULK Goods Out Mgt."
             RampText := Format(Customer."Dispatch Ramp No.");
         CustomerName := SanitizeZplValue(Customer.Name);
         OrderText := SanitizeZplValue(GoodsOutNo);
-        // dd/MMyyyy, as on KNAPP's sample label (e.g. 03/04/2026).
         DateText := Format(Today(), 0, '<Day,2>/<Month,2>/<Year4>');
         // For Tasklet the count is always 001.
         SheetText := StrSubstNo(SheetOfTok, PadSheetNumber(1), PadSheetNumber(SheetNumber));
@@ -279,16 +278,15 @@ codeunit 99977 "KNAPP BULK Goods Out Mgt."
 
         Zpl.Append('^XA' + Lf);
         Zpl.Append('^LL560' + Lf);
-        Zpl.Append('^FO40,30^A0N,110,110^FD' + RampText + '^FS' + Lf);
-        // The ABA001 label is ~1230 dots wide (300 dpi, 4"). Barcode at x 700 as on
-        // the 90506 label; it is ~422 dots wide (16 chars, ^BY2), so it ends at
-        // ~1122 - the same right edge as the right-aligned column below. Same size
-        // as the 90506 label: ^FO700,10, ^BY2, height 160 (ends ~y 200 with the
-        // human-readable line), so the text below starts at y 230.
+        Zpl.Append('^FO100,30^A0N,110,110^FD' + RampText + '^FS' + Lf);
+        // The ABA001 label is ~1230 dots wide (300 dpi, 4"). Barcode as on the 90506
+        // label: ^FO700,10, ^BY2, height 160 (ends ~y 200 with the human-readable
+        // line), ~422 dots wide, so it ends at ~1122 - the right edge of the
+        // right-aligned column below.
         Zpl.Append('^FO700,10^BY2^BCN,160,Y,N,N^FD' + Barcode + '^FS' + Lf);
-        Zpl.Append('^FO40,230^A0N,55,55^FD' + CustomerName + '^FS' + Lf);
-        Zpl.Append('^FO40,300^A0N,40,40^FD' + MdsTok + '^FS' + Lf);
-        Zpl.Append('^FO500,300^A0N,40,40^FD' + OrderText + '^FS' + Lf);
+        Zpl.Append('^FO100,230^A0N,55,55^FD' + CustomerName + '^FS' + Lf);
+        Zpl.Append('^FO100,300^A0N,40,40^FD' + MdsTok + '^FS' + Lf);
+        Zpl.Append('^FO400,300^A0N,40,40^FD' + OrderText + '^FS' + Lf);
         // Right column: right-aligned in a 332-dot field block (x 790-1122), under
         // the barcode's right edge.
         Zpl.Append('^FO790,300^A0N,40,40^FB332,1,0,R^FD' + DateText + '^FS' + Lf);
@@ -303,22 +301,21 @@ codeunit 99977 "KNAPP BULK Goods Out Mgt."
         exit(Zpl.ToText());
     end;
 
-    // Tasklet tote barcode: "MDS_" + Goods Out No. + "-" + sheet (3 digits), e.g.
-    // MDS_12345678-001. The Goods Out No. is used as is (no zero padding) and must
-    // be exactly 8 characters, so the barcode stays 16 characters - the ABA001
-    // scanner only reads 16-character barcodes.
+    // Tasklet tote barcode, same format as 90506 BuildShippingLabelBarcode: exactly
+    // 16 characters, because the ABA001 scanner only reads 16-character barcodes.
+    // Goods Out No. zero padded to 13, then the sheet (3 digits), no separator,
+    // e.g. GO0000002 + sheet 1 -> 0000GO0000002001.
     local procedure BuildToteShippingLabelBarcode(OrderNumber: Text; SheetNumber: Integer): Text
     var
         OrderPart: Text;
-        BarcodePrefixTok: Label 'MDS_', Locked = true;
-        BarcodeTok: Label '%1%2-%3', Locked = true;
-        BarcodeOrderLengthErr: Label 'Goods Out Order %1 cannot be used in the KNAPP barcode: the order number must be exactly 8 characters. Check the Goods Out Nos. series in Warehouse Setup.', Comment = '%1 = Goods Out No.';
+        BarcodeOrderTooLongErr: Label 'Goods Out Order %1 cannot be used in the KNAPP barcode: the order number can have at most 13 characters. Check the Goods Out Nos. series in Warehouse Setup.', Comment = '%1 = Goods Out No.';
     begin
         OrderPart := SanitizeZplValue(OrderNumber).Trim();
-        if StrLen(OrderPart) <> 8 then
-            Error(BarcodeOrderLengthErr, OrderNumber);
+        if StrLen(OrderPart) > 13 then
+            Error(BarcodeOrderTooLongErr, OrderNumber);
 
-        exit(StrSubstNo(BarcodeTok, BarcodePrefixTok, OrderPart, PadSheetNumber(SheetNumber)));
+        OrderPart := PadStr('', 13 - StrLen(OrderPart), '0') + OrderPart;
+        exit(OrderPart + PadSheetNumber(SheetNumber));
     end;
 
     // Sheet / count as 3 digits, zero padded (1 -> 001).

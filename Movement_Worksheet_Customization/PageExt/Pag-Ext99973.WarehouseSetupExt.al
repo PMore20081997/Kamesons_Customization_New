@@ -27,7 +27,7 @@ pageextension 99973 WarehouseSetupExt extends "Warehouse Setup"
             {
                 ApplicationArea = All;
                 Caption = 'Goods Out Nos.';
-                ToolTip = 'Specifies the number series used for the order number of Goods Out Orders sent to KNAPP from the Goods Out screen on the mobile device. Numbers must be exactly 8 characters, e.g. 00000001.';
+                ToolTip = 'Specifies the number series used for the order number of Goods Out Orders sent to KNAPP from the Goods Out screen on the mobile device. Numbers must be at most 13 characters.';
             }
         }
     }
